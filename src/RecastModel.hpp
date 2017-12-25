@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,34 +17,22 @@
 #define RECAST_MODEL_H
 
 #include "DakotaModel.hpp"
+#include "DakotaInterface.hpp"
+#include "ParallelLibrary.hpp"
+#include "DataModel.hpp"
+
 
 namespace Dakota {
-
-class ProblemDescDB;
-class Interface;
 
 /// Derived model class which provides a thin wrapper around a sub-model
 /// in order to recast the form of its inputs and/or outputs.
 
 /** The RecastModel class uses function pointers to allow recasting of
-    the subModel input/output into new problem forms.  For example,
-    this is used to recast SBO approximate subproblems, multiobjective
-    and least-squares reductions, and variable/response.
+    the subModel input/output into new problem forms.  This is
+    currently used to recast SBO approximate subproblems, but can be
+    used for multiobjective, input/output scaling, and other problem
+    modifications in the future. */
 
-    For now, making the assumption that variables mappings are ordered
-    by submodel active continous, discrete int, discrete string,
-    discrete real variables, even though all current use cases are
-    continuous only. 
-
-    When not using the standard (full) constructor, client code must
-    make sure to complete initialization before using the
-    RecastModel's mapping functions.  Initialization steps:
-      1. sub model (all ctors do this)
-      2. init_sizes: once known, size Variables, Response, Constraints
-         (full and intermediate ctor do this)
-      3. init_maps: set indices and callback pointers
-         (only full ctor does this)
-*/
 class RecastModel: public Model
 {
 public:
@@ -53,11 +41,9 @@ public:
   //- Heading: Constructor and destructor
   //
 
-  /// standard (full) constructor; assumes provided sizes and map
-  /// functions are final and constructs all member data
+  /// standard constructor
   RecastModel(const Model& sub_model, const Sizet2DArray& vars_map_indices,
-	      const SizetArray& vars_comps_total, const BitArray& all_relax_di,
-	      const BitArray& all_relax_dr, bool nonlinear_vars_mapping,
+	      const SizetArray& vars_comps_total, bool nonlinear_vars_mapping,
 	      void (*variables_map)      (const Variables& recast_vars,
 					  Variables& sub_model_vars),
 	      void (*set_map)            (const Variables& recast_vars,
@@ -65,7 +51,7 @@ public:
 					  ActiveSet& sub_model_set),
 	      const Sizet2DArray& primary_resp_map_indices,
 	      const Sizet2DArray& secondary_resp_map_indices,
-	      size_t recast_secondary_offset, short recast_resp_order,
+	      size_t recast_secondary_offset,
 	      const BoolDequeArray& nonlinear_resp_mapping,
 	      void (*primary_resp_map)   (const Variables& sub_model_vars,
 					  const Variables& recast_vars,
@@ -75,26 +61,11 @@ public:
 					  const Variables& recast_vars,
 					  const Response& sub_model_response,
 					  Response& recast_response));
-
-  /// alternate constructor; uses provided sizes to construct
-  /// Variables, Response and Constraints so Model can be passed to an
-  /// Iterator; requires subsequent init_maps() call.
+  /// alternate constructor
   RecastModel(const Model& sub_model, //size_t num_deriv_vars,
-	      const SizetArray& vars_comps_totals, const BitArray& all_relax_di,
-	      const BitArray& all_relax_dr,    size_t num_recast_primary_fns,
-	      size_t num_recast_secondary_fns, size_t recast_secondary_offset,
-	      short recast_resp_order);
-
-  /// Problem DB-based ctor, e.g., for use in subspace model; assumes
-  /// mappings to be initialized later; only initializes based on
-  /// sub-model
-  RecastModel(ProblemDescDB& problem_db, const Model& sub_model);
-
-  /// lightest constructor used when transform sizes aren't known at
-  /// construct time; doesn't initialize variables and responses, so
-  /// this Model can't be used to construct an Iterator; requires
-  /// subsequent init_sizes() and init_maps() calls.
-  RecastModel(const Model& sub_model);
+	      const SizetArray& vars_comps_totals,
+	      size_t num_recast_primary_fns, size_t num_recast_secondary_fns,
+	      size_t recast_secondary_offset);
 
   /// destructor
   ~RecastModel();
@@ -103,35 +74,26 @@ public:
   //- Heading: Member functions
   //
 
-  /// update recast sizes and size Variables and Response members
-  /// after alternate construction
-  void 
-  init_sizes(const SizetArray& vars_comps_totals, const BitArray& all_relax_di,
-	     const BitArray& all_relax_dr,    size_t num_recast_primary_fns,
-	     size_t num_recast_secondary_fns, size_t recast_secondary_offset,
-	     short recast_resp_order);
+  /// completes initialization of the RecastModel after alternate construction
+  void initialize(const Sizet2DArray& vars_map_indices,
+		  bool nonlinear_vars_mapping,
+		  void (*variables_map)     (const Variables& recast_vars,
+					     Variables& sub_model_vars),
+		  void (*set_map)           (const Variables& recast_vars,
+					     const ActiveSet& recast_set,
+					     ActiveSet& sub_model_set),
+		  const Sizet2DArray& primary_resp_map_indices,
+		  const Sizet2DArray& secondary_resp_map_indices,
+		  const BoolDequeArray& nonlinear_resp_mapping,
+		  void (*primary_resp_map)  (const Variables& sub_model_vars,
+					     const Variables& recast_vars,
+					     const Response& sub_model_response,
+					     Response& recast_response),
+		  void (*secondary_resp_map)(const Variables& sub_model_vars,
+					     const Variables& recast_vars,
+					     const Response& sub_model_response,
+					     Response& recast_response));
 
-  /// initialize recast indices and map callbacks after alternate
-  /// construction
-  void init_maps(const Sizet2DArray& vars_map_indices,
-		 bool nonlinear_vars_mapping,
-		 void (*variables_map)     (const Variables& recast_vars,
-					    Variables& sub_model_vars),
-		 void (*set_map)           (const Variables& recast_vars,
-					    const ActiveSet& recast_set,
-					    ActiveSet& sub_model_set),
-		 const Sizet2DArray& primary_resp_map_indices,
-		 const Sizet2DArray& secondary_resp_map_indices,
-		 const BoolDequeArray& nonlinear_resp_mapping,
-		 void (*primary_resp_map)  (const Variables& sub_model_vars,
-					    const Variables& recast_vars,
-					    const Response& sub_model_response,
-					    Response& recast_response),
-		 void (*secondary_resp_map)(const Variables& sub_model_vars,
-					    const Variables& recast_vars,
-					    const Response& sub_model_response,
-					    Response& recast_response));
-  
   /// provide optional inverse mappings
   void inverse_mappings(
     void (*inv_vars_map)     (const Variables& sub_model_vars,
@@ -159,10 +121,6 @@ public:
 			  const Variables& sub_model_vars,
 			  const Response& sub_model_resp,
 			  Response& recast_resp);
-  /// invoke transform_response() on each response within old_resp_map
-  /// to create new_resp_map
-  void transform_response_map(const IntResponseMap& old_resp_map,
-			      IntResponseMap& new_resp_map);
 
   /// perform inverse transformation of Variables (sub-model --> recast)
   void inverse_transform_variables(const Variables& sub_model_vars,
@@ -186,12 +144,12 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
-  /// portion of evaluate() specific to RecastModel
-  /// (forward to subModel.evaluate())
-  void derived_evaluate(const ActiveSet& set);
-  /// portion of evaluate_nowait() specific to RecastModel
-  /// (forward to subModel.evaluate_nowait())
-  void derived_evaluate_nowait(const ActiveSet& set);
+  /// portion of compute_response() specific to RecastModel
+  /// (forward to subModel.compute_response())
+  void derived_compute_response(const ActiveSet& set);
+  /// portion of asynch_compute_response() specific to RecastModel
+  /// (forward to subModel.asynch_compute_response())
+  void derived_asynch_compute_response(const ActiveSet& set);
   /// portion of synchronize() specific to RecastModel
   /// (forward to subModel.synchronize())
   const IntResponseMap& derived_synchronize();
@@ -210,10 +168,9 @@ protected:
   /// add subModel to list and recurse into subModel
   void derived_subordinate_models(ModelList& ml, bool recurse_flag);
   /// pass request to subModel if recursing and then update from it
-  void update_from_subordinate_model(size_t depth =
-				     std::numeric_limits<size_t>::max());
+  void update_from_subordinate_model(bool recurse_flag = true);
   /// return subModel interface
-  Interface& derived_interface();
+  Interface& interface();
 
   /// set the relative weightings for multiple objective functions or least
   /// squares terms and optionally recurses into subModel
@@ -255,22 +212,19 @@ protected:
 			    const IntResponseMap& resp_map, bool rebuild_flag);
 
   void pop_approximation(bool save_surr_data, bool rebuild_flag = false);
-  void push_approximation();
-  bool push_available();
+  void restore_approximation();
+  bool restore_available();
   void finalize_approximation();
 
-  void store_approximation(size_t index = _NPOS);
-  void restore_approximation(size_t index = _NPOS);
-  void remove_stored_approximation(size_t index = _NPOS);
+  void store_approximation();
   void combine_approximation(short corr_type);
 
   /// retrieve the set of Approximations from the subModel
   std::vector<Approximation>& approximations();
   /// retrieve the approximation coefficients from the subModel
-  const RealVectorArray& approximation_coefficients(bool normalized = false);
+  const RealVectorArray& approximation_coefficients();
   /// set the approximation coefficients within the subModel
-  void approximation_coefficients(const RealVectorArray& approx_coeffs,
-				  bool normalized = false);
+  void approximation_coefficients(const RealVectorArray& approx_coeffs);
   /// retrieve the approximation variances from the subModel
   const RealVector& approximation_variances(const Variables& vars);
   /// retrieve the approximation data from the subModel
@@ -280,35 +234,30 @@ protected:
   /// virtual function redefinition is simply a sanity check.
   void component_parallel_mode(short mode);
 
-  /// return subModel's MI parallel level index
-  size_t mi_parallel_level_index() const;
-
   /// return subModel local synchronization setting
-  short local_eval_synchronization();
+  String local_eval_synchronization();
   /// return subModel local evaluation concurrency
   int local_eval_concurrency();
   /// flag which prevents overloading the master with a multiprocessor
   /// evaluation (request forwarded to subModel)
   bool derived_master_overload() const;
 
-  IntIntPair estimate_partition_bounds(int max_eval_concurrency);
-
   /// set up RecastModel for parallel operations (request forwarded to subModel)
-  void derived_init_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
+  void derived_init_communicators(int max_iterator_concurrency,
 				  bool recurse_flag = true);
   /// set up RecastModel for serial operations (request forwarded to subModel).
   void derived_init_serial();
   /// set active parallel configuration within subModel
-  void derived_set_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
+  void derived_set_communicators(int max_iterator_concurrency,
 				 bool recurse_flag = true);
   /// deallocate communicator partitions for the RecastModel (request forwarded
   /// to subModel)
-  void derived_free_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
+  void derived_free_communicators(int max_iterator_concurrency,
 				  bool recurse_flag = true);
 
   /// Service subModel job requests received from the master.
   /// Completes when a termination message is received from stop_servers().
-  void serve_run(ParLevLIter pl_iter, int max_eval_concurrency);
+  void serve(int max_iterator_concurrency);
   /// executed by the master to terminate subModel server operations
   /// when RecastModel iteration is complete.
   void stop_servers();
@@ -319,8 +268,9 @@ protected:
 
   /// return the subModel interface identifier
   const String& interface_id() const;
-  /// return the current evaluation id for the RecastModel
-  int derived_evaluation_id() const;
+  /// return the current evaluation id for the RecastModel (request
+  /// forwarded to subModel)
+  int evaluation_id() const;
   /// set the evaluation counter reference points for the RecastModel
   /// (request forwarded to subModel)
   void set_evaluation_reference();
@@ -332,39 +282,7 @@ protected:
 				bool relative_count = true) const;
 
   /// set the hierarchical eval ID tag prefix
-  void eval_tag_prefix(const String& eval_id_str);
-
-  /// RecastModel may need to map variables, asv before DB lookup, or
-  /// responses after lookup
-  bool db_lookup(const Variables& search_vars, 
-		 const ActiveSet& search_set, Response& found_resp);
-
-  //
-  //- Heading: Member functions
-  //
-
-  /// initialize currentVariables and related info from the passed
-  /// size/type info
-  bool init_variables(const SizetArray& vars_comps_totals,
-		      const BitArray& all_relax_di, 
-		      const BitArray& all_relax_dr);
-  /// initialize currentResponse from the passed size info
-  void init_response(size_t num_recast_primary_fns, 
-		     size_t num_recast_secondary_fns, 
-		     short recast_resp_order, bool reshape_vars);
-  /// initialize userDefinedConstraints from the passed size info
-  void init_constraints(size_t num_recast_secondary_fns,
-			size_t recast_secondary_offset, bool reshape_vars);
-
-  //
-  //- Heading: Data members
-  //
-
-  /// the sub-model underlying the transformations
-  Model subModel;
-
-  /// local evaluation id counter used for id mapping
-  int recastModelEvalCntr;
+  virtual void eval_tag_prefix(const String& eval_id_str);
 
 private:
 
@@ -382,10 +300,13 @@ private:
   //- Heading: Data members
   //
 
+  /// the sub-model underlying the function pointers
+  Model subModel;
+
   /// For each subModel variable, identifies the indices of the recast
   /// variables used to define it (maps RecastModel variables to
   /// subModel variables; data is packed with only the variable indices
-  /// employed rather than a sparsely filled N_sm x N_r matrix).
+  /// employed rather than a sparsely filled N_sm x N_r matrix)
   Sizet2DArray varsMapIndices;
   /// boolean set to true if the variables mapping involves a nonlinear
   /// transformation.  Used in transform_set() to manage the requirement for
@@ -411,22 +332,20 @@ private:
   /// augment the subModel function value/gradient requirements.
   BoolDequeArray nonlinearRespMapping;
 
-  /// map of recast active set passed to derived_evaluate_nowait().
+  /// map of recast active set passed to derived_asynch_compute_response().
   /// Needed for currentResponse update in synchronization routines.
   IntActiveSetMap recastSetMap;
-  /// map of recast variables used by derived_evaluate_nowait().
+  /// map of recast variables used by derived_asynch_compute_response().
   /// Needed for primaryRespMapping() and secondaryRespMapping() in
   /// synchronization routines.
   IntVariablesMap recastVarsMap;
-  /// map of subModel variables used by derived_evaluate_nowait().
+  /// map of subModel variables used by derived_asynch_compute_response().
   /// Needed for primaryRespMapping() and secondaryRespMapping() in
   /// synchronization routines.
   IntVariablesMap subModelVarsMap;
   /// map of recast responses used by RecastModel::derived_synchronize()
   /// and RecastModel::derived_synchronize_nowait()
   IntResponseMap recastResponseMap;
-  /// mapping from subModel evaluation ids to RecastModel evaluation ids
-  IntIntMap recastIdMap;
 
   /// holds pointer for variables mapping function passed in ctor/initialize
   void (*variablesMapping)     (const Variables& recast_vars,
@@ -507,18 +426,18 @@ derived_subordinate_models(ModelList& ml, bool recurse_flag)
 }
 
 
-inline void RecastModel::update_from_subordinate_model(size_t depth)
+inline void RecastModel::update_from_subordinate_model(bool recurse_flag)
 {
   // data flows from the bottom-up, so recurse first
-  if (depth > 0)
-    subModel.update_from_subordinate_model(depth - 1);
+  if (recurse_flag)
+    subModel.update_from_subordinate_model(recurse_flag);
   // now pull the latest updates from subModel
   update_from_sub_model();
 }
 
 
-inline Interface& RecastModel::derived_interface()
-{ return subModel.derived_interface(); }
+inline Interface& RecastModel::interface()
+{ return subModel.interface(); }
 
 
 inline void RecastModel::
@@ -585,28 +504,20 @@ pop_approximation(bool save_surr_data, bool rebuild_flag)
 { subModel.pop_approximation(save_surr_data, rebuild_flag); }
 
 
-inline void RecastModel::push_approximation()
-{ subModel.push_approximation(); }
+inline void RecastModel::restore_approximation()
+{ subModel.restore_approximation(); }
 
 
-inline bool RecastModel::push_available()
-{ return subModel.push_available(); }
+inline bool RecastModel::restore_available()
+{ return subModel.restore_available(); }
 
 
 inline void RecastModel::finalize_approximation()
 { subModel.finalize_approximation(); }
 
 
-inline void RecastModel::store_approximation(size_t index)
-{ subModel.store_approximation(index); }
-
-
-inline void RecastModel::restore_approximation(size_t index)
-{ subModel.restore_approximation(index); }
-
-
-inline void RecastModel::remove_stored_approximation(size_t index)
-{ subModel.remove_stored_approximation(index); }
+inline void RecastModel::store_approximation()
+{ subModel.store_approximation(); }
 
 
 inline void RecastModel::combine_approximation(short corr_type)
@@ -617,15 +528,13 @@ inline std::vector<Approximation>& RecastModel::approximations()
 { return subModel.approximations(); }
 
 
-inline const RealVectorArray& RecastModel::
-approximation_coefficients(bool normalized)
-{ return subModel.approximation_coefficients(normalized); }
+inline const RealVectorArray& RecastModel::approximation_coefficients()
+{ return subModel.approximation_coefficients(); }
 
 
 inline void RecastModel::
-approximation_coefficients(const RealVectorArray& approx_coeffs,
-			   bool normalized)
-{ subModel.approximation_coefficients(approx_coeffs, normalized); }
+approximation_coefficients(const RealVectorArray& approx_coeffs)
+{ subModel.approximation_coefficients(approx_coeffs); }
 
 
 inline const RealVector& RecastModel::
@@ -653,11 +562,7 @@ inline void RecastModel::component_parallel_mode(short mode)
 }
 
 
-inline size_t RecastModel::mi_parallel_level_index() const
-{ return subModel.mi_parallel_level_index(); }
-
-
-inline short RecastModel::local_eval_synchronization()
+inline String RecastModel::local_eval_synchronization()
 { return subModel.local_eval_synchronization(); }
 
 
@@ -669,18 +574,9 @@ inline bool RecastModel::derived_master_overload() const
 { return subModel.derived_master_overload(); }
 
 
-inline IntIntPair RecastModel::
-estimate_partition_bounds(int max_eval_concurrency)
-{ return subModel.estimate_partition_bounds(max_eval_concurrency); }
-
-
 inline void RecastModel::
-derived_init_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-			   bool recurse_flag)
-{
-  if (recurse_flag)
-    subModel.init_communicators(pl_iter, max_eval_concurrency);
-}
+derived_init_communicators(int max_iterator_concurrency, bool recurse_flag)
+{ if (recurse_flag) subModel.init_communicators(max_iterator_concurrency); }
 
 
 inline void RecastModel::derived_init_serial()
@@ -688,14 +584,13 @@ inline void RecastModel::derived_init_serial()
 
 
 inline void RecastModel::
-derived_set_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-			  bool recurse_flag)
+derived_set_communicators(int max_iterator_concurrency, bool recurse_flag)
 {
   if (recurse_flag) {
-    subModel.set_communicators(pl_iter, max_eval_concurrency);
+    subModel.set_communicators(max_iterator_concurrency);
 
-    // RecastModels do not utilize default set_ie_asynchronous_mode() as
-    // they do not define the ie_parallel_level
+    // the following assignments aren't overridden in Model::set_communicators()
+    // since RecastModels do not define the ie_parallel_level
     asynchEvalFlag     = subModel.asynch_flag();
     evaluationCapacity = subModel.evaluation_capacity();
   }
@@ -703,21 +598,16 @@ derived_set_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
 
 
 inline void RecastModel::
-derived_free_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-			   bool recurse_flag)
-{
-  if (recurse_flag)
-    subModel.free_communicators(pl_iter, max_eval_concurrency);
-}
+derived_free_communicators(int max_iterator_concurrency, bool recurse_flag)
+{ if (recurse_flag) subModel.free_communicators(max_iterator_concurrency); }
 
 
-inline void RecastModel::
-serve_run(ParLevLIter pl_iter, int max_eval_concurrency)
+inline void RecastModel::serve(int max_iterator_concurrency)
 {
   // don't recurse, as subModel.serve() will set subModel comms
-  set_communicators(pl_iter, max_eval_concurrency, false);
+  set_communicators(max_iterator_concurrency, false);
 
-  subModel.serve_run(pl_iter, max_eval_concurrency); // sets subModel comms
+  subModel.serve(max_iterator_concurrency); // sets subModel comms
 }
 
 
@@ -738,8 +628,8 @@ inline const String& RecastModel::interface_id() const
 { return subModel.interface_id(); }
 
 
-inline int RecastModel::derived_evaluation_id() const
-{ return recastModelEvalCntr; }
+inline int RecastModel::evaluation_id() const
+{ return subModel.evaluation_id(); }
 
 
 inline void RecastModel::set_evaluation_reference()

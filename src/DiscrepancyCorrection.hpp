@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -83,8 +83,6 @@ public:
   short data_order() const;
   /// return correctionComputed
   bool computed() const;
-  /// return initializedFlag
-  bool initialized() const;
 
 protected:
 
@@ -171,8 +169,6 @@ private:
   /// flag indicating the need for multiplicative correction calculations
   bool computeMultiplicative;
 
-  bool initializedFlag;
-
   /// data that is shared among all correction Approximations
   SharedApproxData sharedData;
   /// array of additive corrections; surrogate models of a model
@@ -215,7 +211,7 @@ private:
 
 
 inline DiscrepancyCorrection::DiscrepancyCorrection():
-  correctionType(NO_CORRECTION), initializedFlag(false)
+  correctionType(NO_CORRECTION)
 { }
 
 
@@ -247,10 +243,6 @@ inline short DiscrepancyCorrection::data_order() const
 
 inline bool DiscrepancyCorrection::computed() const
 { return correctionComputed; }
-
-
-inline bool DiscrepancyCorrection::initialized() const
-{ return initializedFlag; }
 
 
 inline void DiscrepancyCorrection::

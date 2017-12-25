@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -44,30 +44,22 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  NonDInterval(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDInterval();                                       ///< destructor
+  NonDInterval(Model& model); ///< constructor
+  ~NonDInterval();            ///< destructor
 
   //
-  //- Heading: Virtual member function redefinitions
+  //- Heading: Member functions
   //
 
-  // performs an epistemic uncertainty propagation using interval propagation
-  //void core_run();
+  /// performs an epistemic uncertainty propagation using  
+  /// Dempster-Shafer evidence theory methods which solve 
+  /// for cumulative distribution functions of belief and plausibility
+  //virtual void quantify_uncertainty(); // pure virtual, called by run_iterator
 
   /// print the cumulative distribution functions for belief and plausibility
   void print_results(std::ostream& s);
 
-  //
-  //- Heading: Virtual member function redefinitions
-  //
-
-  bool resize();
-
-protected:
-
-  //
-  //- Heading: Virtual member function redefinitions
-  //
+protected: 
 
   /// initialize finalStatistics for belief/plausibility results sets
   void initialize_final_statistics();

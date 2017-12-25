@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -23,7 +23,6 @@
 #include <boost/serialization/utility.hpp>  // for std::pair
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/export.hpp>
-#include <boost/serialization/array.hpp>
 
 //#define REFCOUNT_DEBUG
 
@@ -46,9 +45,6 @@ Variables(BaseConstructor, const ProblemDescDB& problem_db,
 	  const std::pair<short,short>& view):
   sharedVarsData(problem_db, view), variablesRep(NULL), referenceCount(1)
 {
-  shape(); // size all*Vars arrays
-  build_views(); // construct active/inactive views of all arrays
-
 #ifdef REFCOUNT_DEBUG
   Cout << "Variables::Variables(BaseConstructor) called to build base class "
        << "data for letter object." << std::endl;
@@ -67,9 +63,6 @@ Variables::
 Variables(BaseConstructor, const SharedVariablesData& svd):
   sharedVarsData(svd), variablesRep(NULL), referenceCount(1)
 {
-  shape(); // size all*Vars arrays
-  build_views(); // construct active/inactive views of all arrays
-
 #ifdef REFCOUNT_DEBUG
   Cout << "Variables::Variables(BaseConstructor) called to build base class "
        << "data for letter object." << std::endl;
@@ -223,7 +216,7 @@ Variables::get_view(const ProblemDescDB& problem_db) const
     view.first = method_map(view_spec, relaxed);
   }
 
-  view.second = EMPTY_VIEW; // inactive views only set by NestedModel
+  view.second = EMPTY; // inactive views only set by NestedModel
 #ifdef DEBUG
   Cout << "Variables view: active_view = " << view.first
        << " inactive_view = " << view.second << std::endl;
@@ -259,13 +252,12 @@ Variables Variables::operator=(const Variables& vars)
     if (variablesRep) // Check for NULL
       if (--variablesRep->referenceCount == 0) 
 	delete variablesRep;
-    // Assign and increment new
+    // Assign new
     variablesRep = vars.variablesRep;
-    if (variablesRep) // Check for NULL
-      ++variablesRep->referenceCount;
   }
-  // else if assigning same rep, then do nothing since referenceCount
-  // should already be correct
+  // Increment new (either case: old == new or old != new)
+  if (variablesRep) // Check for NULL
+    ++variablesRep->referenceCount;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "Variables::operator=(Variables&)" << std::endl;
@@ -299,6 +291,30 @@ Variables::~Variables()
 }
 
 
+void Variables::build_active_views()
+{
+  if (variablesRep)
+    variablesRep->build_active_views(); // envelope fwd to letter
+  else { // letter lacking redefinition of virtual fn.!
+    Cerr << "Error: Letter lacking redefinition of virtual build_active_views"
+	 << "() function.\nNo default defined at base class." << std::endl;
+    abort_handler(-1);
+  }
+}
+
+
+void Variables::build_inactive_views()
+{
+  if (variablesRep)
+    variablesRep->build_inactive_views(); // envelope fwd to letter
+  else { // letter lacking redefinition of virtual fn.!
+    Cerr << "Error: Letter lacking redefinition of virtual build_inactive_views"
+	 << "() function.\nNo default defined at base class." << std::endl;
+    abort_handler(-1);
+  }
+}
+
+
 void Variables::inactive_view(short view2)
 {
   if (variablesRep)
@@ -306,7 +322,7 @@ void Variables::inactive_view(short view2)
   else {
     short view1 = sharedVarsData.view().first;
     // If active view is {RELAXED,MIXED}_ALL, outer level active view is
-    // aggregated in inner loop all view and inactive view remains EMPTY_VIEW.
+    // aggregated in inner loop all view and inactive view remains EMPTY.
     // Disallow assignment of an inactive ALL view.
     if (view1 > MIXED_ALL && view2 > MIXED_ALL) {
       sharedVarsData.inactive_view(view2);
@@ -349,7 +365,7 @@ short Variables::method_map(short view_spec, bool relaxed) const
 short Variables::method_domain(const ProblemDescDB& problem_db) const
 {
   // B&B employs relaxation, all other employ mixed continuous-discrete
-  return (problem_db.get_ushort("method.algorithm") == BRANCH_AND_BOUND) ?
+  return (problem_db.get_string("method.algorithm") == "branch_and_bound") ?
     RELAXED_DOMAIN : MIXED_DOMAIN;
 }
 
@@ -358,44 +374,40 @@ short Variables::method_view(const ProblemDescDB& problem_db) const
 {
   // last resort: active view if no user spec and no responses inference
 
-  unsigned short method_name = problem_db.get_ushort("method.algorithm");
-  if (method_name & PSTUDYDACE_BIT)
+  const String& method_name = problem_db.get_string("method.algorithm");
+  if ( strends(method_name, "_parameter_study") || method_name == "dace" ||
+       strbegins(method_name, "fsu_") || strbegins(method_name, "psuade_") )
     return ALL_VIEW;
-  else if (method_name & NOND_BIT) {
-    // NonD method enum vals are ordered as aleatory, both (sampling), epistemic
-    if (method_name == RANDOM_SAMPLING || method_name == LIST_SAMPLING ||
-	method_name == MULTILEVEL_SAMPLING) { // MC/LHS, MLMC, import samples
+  else if (strbegins(method_name, "nond_")) {
+    if (method_name == "nond_sampling") { // MC/LHS, Incremental MC/LHS
       size_t num_auv = problem_db.get_sizet("variables.aleatory_uncertain"),
 	     num_euv = problem_db.get_sizet("variables.epistemic_uncertain");
       if (num_auv && num_euv) return UNCERTAIN_VIEW;
       else if (num_euv)       return EPISTEMIC_UNCERTAIN_VIEW;
       else if (num_auv)       return ALEATORY_UNCERTAIN_VIEW;
       else {
-	Cerr << "Error: uncertain variables required for sampling method in "
+	Cerr << "Error: uncertain variables required for nond_sampling in "
 	     << "Variables::get_view()." << std::endl;
 	abort_handler(-1);    return DEFAULT_VIEW;
       }
     }
-    else if (method_name > RANDOM_SAMPLING) return EPISTEMIC_UNCERTAIN_VIEW;
-    else                                    return ALEATORY_UNCERTAIN_VIEW;
+    else if (strends(method_name, "_evidence") || 
+	     strends(method_name, "_interval_est"))
+      return EPISTEMIC_UNCERTAIN_VIEW;
+    else // stoch exp, reliability, and efficient subspace methods
+      return ALEATORY_UNCERTAIN_VIEW;
   }
-  else if (method_name & VERIF_BIT) return STATE_VIEW;
-  else                              return DESIGN_VIEW;
+  else if (method_name == "richardson_extrap") return STATE_VIEW;
+  else                                         return DESIGN_VIEW;
 }
 
 
 short Variables::response_view(const ProblemDescDB& problem_db) const
 {
   // if optimization or calibration response set, infer an active design view
-  // for all methods excepting members of NonDCalibration branch.  Excluding
-  // all NOND_BIT methods complicates DACE with nond_sampling, so this is
-  // avoided for now.  Another alternative would be to make RANDOM_SAMPLING
-  // the special case (potentally only for submethods LHS and RANDOM).
-  return ( problem_db.get_sizet("responses.num_objective_functions") ||
-	   ( problem_db.get_sizet("responses.num_calibration_terms") && 
-	// ( problem_db.get_ushort("method.algorithm") & NOND_BIT ) == 0) ) ?
-	     problem_db.get_ushort("method.algorithm") != BAYES_CALIBRATION ) )
-    ? DESIGN_VIEW : DEFAULT_VIEW;
+  return (problem_db.get_sizet("responses.num_least_squares_terms") ||
+	  problem_db.get_sizet("responses.num_objective_functions")) ?
+    DESIGN_VIEW : DEFAULT_VIEW;
 }
 
 
@@ -459,85 +471,20 @@ void Variables::check_view_compatibility()
     abort_handler(-1);
 }
 
-
-void Variables::build_active_views()
-{
-  // called only from letters
-
-  // Initialize active view vectors and counts
-  if (sharedVarsData.view().first == EMPTY_VIEW) {
-    Cerr << "Error: active view cannot be EMPTY_VIEW in Variables::"
-	 << "build_active_views()." << std::endl;
-    abort_handler(-1);
-  }
-  sharedVarsData.initialize_active_start_counts();
-  sharedVarsData.initialize_active_components();
-
-  size_t num_cv  = sharedVarsData.cv(),    num_div = sharedVarsData.div(),
-       /*num_dsv = sharedVarsData.dsv(),*/ num_drv = sharedVarsData.drv();
-  if (num_cv)
-    continuousVars = RealVector(Teuchos::View,
-      &allContinuousVars[sharedVarsData.cv_start()],    num_cv);
-  if (num_div)
-    discreteIntVars = IntVector(Teuchos::View,
-      &allDiscreteIntVars[sharedVarsData.div_start()],  num_div);
-  // as for label arrays, generate StringMultiArrayViews on the fly
-  //if (num_dsv) {
-  //  size_t dsv_start = sharedVarsData.dsv_start();
-  //  discreteStringVars = allDiscreteStringVars[boost::indices[
-  //    idx_range(dsv_start, dsv_start+num_dsv)]];
-  //}
-  if (num_drv)
-    discreteRealVars = RealVector(Teuchos::View,
-      &allDiscreteRealVars[sharedVarsData.drv_start()], num_drv);
-}
-
-
-void Variables::build_inactive_views()
-{
-  // called only from letters
-
-  // Initialize inactive view vectors and counts
-  if (sharedVarsData.view().second == MIXED_ALL ||
-      sharedVarsData.view().second == RELAXED_ALL) {
-    Cerr << "Error: inactive view cannot be ALL in Variables::"
-	 << "build_inactive_views()." << std::endl;
-    abort_handler(-1);
-  }
-  sharedVarsData.initialize_inactive_start_counts();
-  sharedVarsData.initialize_inactive_components();
-
-  size_t num_icv  = sharedVarsData.icv(),    num_idiv = sharedVarsData.idiv(),
-       /*num_idsv = sharedVarsData.idsv(),*/ num_idrv = sharedVarsData.idrv();
-  if (num_icv)
-    inactiveContinuousVars = RealVector(Teuchos::View,
-      &allContinuousVars[sharedVarsData.icv_start()],    num_icv);
-  if (num_idiv)
-    inactiveDiscreteIntVars = IntVector(Teuchos::View,
-      &allDiscreteIntVars[sharedVarsData.idiv_start()],  num_idiv);
-  // as for label arrays, generate StringMultiArrayViews on the fly
-  //if (num_idsv) {
-  //  size_t idsv_start = sharedVarsData.idsv_start();
-  //  inactiveDiscreteStringVars = allDiscreteStringVars[boost::indices[
-  //    idx_range(idsv_start, idsv_start+num_idsv)]];
-  //}
-  if (num_idrv)
-    inactiveDiscreteRealVars = RealVector(Teuchos::View,
-      &allDiscreteRealVars[sharedVarsData.idrv_start()], num_idrv);
-}
-
-
+  
 template<class Archive> 
 void Variables::load(Archive& ar, const unsigned int version)
 {
   // Binary version.
+  std::pair<short,short> view;
+  ar & view;
+  SizetArray vars_comps_totals;
+  ar & vars_comps_totals;
 
-  // Can't read into the rep's SVD because there might not be a rep
-  SharedVariablesData svd;
-  ar & svd;
+  SharedVariablesData svd(view, vars_comps_totals);
 
   if (variablesRep) { // should not occur in current usage
-    if (sharedVarsData.view() != svd.view()) {
+    if (sharedVarsData.view() != view) {
       // decrement old reference count and replace with new letter
       Cerr << "Warning: variables type mismatch in Variables::load(Archive&)."
 	   << std::endl;
@@ -553,9 +500,14 @@ void Variables::load(Archive& ar, const unsigned int version)
   // (without variablesRep forwards), but we must support creation
   // of new letters above.
   ar & variablesRep->allContinuousVars;
+  StringMultiArrayView acvl = all_continuous_variable_labels();
+  ar & acvl;
   ar & variablesRep->allDiscreteIntVars;
-  ar & variablesRep->allDiscreteStringVars;
+  StringMultiArrayView adivl = all_discrete_int_variable_labels();
+  ar & adivl;
   ar & variablesRep->allDiscreteRealVars;
+  StringMultiArrayView adrvl = all_discrete_real_variable_labels();
+  ar & adrvl;
 
   // rebuild active/inactive views
   variablesRep->build_views();
@@ -570,12 +522,17 @@ void Variables::save(Archive& ar, const unsigned int version) const
   if (variablesRep)
     variablesRep->save(ar, version); // envelope fwd to letter
   else { // default implementation for letters
-    ar & sharedVarsData;
-
+    ar & sharedVarsData.view();
+    ar & sharedVarsData.components_totals();
     ar & allContinuousVars;
+    StringMultiArrayView acvl = all_continuous_variable_labels();
+    ar & acvl; 
     ar & allDiscreteIntVars;
-    ar & allDiscreteStringVars;
+    StringMultiArrayView adivl = all_discrete_int_variable_labels();
+    ar & adivl;
     ar & allDiscreteRealVars;
+    StringMultiArrayView adrvl = all_discrete_real_variable_labels();
+    ar & adrvl;
     // types/ids not required
   }
 }
@@ -609,7 +566,7 @@ void Variables::write(std::ostream& s) const
     variablesRep->write(s); // envelope fwd to letter
   else { // letter lacking redefinition of virtual fn.!
     Cerr << "Error: Letter lacking redefinition of virtual write function.\n"
-	 << "No default defined at base class." << std::endl;
+         << "No default defined at base class." << std::endl;
     abort_handler(-1);
   }
 }
@@ -621,7 +578,7 @@ void Variables::write_aprepro(std::ostream& s) const
     variablesRep->write_aprepro(s); // envelope fwd to letter
   else { // letter lacking redefinition of virtual fn.!
     Cerr << "Error: Letter lacking redefinition of virtual write_aprepro "
-	 << "function.\nNo default defined at base class." << std::endl;
+         << "function.\nNo default defined at base class." << std::endl;
     abort_handler(-1);
   }
 }
@@ -632,37 +589,14 @@ void Variables::read_annotated(std::istream& s)
   // ASCII version for neutral file I/O.
   std::pair<short,short> view;
   s >> view.first;
-  // exception handling since EOF may not be captured properly; shouldn't get 
-  // hit if loops wrapping this read whitespace before reading Variables...
-  if (s.eof())
-    throw FileReadException("Empty record in Variables::read_annotated()");
+  if (s.eof()) // exception handling since EOF may not be captured properly
+    throw String("Empty record in Variables::read_annotated(std::istream&)");
   s >> view.second;
-  size_t i;
-  SizetArray vars_comps_totals(NUM_VC_TOTALS);
-  for (i=0; i<NUM_VC_TOTALS; ++i)
+  size_t i, num_vc_totals = 12;
+  SizetArray vars_comps_totals(num_vc_totals);
+  for (i=0; i<num_vc_totals; ++i)
     s >> vars_comps_totals[i];
-  // for annotated (neutral), read the binary representation (string of 0/1)
-
-  // BMA TODO: verify whether these need to be sized (shouldn't have to be)
-  // size_t num_adiv
-  //   = vars_comps_totals[TOTAL_DDIV]  + vars_comps_totals[TOTAL_DAUIV]
-  //   + vars_comps_totals[TOTAL_DEUIV] + vars_comps_totals[TOTAL_DSIV],
-  // num_adrv
-  //   = vars_comps_totals[TOTAL_DDRV]  + vars_comps_totals[TOTAL_DAURV]
-  //   + vars_comps_totals[TOTAL_DEURV] + vars_comps_totals[TOTAL_DSRV];
-  // BitArray all_relax_di(num_adiv), all_relax_dr(num_adrv);
-  BitArray all_relax_di, all_relax_dr;
-
-  // the bit arrays can be length 0; have to conditionally read their data
-  size_t ardi_size, ardr_size;
-  s >> ardi_size;
-  if (ardi_size > 0)
-    s >> all_relax_di;
-  s >> ardr_size;
-  if (ardr_size > 0)
-    s >> all_relax_dr;
-
-  SharedVariablesData svd(view, vars_comps_totals, all_relax_di, all_relax_dr);
+  SharedVariablesData svd(view, vars_comps_totals);
 
   if (variablesRep) { // should not occur in current usage
     if (sharedVarsData.view() != view) {
@@ -683,8 +617,6 @@ void Variables::read_annotated(std::istream& s)
 		      all_continuous_variable_labels());
   read_data_annotated(s, variablesRep->allDiscreteIntVars,
 		      all_discrete_int_variable_labels());
-  read_data_annotated(s, variablesRep->allDiscreteStringVars,
-		      all_discrete_string_variable_labels());
   read_data_annotated(s, variablesRep->allDiscreteRealVars,
 		      all_discrete_real_variable_labels());
   // rebuild active/inactive views
@@ -701,22 +633,14 @@ void Variables::write_annotated(std::ostream& s) const
   else { // default implementation for letters
     const std::pair<short,short>& view = sharedVarsData.view();
     const SizetArray& vc_totals = sharedVarsData.components_totals();
-    const BitArray& all_relax_di = sharedVarsData.all_relaxed_discrete_int();
-    const BitArray& all_relax_dr = sharedVarsData.all_relaxed_discrete_real();
     s << view.first  << ' ' << view.second << ' ';
-    size_t i;
-    for (i=0; i<NUM_VC_TOTALS; ++i)
+    size_t i, num_vc_totals = vc_totals.size();
+    for (i=0; i<num_vc_totals; ++i)
       s << vc_totals[i] << ' ';
-    // for annotated (neutral), write the binary representation (string of 0/1)
-    // have to write the size as a flag since they may be length 0 in the mixed case
-    s << all_relax_di.size() << ' ' << all_relax_di << ' ';
-    s << all_relax_dr.size() << ' ' << all_relax_dr << ' ';
     write_data_annotated(s, allContinuousVars,
 			 all_continuous_variable_labels());
     write_data_annotated(s, allDiscreteIntVars,
 			 all_discrete_int_variable_labels());
-    write_data_annotated(s, allDiscreteStringVars,
-			 all_discrete_string_variable_labels());
     write_data_annotated(s, allDiscreteRealVars,
 			 all_discrete_real_variable_labels());
     // types/ids not required
@@ -725,10 +649,10 @@ void Variables::write_annotated(std::ostream& s) const
 }
 
 
-void Variables::read_tabular(std::istream& s, bool active_only)
+void Variables::read_tabular(std::istream& s)
 {
   if (variablesRep)
-    variablesRep->read_tabular(s, active_only); // envelope fwd to letter
+    variablesRep->read_tabular(s); // envelope fwd to letter
   else { // letter lacking redefinition of virtual fn.!
     Cerr << "Error: Letter lacking redefinition of virtual read_tabular "
          << "function.\nNo default defined at base class." << std::endl;
@@ -736,27 +660,13 @@ void Variables::read_tabular(std::istream& s, bool active_only)
   }
 }
 
-void Variables::write_tabular(std::ostream& s, bool active_only) const
+void Variables::write_tabular(std::ostream& s) const
 {
   if (variablesRep)
-    variablesRep->write_tabular(s, active_only); // envelope fwd to letter
+    variablesRep->write_tabular(s); // envelope fwd to letter
   else { // letter lacking redefinition of virtual fn.!
     Cerr << "Error: Letter lacking redefinition of virtual write_tabular "
-          << "function.\nNo default defined at base class." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-/** Tabular output is always in input specification order, so can
-    write labels independent of Mixed vs. Relaxed */
-void Variables::write_tabular_labels(std::ostream& s, bool active_only) const
-{
-  if (variablesRep)
-    variablesRep->write_tabular_labels(s, active_only); // envelope fwd to letter
-  else { // letter lacking redefinition of virtual fn.!
-    Cerr << "Error: Letter lacking redefinition of virtual write_tabular_labels "
-          << "function.\nNo default defined at base class." << std::endl;
+         << "function.\nNo default defined at base class." << std::endl;
     abort_handler(-1);
   }
 }
@@ -770,16 +680,11 @@ void Variables::read(MPIUnpackBuffer& s)
   if (buffer_has_letter) {
     std::pair<short,short> view;
     s >> view.first >> view.second;
-    size_t i;
-    SizetArray vars_comps_totals(NUM_VC_TOTALS);
-    for (i=0; i<NUM_VC_TOTALS; ++i)
+    size_t i, num_vc_totals = 12;
+    SizetArray vars_comps_totals(num_vc_totals);
+    for (i=0; i<num_vc_totals; ++i)
       s >> vars_comps_totals[i];
-    BitArray all_relax_di, all_relax_dr;
-    s >> all_relax_di;
-    s >> all_relax_dr;
-
-    SharedVariablesData svd(view, vars_comps_totals, all_relax_di,
-			    all_relax_dr);
+    SharedVariablesData svd(view, vars_comps_totals);
 
     if (variablesRep) { // should not occur in current usage
       if (sharedVarsData.view() != view) {
@@ -800,8 +705,6 @@ void Variables::read(MPIUnpackBuffer& s)
 	      all_continuous_variable_labels());
     read_data(s, variablesRep->allDiscreteIntVars,
 	      all_discrete_int_variable_labels());
-    read_data(s, variablesRep->allDiscreteStringVars,
-	      all_discrete_string_variable_labels());
     read_data(s, variablesRep->allDiscreteRealVars,
 	      all_discrete_real_variable_labels());
     // rebuild active/inactive views
@@ -825,22 +728,14 @@ void Variables::write(MPIPackBuffer& s) const
     const std::pair<short,short>& view = variablesRep->sharedVarsData.view();
     const SizetArray& vc_totals
       = variablesRep->sharedVarsData.components_totals();
-    const BitArray& all_relax_di
-      = variablesRep->sharedVarsData.all_relaxed_discrete_int();
-    const BitArray& all_relax_dr
-      = variablesRep->sharedVarsData.all_relaxed_discrete_real();
     s << view.first << view.second;
-    size_t i;
-    for (i=0; i<NUM_VC_TOTALS; ++i)
+    size_t i, num_vc_totals = vc_totals.size();;
+    for (i=0; i<num_vc_totals; ++i)
       s << vc_totals[i];
-    s << all_relax_di;
-    s << all_relax_dr;
     write_data(s, variablesRep->allContinuousVars,
 	       all_continuous_variable_labels());
     write_data(s, variablesRep->allDiscreteIntVars,
 	       all_discrete_int_variable_labels());
-    write_data(s, variablesRep->allDiscreteStringVars,
-	       all_discrete_string_variable_labels());
     write_data(s, variablesRep->allDiscreteRealVars,
 	       all_discrete_real_variable_labels());
     // types/ids not required
@@ -852,7 +747,7 @@ void Variables::write(MPIPackBuffer& s) const
 /** Deep copies are used for history mechanisms such as bestVariablesArray
     and data_pairs since these must catalogue copies (and should not
     change as the representation within currentVariables changes). */
-Variables Variables::copy(bool deep_svd) const
+Variables Variables::copy() const
 {
   // the envelope class instantiates a new envelope and a new letter and copies
   // current attributes into the new objects.
@@ -866,15 +761,11 @@ Variables Variables::copy(bool deep_svd) const
 
   // shallow copy of SharedVariablesData
   if (variablesRep) {
-    // deep copy of Variables
-    vars.variablesRep = (deep_svd) ?
-      get_variables(variablesRep->sharedVarsData.copy()) : // deep SVD copy
-      get_variables(variablesRep->sharedVarsData);      // shallow SVD copy
+    // deep copy of Variables, shallow copy of SharedVariablesData
+    vars.variablesRep = get_variables(variablesRep->sharedVarsData);
 
     vars.variablesRep->allContinuousVars   = variablesRep->allContinuousVars;
     vars.variablesRep->allDiscreteIntVars  = variablesRep->allDiscreteIntVars;
-    vars.variablesRep->allDiscreteStringVars
-      =  variablesRep->allDiscreteStringVars;
     vars.variablesRep->allDiscreteRealVars = variablesRep->allDiscreteRealVars;
 
     vars.variablesRep->build_views();
@@ -884,69 +775,41 @@ Variables Variables::copy(bool deep_svd) const
 }
 
 
-void Variables::shape()
+void Variables::reshape(const SizetArray& vc_totals)
 {
   if (variablesRep) // envelope
-    variablesRep->shape();
-  else { // base class implementation for letters
-    size_t num_acv, num_adiv, num_adsv, num_adrv;
-    sharedVarsData.all_counts(num_acv, num_adiv, num_adsv, num_adrv);
-
-    allContinuousVars.sizeUninitialized(num_acv);
-    allDiscreteIntVars.sizeUninitialized(num_adiv);
-    allDiscreteStringVars.resize(boost::extents[num_adsv]);
-    allDiscreteRealVars.sizeUninitialized(num_adrv);
-
-    build_views(); // construct active/inactive views of all arrays
+    variablesRep->reshape(vc_totals);
+  else { // letter lacking redefinition of virtual fn.!
+    Cerr << "Error: Letter lacking redefinition of virtual reshape function.\n"
+	 << "       No default defined at base class." << std::endl;
+    abort_handler(-1);
   }
 }
 
 
-void Variables::reshape()
-{
-  if (variablesRep) // envelope
-    variablesRep->reshape();
-  else { // base class implementation for letters
-    size_t num_acv, num_adiv, num_adsv, num_adrv;
-    sharedVarsData.all_counts(num_acv, num_adiv, num_adsv, num_adrv);
-
-    allContinuousVars.resize(num_acv);
-    allDiscreteIntVars.resize(num_adiv);
-    allDiscreteStringVars.resize(boost::extents[num_adsv]);
-    allDiscreteRealVars.resize(num_adrv);
-
-    build_views(); // construct active/inactive views of all arrays
-  }
-}
-
-
-/// tolerance-based equality for Variables (used in lookup_by_nearby_val())
-bool nearby(const Variables& vars1, const Variables& vars2, Real tol)
+/// equality operator for Variables
+bool operator==(const Variables& vars1, const Variables& vars2)
 {
   // this operator is a friend of Variables
 
   Variables *v1_rep = vars1.variablesRep, *v2_rep = vars2.variablesRep;
 
   // Require different rep pointers
-  if (v1_rep == v2_rep)
-    return true;
+  if ( v1_rep != v2_rep &&
+         // Require identical view
+       ( v1_rep->sharedVarsData.view() != v2_rep->sharedVarsData.view() ||
+	 // tolerance-based equality (labels/types/ids are ignored)
+	 v1_rep->allContinuousVars     != v2_rep->allContinuousVars     ||
+	 v1_rep->allDiscreteIntVars    != v2_rep->allDiscreteIntVars    ||
+	 v1_rep->allDiscreteRealVars   != v2_rep->allDiscreteRealVars ) )
+    return false;
 
-  // Could require identical view, but in terms of cache lookups for purposes
-  // of response retrieval, this is not necessary:
-  //if ( v1_rep->sharedVarsData.view() != v2_rep->sharedVarsData.view())
-  //  return false;
-
-  // tolerance-based equality (ignore labels/types/ids).  Enforce exact equality
-  // in discrete real, since these values should not be subject to roundoff.
-  return ( nearby(v1_rep->allContinuousVars, v2_rep->allContinuousVars, tol) &&
-	   v1_rep->allDiscreteIntVars     == v2_rep->allDiscreteIntVars      &&
-	   v1_rep->allDiscreteStringVars  == v2_rep->allDiscreteStringVars   &&
-	   v1_rep->allDiscreteRealVars    == v2_rep->allDiscreteRealVars );
+  return true;
 }
 
 
-/// strict binary equality operator (used in boost hashed lookups)
-bool operator==(const Variables& vars1, const Variables& vars2)
+/// binary_equal_to (since 'operator==' is not suitable for boost/hashed lookup)
+bool binary_equal_to(const Variables& vars1, const Variables& vars2)
 {
   // this function is a friend of Variables
 
@@ -955,17 +818,30 @@ bool operator==(const Variables& vars1, const Variables& vars2)
   if (v1_rep == v2_rep)
     return true;
 
-  // Could require identical view, but in terms of cache lookups for purposes
-  // of response retrieval, this is not necessary:
-  //if (v1_rep->sharedVarsData.view() != v2_rep->sharedVarsData.view())
-  //  return false;
-
+  // Require identical view
+  if (v1_rep->sharedVarsData.view() != v2_rep->sharedVarsData.view())
+    return false;
   // Require identical content in variable array lengths and values
-  // (ignore labels/types/ids) using Teuchos::SerialDenseVector::operator==
-  return (v1_rep->allContinuousVars     == v2_rep->allContinuousVars     &&
-	  v1_rep->allDiscreteIntVars    == v2_rep->allDiscreteIntVars    &&
-	  v1_rep->allDiscreteStringVars == v2_rep->allDiscreteStringVars &&
-	  v1_rep->allDiscreteRealVars   == v2_rep->allDiscreteRealVars);
+  // (labels/types/ids are ignored)
+  size_t cv_size = v1_rep->allContinuousVars.length(),
+    div_size = v1_rep->allDiscreteIntVars.length(),
+    drv_size = v1_rep->allDiscreteRealVars.length();
+  if (v2_rep->allContinuousVars.length()   != cv_size ||
+      v2_rep->allDiscreteIntVars.length()  != div_size ||
+      v2_rep->allDiscreteRealVars.length() != drv_size)
+    return false;
+  size_t i;
+  for (i=0; i<cv_size; ++i)
+    if (v2_rep->allContinuousVars[i]   != v1_rep->allContinuousVars[i])
+      return false;
+  for (i=0; i<div_size; ++i)
+    if (v2_rep->allDiscreteIntVars[i]  != v1_rep->allDiscreteIntVars[i])
+      return false;
+  for (i=0; i<drv_size; ++i)
+    if (v2_rep->allDiscreteRealVars[i] != v1_rep->allDiscreteRealVars[i])
+      return false;
+
+  return true;
 }
 
 
@@ -978,33 +854,10 @@ std::size_t hash_value(const Variables& vars)
   // require identical views and variables data
   Variables *v_rep = vars.variablesRep;
   boost::hash_combine(seed, v_rep->sharedVarsData.view());
-  // hash_value() for SerialDenseVectors and StringMultiArrays defined
-  // in dakota_data_util.hpp
   boost::hash_combine(seed, v_rep->allContinuousVars);
   boost::hash_combine(seed, v_rep->allDiscreteIntVars);
-  boost::hash_combine(seed, v_rep->allDiscreteStringVars);
   boost::hash_combine(seed, v_rep->allDiscreteRealVars);
   return seed;
 }
-
-
-void Variables::
-as_vector(const StringSetArray& dss_vals, RealVector& var_values) const
-{
-  if (variablesRep)
-    variablesRep->as_vector(dss_vals, var_values);
-  else {
-    size_t num_cv = cv(), num_div = div(), num_dsv = dsv();
-    copy_data_partial(continuous_variables(), var_values, 0);
-    merge_data_partial(discrete_int_variables(), var_values, num_cv);
-    for (size_t i=0; i<num_dsv; ++i) {
-      size_t ind = set_value_to_index(discrete_string_variable(i), dss_vals[i]);
-      var_values[num_cv + num_div + i] = (Real) ind;
-    }
-    copy_data_partial(discrete_real_variables(), var_values, 
-		      num_cv + num_div + num_dsv);
-  }
-}
-
 
 } // namespace Dakota

@@ -14,7 +14,6 @@
 \usepackage{float}
 \usepackage{alltt}
 \usepackage{times}
-\usepackage{multirow}
 \ifx\pdfoutput\undefined
 \usepackage[ps2pdf,
             pagebackref=true,
@@ -30,7 +29,6 @@
 \fi
 
 \usepackage{doxygen}
-\usepackage{amsmath}
 % Override some settings from doxygen.sty:
 \rfoot[\fancyplain{}{\bfseries\scriptsize Dakota Version \DakotaVersion\space Reference Manual generated on \today}]{}
 \lfoot[]{\fancyplain{}{\bfseries\scriptsize Dakota Version \DakotaVersion\space Reference Manual generated on \today}}
@@ -53,7 +51,9 @@
 \vspace*{1.5cm}
 {\LARGE Dakota, A Multilevel Parallel Object-Oriented Framework for 
 Design Optimization, Parameter Estimation, Uncertainty Quantification, 
-and Sensitivity Analysis:\\Version \DakotaVersion\space Reference Manual}\\
+and Sensitivity Analysis}\\
+\vspace*{1cm}
+{\LARGE Version \DakotaVersion\space Reference Manual}\\
 \vspace*{1cm}
 
 \DakotaAuthorFormatted

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -18,31 +18,65 @@
 
 namespace Dakota {
 
+/// Wrapper class for HOPSPACK 
 
-APPSOptimizer::APPSOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model)
+/** The APPSOptimizer class provides a wrapper for HOPSPACK, a
+    Sandia-developed C++ library for generalized pattern search.
+    HOPSPACK defaults to a coordinate pattern search but also allows
+    for augmented search patterns.  It can solve problems with bounds,
+    linear constraints, and general nonlinear constraints.
+    APPSOptimizer uses an APPSEvalMgr object to manage the function
+    evaluations.
+
+    The user input mappings are as follows: \c output \c
+    max_function_evaluations, \c constraint_tol \c initial_delta, \c
+    contraction_factor, \c threshold_delta, \c solution_target, \c
+    synchronization, \c merit_function, \c constraint_penalty, and \c
+    smoothing_factor are mapped into HOPS's \c "Display", "Maximum
+    Evaluations", "Active Tolerance"/"Nonlinear Active Tolerance",
+    "Initial Step", "Contraction Factor", "Step Tolerance", "Objective
+    Target", "Synchronous Evaluations", "Penalty Function", "Penalty
+    Parameter", and "Penalty Smoothing Value" data attributes.  Refer
+    to the HOPS web site (https://software.sandia.gov/trac/hopspack)
+    for additional information on HOPS objects and controls. */
+
+APPSOptimizer::APPSOptimizer(Model& model): Optimizer(model)
 {
   // (iteratedModel initialized in Optimizer(Model&))
 
   evalMgr = new APPSEvalMgr(iteratedModel);
   set_apps_parameters(); // set specification values using DB
+
+  // The following is not performed in the Optimizer constructor since
+  // maxConcurrency is updated within set_apps_parameters().  The
+  // matching free_communicators() appears in the Optimizer destructor.
+
+  if (minimizerRecasts)
+    iteratedModel.init_communicators(maxConcurrency);
 }
 
-APPSOptimizer::APPSOptimizer(Model& model):
-  Optimizer(ASYNCH_PATTERN_SEARCH, model)
+APPSOptimizer::APPSOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model)
 {
   // (iteratedModel initialized in Optimizer(Model&))
 
   evalMgr = new APPSEvalMgr(iteratedModel);
   set_apps_parameters(); // set specification values using DB
+
+  // The following is not performed in the Optimizer constructor since
+  // maxConcurrency is updated within set_apps_parameters().  The
+  // matching free_communicators() appears in the Optimizer destructor.
+
+  if (minimizerRecasts)
+    iteratedModel.init_communicators(maxConcurrency);
 }
 
-/** core_run redefines the Optimizer virtual function to perform
+/** find_optimum redefines the Optimizer virtual function to perform
     the optimization using HOPS. It first sets up the problem data,
     then executes minimize() on the HOPS optimizer, and finally
     catalogues the results. */
 
-void APPSOptimizer::core_run()
+void APPSOptimizer::find_optimum()
 {
   // Tell the evalMgr whether or not to do asynchronous evaluations
   // and maximum available concurrency.
@@ -64,47 +98,12 @@ void APPSOptimizer::core_run()
   // Retrieve best iterate and convert from HOPS vector to DAKOTA
   // vector.
 
-  std::vector<double> bestX(numTotalVars);
+  std::vector<double> bestX(numContinuousVars);
   bool state = optimizer.getBestX(bestX);
-
-  RealVector contVars(numContinuousVars);
-  IntVector  discIntVars(numDiscreteIntVars);
-  RealVector discRealVars(numDiscreteRealVars);
-
-  const BitArray& int_set_bits = iteratedModel.discrete_int_sets();
-  const IntSetArray& set_int_vars = iteratedModel.discrete_set_int_values();
-  const RealSetArray& set_real_vars = iteratedModel.discrete_set_real_values();
-  const StringSetArray& set_string_vars = iteratedModel.discrete_set_string_values();
-
-  size_t i, dsi_cntr;
-
-  for(i=0; i<numContinuousVars; i++)
-    contVars[i] = bestX[i];
-  bestVariablesArray.front().continuous_variables(contVars);
-
-  for(i=0, dsi_cntr=0; i<numDiscreteIntVars; i++)
-  { 
-    // This active discrete int var is a set type
-    // Map from index back to value.
-    if (int_set_bits[i]) {
-      discIntVars[i] = 
-	set_index_to_value(bestX[i+numContinuousVars], set_int_vars[dsi_cntr]);
-      ++dsi_cntr;
-    }
-    // This active discrete int var is a range type
-    else
-      discIntVars[i] = bestX[i+numContinuousVars];
-  }
-
-  // For real sets and strings, map from index back to value.
-  bestVariablesArray.front().discrete_int_variables(discIntVars);
-  for (i=0; i<numDiscreteRealVars; i++)
-    discRealVars = 
-      set_index_to_value(bestX[i+numContinuousVars+numDiscreteIntVars], set_real_vars[i]);
-  bestVariablesArray.front().discrete_real_variables(discRealVars);
-
-  for (i=0; i<numDiscreteStringVars; i++)
-    bestVariablesArray.front().discrete_string_variable(set_index_to_value(bestX[i+numContinuousVars+numDiscreteIntVars+numDiscreteRealVars], set_string_vars[i]), i);
+  RealVector variableHolder(numContinuousVars, false);
+  for (int i=0; i<numContinuousVars; i++)
+    variableHolder[i] = bestX[i];
+  bestVariablesArray.front().continuous_variables(variableHolder);
 
   // Retrieve the best responses and convert from HOPS vector to
   // DAKOTA vector.
@@ -120,14 +119,14 @@ void APPSOptimizer::core_run()
       -optimizer.getBestF() : optimizer.getBestF();
     if (numNonlinearEqConstraints > 0) {
       optimizer.getBestNonlEqs(bestEqs);
-      for (i=0; i<numNonlinearEqConstraints; i++)
+      for (int i=0; i<numNonlinearEqConstraints; i++)
 	best_fns[constraintMapIndices[i]+1] = (bestEqs[i] -
 					       constraintMapOffsets[i]) /
 	                                       constraintMapMultipliers[i];
     }
     if (numNonlinearIneqConstraints > 0) {
       optimizer.getBestNonlIneqs(bestIneqs);
-      for (i=0; i<bestIneqs.size(); i++)
+      for (int i=0; i<bestIneqs.size(); i++)
 	best_fns[constraintMapIndices[i+numNonlinearEqConstraints]+1] = (bestIneqs[i] -
 				       constraintMapOffsets[i+numNonlinearEqConstraints]) /
                                        constraintMapMultipliers[i+numNonlinearEqConstraints];
@@ -246,7 +245,6 @@ void APPSOptimizer::set_apps_parameters()
 	 "blocking");
     if (blocking_synch) {
       mediatorParams->setParameter("Synchronous Evaluations", true);
-      citizenParams->setParameter("Use Random Order", false);
       evalMgr->set_blocking_synch(true);
     }
     else
@@ -320,7 +318,7 @@ void APPSOptimizer::set_apps_parameters()
 	     << "\n         Using default value of 0.0.\n\n";
     }
 
-    maxEvalConcurrency *= 2*numContinuousVars;
+    maxConcurrency *= 2*numContinuousVars;
 
     // ----------------------------------------------------------------
     // Current HOPS is hardwired for coordinate bases, no expansion,
@@ -344,142 +342,42 @@ void APPSOptimizer::set_apps_parameters()
 
 void APPSOptimizer::initialize_variables_and_constraints()
 {
-  // Initialize variables and bounds.  This is performed in core_run
+  // Initialize variables and bounds.  This is performed in find_optimum
   // in order to capture any reassignment at the strategy layer (after
   // iterator construction).  
 
-  numTotalVars = numContinuousVars + numDiscreteIntVars 
-             + numDiscreteRealVars + numDiscreteStringVars;
-
-  HOPSPACK::Vector init_point(numTotalVars), tmp_vector(numTotalVars);
-  HOPSPACK::Vector lower(numTotalVars), upper(numTotalVars);
+  HOPSPACK::Vector init_point(numContinuousVars), tmp_vector(numContinuousVars);
+  HOPSPACK::Vector lower(numContinuousVars), upper(numContinuousVars);
   HOPSPACK::Vector lin_ineq_lower_bnds(numLinearIneqConstraints);
   HOPSPACK::Vector lin_ineq_upper_bnds(numLinearIneqConstraints);
   HOPSPACK::Vector lin_eq_targets(numLinearEqConstraints);
   HOPSPACK::Matrix lin_ineq_coeffs, lin_eq_coeffs;
 
-  const RealVector& init_pt_cont
+  const RealVector& init_pt
     = iteratedModel.continuous_variables();
-  const RealVector& lower_bnds_cont
+  const RealVector& lower_bnds
     = iteratedModel.continuous_lower_bounds();
-  const RealVector& upper_bnds_cont
+  const RealVector& upper_bnds
     = iteratedModel.continuous_upper_bounds();
-
-  const IntVector& init_pt_int = iteratedModel.discrete_int_variables();
-  const IntVector& lower_bnds_int = iteratedModel.discrete_int_lower_bounds();
-  const IntVector& upper_bnds_int = iteratedModel.discrete_int_upper_bounds();
-
-  const RealVector& init_pt_real = iteratedModel.discrete_real_variables();
-  const RealVector& lower_bnds_real = iteratedModel.discrete_real_lower_bounds();
-  const RealVector& upper_bnds_real = iteratedModel.discrete_real_upper_bounds();
-
-  const StringMultiArrayConstView init_pt_string = 
-    iteratedModel.discrete_string_variables();
-
-  const BitArray& int_set_bits = iteratedModel.discrete_int_sets();
-  const IntSetArray& init_pt_set_int = 
-    iteratedModel.discrete_set_int_values();
-  const RealSetArray& init_pt_set_real = 
-    iteratedModel.discrete_set_real_values();
-  const StringSetArray& init_pt_set_string = 
-    iteratedModel.discrete_set_string_values();
-
-  vector<char> variable_types;
   bool setScales = false;
 
-  size_t i, index, dsi_cntr;
-
-  for (i=0; i<numContinuousVars; i++) {
-    init_point[i] = init_pt_cont[i];
-    variable_types.push_back('C');
-    if (lower_bnds_cont[i] > -bigRealBoundSize)
-      lower[i] = lower_bnds_cont[i];
+  for (int i=0; i<numContinuousVars; i++) {
+    init_point[i] = init_pt[i];
+    if (lower_bnds[i] > -bigRealBoundSize)
+      lower[i] = lower_bnds[i];
     else {
       lower[i] = HOPSPACK::dne();
       setScales = true;
     }
-    if (upper_bnds_cont[i] < bigRealBoundSize)
-      upper[i] = upper_bnds_cont[i];
+    if (upper_bnds[i] < bigRealBoundSize)
+      upper[i] = upper_bnds[i];
     else {
       upper[i] = HOPSPACK::dne();
       setScales = true;
     }
   }
-  for(i=0, dsi_cntr=0; i<numDiscreteIntVars; i++)
-  {
-    if (int_set_bits[i]) {
-      index = set_value_to_index(init_pt_int[i], 
-				 init_pt_set_int[dsi_cntr]);
-      if (index == _NPOS) {
-	Cerr << "\nError: failure in discrete integer set lookup within "
-	     << "NomadOptimizer::load_parameters(Model &model)" << std::endl;
-	abort_handler(-1);
-      }
-      else {
-	init_point[i+numContinuousVars] = (int)index;
-	variable_types.push_back('C');
-      }
-      lower[i+numContinuousVars] = 0;
-      upper[i+numContinuousVars] = 
-	init_pt_set_int[dsi_cntr].size() - 1;
-      ++dsi_cntr;
-    }
-    else 
-    {
-      init_point[i+numContinuousVars] = init_pt_int[i];
-      variable_types.push_back('C');
-      if (lower_bnds_int[i] > -bigIntBoundSize)
-	lower[i+numContinuousVars] = lower_bnds_int[i];
-      else
-      {
-	lower[i] = HOPSPACK::dne();
-	setScales = true;
-      }
-      if (upper_bnds_int[i] < bigIntBoundSize)
-	upper[i+numContinuousVars] = upper_bnds_int[i];
-      else
-      {
-	upper[i] = HOPSPACK::dne();
-	setScales = true;
-      }
-    }
-  }
-  for (i=0; i<numDiscreteRealVars; i++) {
-    index = set_value_to_index(init_pt_real[i], 
-			       init_pt_set_real[i]);
-    if (index == _NPOS) {
-      Cerr << "\nError: failure in discrete real set lookup within "
-	   << "NomadOptimizer::load_parameters(Model &model)" << std::endl;
-      abort_handler(-1);
-    }
-    else {
-      init_point[i+numContinuousVars+numDiscreteIntVars] = (int)index;
-      variable_types.push_back('C');
-    }
-    lower[i+numContinuousVars+numDiscreteIntVars] = 0;
-    upper[i+numContinuousVars+numDiscreteIntVars] = 
-	init_pt_set_real[i].size() - 1;
-  }
-  for (i=0; i<numDiscreteStringVars; i++) {
-    index = set_value_to_index(init_pt_string[i], 
-			       init_pt_set_string[i]);
-    if (index == _NPOS) {
-      Cerr << "\nError: failure in discrete string set lookup within "
-	   << "NomadOptimizer::load_parameters(Model &model)" << std::endl;
-      abort_handler(-1);
-    }
-    else {
-      init_point[i+numContinuousVars+numDiscreteIntVars+numDiscreteRealVars] =
-	(int)index;
-      variable_types.push_back('C');
-    }
-    lower[i+numContinuousVars+numDiscreteIntVars+numDiscreteRealVars] = 0;
-    upper[i+numContinuousVars+numDiscreteIntVars+numDiscreteRealVars] = 
-	init_pt_set_string[i].size() - 1;
-  }
 
-  problemParams->setParameter("Number Unknowns", (int) numTotalVars);
-  problemParams->setParameter("Variable Types", variable_types);
+  problemParams->setParameter("Number Unknowns", (int) numContinuousVars);
   problemParams->setParameter("Initial X", init_point);
   problemParams->setParameter("Lower Bounds", lower);
   problemParams->setParameter("Upper Bounds", upper);
@@ -502,8 +400,8 @@ void APPSOptimizer::initialize_variables_and_constraints()
   const RealVector& linear_eq_targets = iteratedModel.linear_eq_constraint_targets();
 
   for (int i=0; i<numLinearIneqConstraints; i++) {
-    for (int j=0; j<numContinuousVars; j++) 
-      tmp_vector[j] = linear_ineq_coeffs(i,j);
+    for (int j=0; j<numContinuousVars; j++)
+      tmp_vector[j] = linear_ineq_coeffs[i][j];
     lin_ineq_coeffs.addRow(tmp_vector);
     if (linear_ineq_lower_bnds[i] > -bigRealBoundSize)
       lin_ineq_lower_bnds[i] = linear_ineq_lower_bnds[i];
@@ -516,7 +414,7 @@ void APPSOptimizer::initialize_variables_and_constraints()
   }
   for (int i=0; i<numLinearEqConstraints; i++) {
     for (int j=0; j<numContinuousVars; j++)
-      tmp_vector[j] = linear_eq_coeffs(i,j);
+      tmp_vector[j] = linear_eq_coeffs[i][j];
     lin_eq_coeffs.addRow(tmp_vector);
     lin_eq_targets[i] = linear_eq_targets[i];
   }

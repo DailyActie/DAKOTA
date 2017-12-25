@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -36,12 +36,7 @@ SharedApproxData(BaseConstructor, ProblemDescDB& problem_db, size_t num_vars):
   // verbosity.  For approximations, verbose adds quad poly coeff reporting.
   outputLevel(problem_db.get_short("method.output")),
   numVars(num_vars), approxType(problem_db.get_string("model.surrogate.type")),
-  buildDataOrder(1), 
-  modelExportPrefix(
-    problem_db.get_string("model.surrogate.model_export_prefix")),
-  modelExportFormat(
-    problem_db.get_ushort("model.surrogate.model_export_format")),
-  dataRep(NULL), referenceCount(1)
+  buildDataOrder(1), dataRep(NULL), referenceCount(1)
 {
   // increment the buildDataOrder based on derivative usage and response
   // gradient/Hessian specifications and approximation type support.  The
@@ -59,15 +54,16 @@ SharedApproxData(BaseConstructor, ProblemDescDB& problem_db, size_t num_vars):
     problem_db.set_db_model_nodes(actual_model_ptr);
 
     if (problem_db.get_string("responses.gradient_type") != "none") {
-      if (!global_approx || approxType == "global_polynomial"      ||
-	  approxType == "global_regression_orthogonal_polynomial"  ||
+      if (!global_approx || approxType == "global_polynomial" ||
+	  approxType == "global_kriging" ||
 #ifdef ALLOW_GLOBAL_HERMITE_INTERPOLATION
-	  strends(approxType, "_interpolation_polynomial")         ||
+	  strends(approxType, "_interpolation_polynomial") ||
+	  strends(approxType, "_orthogonal_polynomial"))
 #else
+	  approxType == "global_orthogonal_polynomial"             ||
 	  approxType == "piecewise_nodal_interpolation_polynomial" ||
-	  approxType == "piecewise_hierarchical_interpolation_polynomial" ||
+	  approxType == "piecewise_hierarchical_interpolation_polynomial")
 #endif
-	  approxType == "global_kriging")
 	buildDataOrder |= 2;
       else
 	Cerr << "Warning: use_derivatives is not currently supported by "
@@ -103,21 +99,21 @@ SharedApproxData::
 SharedApproxData(NoDBBaseConstructor, const String& approx_type,
 		 size_t num_vars, short data_order, short output_level):
   numVars(num_vars), approxType(approx_type), outputLevel(output_level),
-  modelExportFormat(NO_MODEL_FORMAT), modelExportPrefix(""),
   dataRep(NULL), referenceCount(1)
 {
   bool global_approx = strbegins(approxType, "global_");
   buildDataOrder = 1;
   if (data_order & 2) {
-    if (!global_approx || approxType == "global_polynomial"      ||
-        approxType == "global_regression_orthogonal_polynomial"  ||
+    if (!global_approx || approxType == "global_polynomial" ||
+	approxType == "global_kriging" ||
 #ifdef ALLOW_GLOBAL_HERMITE_INTERPOLATION
-	strends(approxType, "_interpolation_polynomial")         ||
+	strends(approxType, "_interpolation_polynomial") ||
+	strends(approxType, "_orthogonal_polynomial"))
 #else
+        approxType == "global_orthogonal_polynomial"             ||
 	approxType == "piecewise_nodal_interpolation_polynomial" ||
-	approxType == "piecewise_hierarchical_interpolation_polynomial" ||
+	approxType == "piecewise_hierarchical_interpolation_polynomial")
 #endif
-	approxType == "global_kriging")
       buildDataOrder |= 2;
     else
       Cerr << "Warning: use_derivatives is not currently supported by "
@@ -143,7 +139,6 @@ SharedApproxData(NoDBBaseConstructor, const String& approx_type,
     operator, and destructor. */
 SharedApproxData::SharedApproxData():
   buildDataOrder(1), outputLevel(NORMAL_OUTPUT), dataRep(NULL),
-  modelExportFormat(NO_MODEL_FORMAT), modelExportPrefix(""),
   referenceCount(1)
 {
 #ifdef REFCOUNT_DEBUG
@@ -258,9 +253,7 @@ get_shared_data(const String& approx_type, const UShortArray& approx_order,
 	   approx_type == "global_neural_network" || // TO DO: Two ANN's ?
 	   approx_type == "global_radial_basis"   ||
 	   approx_type == "global_mars"           ||
-	   approx_type == "global_moving_least_squares" ||
-       approx_type == "global_voronoi_surrogate"
-           )
+	   approx_type == "global_moving_least_squares")
     approx = new SharedSurfpackApproxData(approx_type, approx_order, num_vars,
 					  data_order, output_level);
 #endif // HAVE_SURFPACK
@@ -282,7 +275,7 @@ SharedApproxData::SharedApproxData(const SharedApproxData& shared_data)
   // Increment new (no old to decrement)
   dataRep = shared_data.dataRep;
   if (dataRep) // Check for an assignment of NULL
-    ++dataRep->referenceCount;
+    dataRep->referenceCount++;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "SharedApproxData::SharedApproxData(SharedApproxData&)" << std::endl;
@@ -306,7 +299,7 @@ operator=(const SharedApproxData& shared_data)
     // Assign and increment new
     dataRep = shared_data.dataRep;
     if (dataRep) // Check for NULL
-      ++dataRep->referenceCount;
+      dataRep->referenceCount++;
   }
   // else if assigning same rep, then do nothing since referenceCount
   // should already be correct
@@ -368,48 +361,48 @@ void SharedApproxData::pop(bool save_surr_data)
 }
 
 
-bool SharedApproxData::push_available()
+bool SharedApproxData::restore_available()
 {
   if (!dataRep) { // virtual fn: no default, error if not supplied by derived
-    Cerr << "Error: push_available() not available for this approximation "
+    Cerr << "Error: restore_available() not available for this approximation "
 	 << "type." << std::endl;
     abort_handler(-1);
   }
 
-  return dataRep->push_available();
+  return dataRep->restore_available();
 }
 
 
-size_t SharedApproxData::retrieval_index()
+size_t SharedApproxData::restoration_index()
 {
   if (!dataRep) { // virtual fn: no default, error if not supplied by derived
-    Cerr << "Error: retrieval_index() not available for this approximation "
+    Cerr << "Error: restoration_index() not available for this approximation "
 	 << "type." << std::endl;
     abort_handler(-1);
   }
 
-  return dataRep->retrieval_index();
+  return dataRep->restoration_index();
 }
 
 
-void SharedApproxData::pre_push()
+void SharedApproxData::pre_restore()
 {
   if (dataRep)
-    dataRep->pre_push();
+    dataRep->pre_restore();
   else {
-    Cerr << "\nError: pre_push() not defined for this shared approximation "
+    Cerr << "\nError: pre_restore() not defined for this shared approximation "
 	 << "type." << std::endl;
     abort_handler(-1);
   }
 }
 
 
-void SharedApproxData::post_push()
+void SharedApproxData::post_restore()
 {
   if (dataRep)
-    dataRep->post_push();
+    dataRep->post_restore();
   else {
-    Cerr << "\nError: post_push() not defined for this shared approximation "
+    Cerr << "\nError: post_restore() not defined for this shared approximation "
 	 << "type." << std::endl;
     abort_handler(-1);
   }
@@ -452,10 +445,10 @@ void SharedApproxData::post_finalize()
 }
 
 
-void SharedApproxData::store(size_t index)
+void SharedApproxData::store()
 {
   if (dataRep)
-    dataRep->store(index);
+    dataRep->store();
   else {
     Cerr << "\nError: store() not defined for this shared approximation type."
 	 << std::endl;
@@ -464,39 +457,15 @@ void SharedApproxData::store(size_t index)
 }
 
 
-void SharedApproxData::restore(size_t index)
+void SharedApproxData::pre_combine(short corr_type)
 {
   if (dataRep)
-    dataRep->restore(index);
+    dataRep->pre_combine(corr_type);
   else {
-    Cerr << "\nError: restore() not defined for this shared approximation type."
-	 << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-void SharedApproxData::remove_stored(size_t index)
-{
-  if (dataRep)
-    dataRep->remove_stored(index);
-  else {
-    Cerr << "\nError: remove_stored() not defined for this shared "
-	 << "approximation type." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-size_t SharedApproxData::pre_combine(short corr_type)
-{
-  if (!dataRep) {
     Cerr << "\nError: pre_combine() not defined for this shared approximation "
 	 << "type." << std::endl;
     abort_handler(-1);
   }
-
-  return dataRep->pre_combine(corr_type);
 }
 
 

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -36,30 +36,24 @@ public:
   //
     
   /// primary constructor for building a standard DACE iterator
-  PSUADEDesignCompExp(ProblemDescDB& problem_db, Model& model);
+  PSUADEDesignCompExp(Model& model);
+
   /// destructor
   ~PSUADEDesignCompExp();
-
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
     
-protected:
-
   //
   //- Heading: Virtual function redefinitions
   //
 
+  // NOTE: these could be protected (letter-envelope)
   void pre_run();
   void post_input();
-  void core_run();
+  void extract_trends();
   void post_run(std::ostream& s);
 
   int num_samples() const;
   void sampling_reset(int min_samples, bool all_data_flag, bool stats_flag);
-  unsigned short sampling_scheme() const;
+  const String& sampling_scheme() const;
   void vary_pattern(bool pattern_flag);
   void get_parameter_sets(Model& model);
 
@@ -87,7 +81,7 @@ private:
   /// flag which triggers the update of allVars/allResponses for use by
   /// Iterator::all_variables() and Iterator::all_responses()
   bool allDataFlag;
-  /// counter for number of executions for this object
+  /// counter for number of run() executions for this object
   size_t numDACERuns;
 
   /// flag for generating a sequence of seed values within multiple
@@ -116,7 +110,7 @@ sampling_reset(int min_samples, bool all_data_flag, bool stats_flag)
   // allow sample reduction relative to previous sampling_reset() calls
   // (that is, numSamples may be increased or decreased by min_samples), but
   // not relative to the original specification (samplesSpec is a hard lower
-  // bound).  maxEvalConcurrency must not be updated since parallel config
+  // bound).  maxConcurrency must not be updated since parallel config
   // management depends on having the same value at ctor/run/dtor times.
   numSamples = (min_samples > samplesSpec) ? min_samples : samplesSpec;
   // note that previous value of numSamples is irrelevant: may increase or
@@ -127,7 +121,7 @@ sampling_reset(int min_samples, bool all_data_flag, bool stats_flag)
 }
 
 
-inline unsigned short PSUADEDesignCompExp::sampling_scheme() const
+inline const String& PSUADEDesignCompExp::sampling_scheme() const
 { return methodName; }
 
 

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,58 +37,45 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NonDAdaptImpSampling(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor for on-the-fly instantiations
-  NonDAdaptImpSampling(Model& model, unsigned short sample_type, int samples,
+  /// constructors
+  NonDAdaptImpSampling(Model& model); ///< standard constructor
+  
+  NonDAdaptImpSampling(Model& model, const String& sample_type, int samples,
 		       int seed, const String& rng, bool vary_pattern,
-		       unsigned short is_type, bool cdf_flag,
-		       bool x_space_model, bool use_model_bounds,
-		       bool track_extreme);
-  /// destructor
-  ~NonDAdaptImpSampling();
+		       short is_type, bool cdf_flag, bool x_space_data,
+		       bool x_space_model, bool bounded_model);
 
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
-  /// performs adaptive importance sampling and computes probability of failure
-  void core_run();
-
-  /// print the final statistics
-  void print_results(std::ostream& s);
+  ~NonDAdaptImpSampling(); ///< destructor
 
   //
   //- Heading: Member functions
   //
 
+  /// performs an adaptive importance sampling and returns probability of 
+  /// failure. 
+  void quantify_uncertainty();
+
   /// initializes data needed for importance sampling: an initial set
   /// of points around which to sample, a failure threshold, an
   /// initial probability to refine, and flags to control transformations
-  void initialize(const RealVectorArray& full_points, bool x_space_data,
-		  size_t resp_index, Real initial_prob, Real failure_threshold);
+  void initialize(const RealVectorArray& full_points, int resp_fn,
+		  const Real& initial_prob, const Real& failure_threshold);
   /// initializes data needed for importance sampling: an initial set
   /// of points around which to sample, a failure threshold, an
   /// initial probability to refine, and flags to control transformations
-  void initialize(const RealMatrix& full_points, bool x_space_data,
-		  size_t resp_index, Real initial_prob, Real failure_threshold);
+  void initialize(const RealMatrix& full_points, int resp_fn,
+		  const Real& initial_prob, const Real& failure_threshold);
   /// initializes data needed for importance sampling: an initial
   /// point around which to sample, a failure threshold, an
   /// initial probability to refine, and flags to control transformations
-  void initialize(const RealVector& full_point, bool x_space_data,
-		  size_t resp_index, Real initial_prob, Real failure_threshold);
+  void initialize(const RealVector& full_point, int resp_fn,
+		  const Real& initial_prob, const Real& failure_threshold);
 
-  /// returns the final probability calculated by the importance sampling
-  Real final_probability();
-  /// return extremeValues
-  const RealRealPairArray& extreme_values() const;
+  /// returns the probability calculated by the importance sampling
+  const Real& get_probability();
 
-protected:
+  /// print the final statistics
+  void print_results(std::ostream& s);
 
 private:
 
@@ -100,79 +87,82 @@ private:
   //- Heading: Utility routines
   //
 
-  /// select representative points from a set of samples
-  void select_rep_points(const RealVectorArray& var_samples_u,
-			 const RealVector& fn_samples);
-
   /// iteratively generate samples and select representative points
-  /// until probability and (optionally) coefficient of variation converge
-  void converge_statistics(bool cov_flag);
+  /// until coefficient of variation converges
+  void converge_cov();
+
+  /// iteratively generate samples from final set of representative points
+  /// until probability converges
+  void converge_probability();
+
+  /// select representative points from initialPoints
+  void select_init_rep_points();
+
+  /// select representative points from a set of samples
+  void select_rep_points(const RealVectorArray& samples, Real& fail_tol);
+
+  /// calculate relative weights of representative points
+  void calculate_rep_weights();
 
   /// generate a set of samples based on multimodal sampling density
-  void generate_samples(RealVectorArray& var_samples_u);
-  /// evaluate the model at the sample points and store the responses
-  void evaluate_samples(const RealVectorArray& var_samples_u,
-		        RealVector& fn_samples);
+  void generate_samples(RealVectorArray& samples);
 
   /// calculate the probability of exceeding the failure threshold and
   /// the coefficent of variation (if requested)
-  void calculate_statistics(const RealVectorArray& var_samples_u,
-			    const RealVector& fn_samples, size_t total_samples,
-			    Real& sum_prob, Real& prob, bool compute_cov,
-			    Real& sum_var, Real& cov);
+  void calculate_statistics(const RealVectorArray& samples,
+			    const size_t& total_sample_number,
+			    Real& probability_sum, Real& probability,
+			    bool  cov_flag, Real& variance_sum,
+			    Real& coeff_of_variation);
 
   /// compute Euclidean distance between points a and b
   Real distance(const RealVector& a, const RealVector& b);
-  /// compute density between a representative point 
-  /// and a sample point, assuming standard normal
-  Real recentered_density(const RealVector& sample_point);
+
+  /// evaluate the model at the sample points and store the responses
+  void evaluate_samples(const RealVectorArray& samples);
 
   //
   //- Heading: Data members
   //
 
+  /// integration type (is, ais, mmais) provided by input specification
+  short importanceSamplingType;
+  /// flag for inversion of probability values using 1.-p
+  bool invertProb;
+  /// the number of representative points around which to sample
+  size_t numRepPoints;
+  /// the response function in the model to be sampled
+  size_t respFn;
+  /// the original set of samples passed into the MMAIS routine
+  RealVectorArray initPoints;
+  /// the values of the response function at the sample points
+  RealVector sampleVals;
+  /// the set of representative points around which to sample
+  RealVectorArray repPoints;
+  /// the weight associated with each representative point
+  RealVector repWeights;
+  /// design point at which uncertain space is being sampled
+  RealVector designPoint;
+  /// flag to control if x->u transformation should be performed for
+  /// initial points
+  bool transInitPoints;
+  /// flag to control if u->x transformation should be performed
+  /// before evaluation
+  bool transPoints;
+  /// flag to control if the sampler should respect the model bounds
+  bool useModelBounds;
+  /// flag to identify if initial points are generated from an LHS sample
+  bool initLHS;
+  /// the initial probability (from FORM or SORM)
+  Real initProb;
+  /// the final calculated probability (p)
+  Real finalProb;
+  /// the failure threshold (z-bar) for the problem.
+  Real failThresh;
   // Note: requested/computed response/probability level arrays are managed
   // by NonD(Global/Local)Reliability, and the currently active scalars (for
   // a particular response function at a particular level) are passed though
   // initialize().
-
-  /// importance sampling is performed in standardized probability space.
-  /// This u-space model is either passed in (alternate constructor for
-  /// helper AIS) or constructed using transform_model() (standard
-  /// constructor for stand-alone AIS)
-  Model uSpaceModel;
-
-  /// integration type (is, ais, mmais) provided by input specification
-  unsigned short importanceSamplingType;
-
-  /// flag to identify if initial points are generated from an LHS sample
-  bool initLHS;
-  /// flag to control if the sampler should respect the model bounds
-  bool useModelBounds;
-  /// flag for inversion of probability values using 1.-p
-  bool invertProb;
-  /// flag for tracking min/max values encountered when evaluating samples
-  bool trackExtremeValues;
-
-  /// size of sample batch within each refinement iteration
-  int refineSamples;
-
-  /// the active response function index in the model to be sampled
-  size_t respFnIndex;
-  /// design subset for which uncertain subset is being sampled
-  RealVector designPoint;
-  /// the original set of u-space samples passed in initialize()
-  RealVectorArray initPointsU;
-  /// the set of representative points in u-space around which to sample
-  RealVectorArray repPointsU;
-  /// the weight associated with each representative point
-  RealVector repWeights;
-
-  /// the probability estimate that is iteratively refined by
-  /// importance sampling
-  Real probEstimate;
-  /// the failure threshold (z-bar) for the problem.
-  Real failThresh;
 };
 
 
@@ -180,12 +170,8 @@ inline NonDAdaptImpSampling::~NonDAdaptImpSampling()
 { }
 
 
-inline Real NonDAdaptImpSampling::final_probability()
-{ return probEstimate; }
-
-
-inline const RealRealPairArray& NonDAdaptImpSampling::extreme_values() const
-{ return extremeValues; }
+inline const Real& NonDAdaptImpSampling::get_probability()
+{ return finalProb; }
 
 
 inline Real NonDAdaptImpSampling::

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -34,30 +34,22 @@ namespace Dakota {
 /** This constructor is called for a standard letter-envelope iterator 
     instantiation.  In this case, set_db_list_nodes has been called and 
     probDescDB can be queried for settings from the method specification. */
-NonDGPImpSampling::NonDGPImpSampling(ProblemDescDB& problem_db, Model& model):
-  NonDSampling(problem_db, model)
+NonDGPImpSampling::NonDGPImpSampling(Model& model): NonDSampling(model)
 {
-  // sampleType default in DataMethod.cpp is SUBMETHOD_DEFAULT (0).
-  // Enforce an LHS default for this method.
-  if (!sampleType)
-    sampleType = SUBMETHOD_LHS;
-
   samplingVarsMode = ACTIVE_UNIFORM;
   String sample_reuse, approx_type("global_kriging");/*("global_kriging");*/
   UShortArray approx_order; // not used by GP/kriging
   short corr_order = -1, data_order = 1, corr_type = NO_CORRECTION;
   if (probDescDB.get_bool("method.derivative_usage")) {
-    if (iteratedModel.gradient_type() != "none") data_order |= 2;
-    if (iteratedModel.hessian_type()  != "none") data_order |= 4;
+    if (gradientType != "none") data_order |= 2;
+    if (hessianType  != "none") data_order |= 4;
   }
-  unsigned short sample_type = SUBMETHOD_DEFAULT;
+  String sample_type("lhs"); // hard-wired for now
   statsFlag = true; //print computed probability levels at end
   bool vary_pattern = false; // for consistency across outer loop invocations
   // get point samples file
   const String& import_pts_file
-    = probDescDB.get_string("method.import_build_points_file");
-  // BMA: This was previously using numSamples = initial_samples from base class
-  numSamples = probDescDB.get_int("method.build_samples");
+    = probDescDB.get_string("method.import_points_file");
   int samples = numSamples;
   if (!import_pts_file.empty())
     { samples = 0; sample_reuse = "all"; }
@@ -70,18 +62,14 @@ NonDGPImpSampling::NonDGPImpSampling(ProblemDescDB& problem_db, Model& model):
   //uniform) because it is a set of samples to build a good GP and nothing
   //else.  Rho 0 is the nonminal distribution of the input variable
 
-  ActiveSet gp_set = iteratedModel.current_response().active_set(); // copy
-  gp_set.request_values(1); // no surr deriv evals, but GP may be grad-enhanced
-  gpModel.assign_rep(new DataFitSurrModel(gpBuild, iteratedModel,
-    gp_set, approx_type, approx_order, corr_type, corr_order, data_order,
-    outputLevel, sample_reuse, import_pts_file,
-    probDescDB.get_ushort("method.import_build_format"),
-    probDescDB.get_bool("method.import_build_active_only"),
-    probDescDB.get_string("method.export_approx_points_file"),
-    probDescDB.get_ushort("method.export_approx_format")), false);
+  gpModel.assign_rep(new DataFitSurrModel(gpBuild, iteratedModel, approx_type,
+    approx_order, corr_type, corr_order, data_order, outputLevel, sample_reuse, 
+    probDescDB.get_string("method.export_points_file"),
+    probDescDB.get_bool("method.export_points_file_annotated"), import_pts_file,
+    probDescDB.get_bool("method.import_points_file_annotated")), false);
   vary_pattern = true; // allow seed to run among multiple approx sample sets
   // need to add to input spec
-  numEmulEval = probDescDB.get_int("method.nond.samples_on_emulator");
+  numEmulEval = probDescDB.get_int("method.nond.emulator_samples");
   if (numEmulEval==0)
     numEmulEval = 10000;
   construct_lhs(gpEval, gpModel, sample_type, numEmulEval, randomSeed,
@@ -91,64 +79,27 @@ NonDGPImpSampling::NonDGPImpSampling(ProblemDescDB& problem_db, Model& model):
   else
     numPtsAdd = maxIterations;
 
+  //gpModel.init_communicators(gpBuild.maximum_concurrency());
+  gpModel.init_communicators(gpEval.maximum_concurrency());
+ 
   //construct sampler to generate one draw from rhoOne distribution, with 
   //seed varying between invocations
   construct_lhs(sampleRhoOne, iteratedModel, sample_type, 1, randomSeed,
 		rngName, vary_pattern); 
 }
 
-
 NonDGPImpSampling::~NonDGPImpSampling()
-{ }
-
-
-bool NonDGPImpSampling::resize()
 {
-  bool parent_reinit_comms = NonDSampling::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
+  //gpModel.free_communicators(gpBuild.maximum_concurrency());
+  gpModel.free_communicators(gpEval.maximum_concurrency());
 }
-
-
-void NonDGPImpSampling::derived_init_communicators(ParLevLIter pl_iter)
-{
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // gpBuild and gpEval use NoDBBaseConstructor, so no need to
-  // manage DB list nodes at this level
-  //gpBuild.init_communicators(pl_iter);
-  gpEval.init_communicators(pl_iter);
-} 
-
-
-void NonDGPImpSampling::derived_set_communicators(ParLevLIter pl_iter)
-{
-  NonD::derived_set_communicators(pl_iter);
-
-  // gpBuild and gpEval use NoDBBaseConstructor, so no need to
-  // manage DB list nodes at this level
-  //gpBuild.set_communicators(pl_iter);
-  gpEval.set_communicators(pl_iter);
-} 
-
-
-void NonDGPImpSampling::derived_free_communicators(ParLevLIter pl_iter)
-{
-  gpEval.free_communicators(pl_iter);
-  //gpBuild.free_communicators(pl_iter);
-
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-}
-
+ 
 
 /** Calculate the failure probabilities for specified probability levels 
     using Gaussian process based importance sampling. */
-void NonDGPImpSampling::core_run()
+void NonDGPImpSampling::quantify_uncertainty()
 {
+
   numPtsTotal = numSamples + numPtsAdd;
  
   // Build initial GP model.  This will be built over the initial LHS sample set
@@ -186,9 +137,8 @@ void NonDGPImpSampling::core_run()
    
   size_t resp_fn_count, level_count, iter;
   RealVector new_X;
-  initialize_level_mappings();
-  ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-
+  initialize_distribution_mappings();
+ 
   for (resp_fn_count=0; resp_fn_count<numFunctions; resp_fn_count++) {
     size_t num_levels = requestedRespLevels[resp_fn_count].length();
     const Pecos::SurrogateData& gp_data = gpModel.approximation_data(resp_fn_count);
@@ -222,7 +172,7 @@ void NonDGPImpSampling::core_run()
       for (k = 0; k < numPtsAdd; k++) { 
 	// generate new set of emulator samples.
 	// Note this will have a different seed each time.
-        gpEval.run(pl_iter);
+        gpEval.run_iterator(Cout);
          // obtain results 
         const RealMatrix&  all_samples = gpEval.all_samples();
         const IntResponseMap& all_resp = gpEval.all_responses();
@@ -278,7 +228,7 @@ void NonDGPImpSampling::core_run()
         iter = 1;
         while ((iter<20) && (temp_norm_const*numEmulEval<25)) {
 	  iter = iter+1;
-          gpEval.run(pl_iter);
+          gpEval.run_iterator(Cout);
            // obtain results 
           const RealMatrix&  this_samples = gpEval.all_samples();
           const IntResponseMap& this_resp = gpEval.all_responses();
@@ -325,7 +275,7 @@ void NonDGPImpSampling::core_run()
  
         if (num_eval_kept==0) {
 	  normConst(k)=0.0;
-          sampleRhoOne.run(pl_iter);
+          sampleRhoOne.run_iterator(Cout);
          // obtain results 
           const RealMatrix&  rho1_samples = sampleRhoOne.all_samples();
           // For now, we always only draw one sample
@@ -338,7 +288,7 @@ void NonDGPImpSampling::core_run()
          
          // add new_X to the build points and append approximation
         iteratedModel.continuous_variables(new_X);
-        iteratedModel.evaluate();
+        iteratedModel.compute_response();
         IntResponsePair resp_truth(iteratedModel.evaluation_id(),
                                    iteratedModel.current_response());
         gpModel.append_approximation(iteratedModel.current_variables(), resp_truth, true);
@@ -387,7 +337,7 @@ void NonDGPImpSampling::core_run()
           RealVector exp_ind_this(numPtsTotal);
           for (k = 0; k < numPtsTotal; k++){ 
             gpModel.continuous_variables(gp_final_data[k]);
-            gpModel.evaluate();
+            gpModel.compute_response();
             this_mean = gpModel.current_response().function_values();
             this_var
 	      = gpModel.approximation_variances(gpModel.current_variables());
@@ -400,11 +350,11 @@ void NonDGPImpSampling::core_run()
 	  //the 1.0 here is reall rhoZero/rhoZero (ok for rho0=rho1=rho2)
           gpModel.pop_approximation(false, true);
           //gpModel.update_approximation(true);
-          Cout << "Size of build data set " << gp_data.points() << '\n';
+          Cout << "Size of build data set " << gp_data.size() << '\n';
         } 
 //Since we need to evaluate the SUCCESSIVE SEQUENCES of GPs built using numSamples-->numPtsTotal
 //it might be most efficient to "pop" the data and go backward: 
-//listStudy.run(pl_iter);
+//listStudy.run_iterator();
 //obtain results and expected indicator functions
 //gpModel.pop_approximation();
 //
@@ -532,10 +482,10 @@ RealVector NonDGPImpSampling::calcExpIndicator(const int resp_fn_count, const Re
     }
     else{
       snv/=stdv;
-      ei(i)= Pecos::NormalRandomVariable::std_cdf(snv);
-      //the expected indicator is the fraction of the mapped problem's cdf
-      //that fails, the simple mapping is at most a change in sign of the
-      //snv and might be the identity mapping (not even a change in sign)
+      ei(i)= Pecos::Phi(snv); //the expected indicator is the fraction of the 
+      //mapped problem's cdf that fails, the simple mapping is at most a 
+      //change in sign of the snv and might be the identity mapping (not 
+      //even a change in sign)
     }
 
     //Cout << "EI " << ei(i) << " respThresh= " << respThresh << " mu= " << gpMeans[i][resp_fn_count] << " stdv= " << stdv << '\n';
@@ -566,10 +516,10 @@ Real NonDGPImpSampling::calcExpIndPoint(const int resp_fn_count, const Real resp
   }
   else{
     snv/=stdv;
-    ei= Pecos::NormalRandomVariable::std_cdf(snv);
-    //the expected indicator is the fraction of the mapped problem's cdf
-    //that fails, the simple mapping is at most a change in sign of the
-    //snv and might be the identity mapping (not even a change in sign)
+    ei= Pecos::Phi(snv); //the expected indicator is the fraction of the 
+    //mapped problem's cdf that fails, the simple mapping is at most a 
+    //change in sign of the snv and might be the identity mapping (not 
+    //even a change in sign)
   }
 
   //Cout << "EI " << ei << " respThresh= " << respThresh << " mu= " << this_mean(resp_fn_count) << " stdv= " << stdv << '\n';
@@ -581,7 +531,7 @@ void NonDGPImpSampling::print_results(std::ostream& s)
 {
   if (statsFlag) {
     s << "\nStatistics based on the importance sampling calculations:\n";
-    print_level_mappings(s);
+    print_distribution_mappings(s);
   }
 }
 

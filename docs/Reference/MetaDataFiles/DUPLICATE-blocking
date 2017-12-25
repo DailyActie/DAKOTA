@@ -1,0 +1,11 @@
+Blurb::
+The \c blocking option causes Dakota to run the algorithm in synchronous mode
+Description::
+The \c blocking option causes Dakota to run the algorithm in synchronous
+mode.
+
+Topics::	not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	

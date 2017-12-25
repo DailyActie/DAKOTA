@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -62,10 +62,10 @@ protected:
   //
 
   void init_communicators(const IntArray& message_lengths, 
-			  int max_eval_concurrency);
-  void set_communicators(const IntArray& message_lengths,
-			 int max_eval_concurrency);
-  //void free_communicators();
+			  int max_iterator_concurrency);
+  void set_communicators(const IntArray& message_lengths, 
+			 int max_iterator_concurrency);
+  void free_communicators();
 
   void init_serial();
 
@@ -73,7 +73,7 @@ protected:
   int asynch_local_evaluation_concurrency() const;
 
   /// return interfaceSynchronization
-  short interface_synchronization() const;
+  String interface_synchronization() const;
 
   /// return evalCacheFlag
   bool evaluation_cache() const;
@@ -98,11 +98,11 @@ protected:
 
   /// executes a blocking schedule for asynchronous evaluations in the
   /// beforeSynchCorePRPQueue and returns all jobs
-  const IntResponseMap& synchronize();
+  const IntResponseMap& synch();
 
   /// executes a nonblocking schedule for asynchronous evaluations in the
   /// beforeSynchCorePRPQueue and returns a partial set of completed jobs
-  const IntResponseMap& synchronize_nowait();
+  const IntResponseMap& synch_nowait();
 
   /// run on evaluation servers to serve the iterator master
   void serve_evaluations();
@@ -113,9 +113,10 @@ protected:
   /// checks on multiprocessor analysis configuration
   bool check_multiprocessor_analysis(bool warn);
   /// checks on asynchronous configuration (for direct interfaces)
-  bool check_asynchronous(bool warn, int max_eval_concurrency);
+  bool check_asynchronous(bool warn, int max_iterator_concurrency);
   /// checks on asynchronous settings for multiprocessor partitions
-  bool check_multiprocessor_asynchronous(bool warn, int max_eval_concurrency);
+  bool check_multiprocessor_asynchronous(bool warn,
+					 int max_iterator_concurrency);
 
   //
   //- Heading: Virtual functions (evaluations)
@@ -149,9 +150,9 @@ protected:
   //virtual void clear_bookkeeping();
 
   /// perform construct-time error checks on the parallel configuration
-  virtual void init_communicators_checks(int max_eval_concurrency);
+  virtual void init_communicators_checks(int max_iterator_concurrency);
   /// perform run-time error checks on the parallel configuration
-  virtual void set_communicators_checks(int max_eval_concurrency);
+  virtual void set_communicators_checks(int max_iterator_concurrency);
 
   //
   //- Heading: Member functions (analyses)
@@ -212,6 +213,7 @@ protected:
   int analysisCommRank; ///< processor rank within analysisComm
   int analysisServerId; ///< analysis server identifier
   int numAnalysisServers;     ///< current number of analysis servers
+  int numAnalysisServersSpec; ///< user spec for number of analysis servers
 
   /// flag for multiprocessor analysis partitions
   bool multiProcAnalysisFlag;
@@ -219,15 +221,12 @@ protected:
   /// flag for asynchronous local parallelism of analyses
   bool asynchLocalAnalysisFlag;
 
+  /// user specification for asynchronous local analysis concurrency
+  int asynchLocalAnalysisConcSpec;
   /// limits the number of concurrent analyses in asynchronous local
   /// scheduling and specifies hybrid concurrency when message passing
   int asynchLocalAnalysisConcurrency;
   // NOTE: make private when analysis schedulers are elevated
-
-  /// user specification for asynchronous local evaluation concurrency
-  int asynchLocalEvalConcSpec;
-  /// user specification for asynchronous local analysis concurrency
-  int asynchLocalAnalysisConcSpec;
 
   /// the number of analysis drivers used for each function evaluation
   /// (from the analysis_drivers interface specification)
@@ -236,10 +235,6 @@ protected:
   /// the set of completed fn_eval_id's populated by wait_local_evaluations()
   /// and test_local_evaluations()
   IntSet completionSet;
-
-  /// base message for managing failed evals; will be followed with
-  /// more details in screen output
-  String failureMessage;
 
 private:
 
@@ -252,11 +247,7 @@ private:
   bool duplication_detect(const Variables& vars, Response& response,
 			  bool asynch_flag);
 
-  /// initialize default ASV if needed; this is done at run time due
-  /// to post-construct time Response size changes.
-  void init_default_asv(size_t num_fns);
-
-  // Scheduling routines employed by synchronize():
+  // Scheduling routines employed by synch():
 
   /// blocking dynamic schedule of all evaluations in beforeSynchCorePRPQueue
   /// using message passing on a dedicated master partition; executes on
@@ -275,13 +266,11 @@ private:
   /// the local processor
   void synchronous_local_evaluations(PRPQueue& prp_queue);
 
-  // Scheduling routines employed by synchronize_nowait():
+  // Scheduling routines employed by synch_nowait():
 
   /// execute a nonblocking dynamic schedule in a master-slave partition
   void master_dynamic_schedule_evaluations_nowait();
-  /// execute a nonblocking static schedule in a peer partition
-  void peer_static_schedule_evaluations_nowait();
-  /// execute a nonblocking dynamic schedule in a peer partition
+  /// execute a nonblocking static/dynamic schedule in a peer partition
   void peer_dynamic_schedule_evaluations_nowait();
   /// launch new jobs in prp_queue asynchronously (if capacity is
   /// available), perform nonblocking query of all running jobs, and
@@ -395,13 +384,9 @@ private:
   int numEvalServers;
   /// user specification for number of evaluation servers
   int numEvalServersSpec;
-  /// user specification for processors per analysis servers
-  int procsPerEvalSpec;
 
   /// flag for message passing at ea scheduling level
   bool eaMessagePass;
-  /// user spec for number of analysis servers
-  int numAnalysisServersSpec;
   /// user specification for processors per analysis servers
   int procsPerAnalysisSpec;
 
@@ -418,15 +403,17 @@ private:
   /// computed in Model::init_communicators()
   int lenPRPairMessage;
 
-  /// user specification of evaluation scheduling algorithm:
-  /// {DEFAULT,MASTER,PEER_DYNAMIC,PEER_STATIC}_SCHEDULING.  Used for manual
-  /// overrides of auto-configure logic in ParallelLibrary::resolve_inputs().
-  short evalScheduling;
-  /// user specification of analysis scheduling algorithm:
-  /// {DEFAULT,MASTER,PEER}_SCHEDULING.  Used for manual overrides of
-  /// the auto-configure logic in ParallelLibrary::resolve_inputs().
-  short analysisScheduling;
+  /// user specification of evaluation scheduling algorithm (self,
+  /// static, or no spec).  Used for manual overrides of the
+  /// auto-configure logic in ParallelLibrary::resolve_inputs().
+  String evalScheduling;
+  /// user specification of analysis scheduling algorithm (self,
+  /// static, or no spec).  Used for manual overrides of the
+  /// auto-configure logic in ParallelLibrary::resolve_inputs().
+  String analysisScheduling;
 
+  /// user specification for asynchronous local evaluation concurrency
+  int asynchLocalEvalConcSpec;
   /// limits the number of concurrent evaluations in asynchronous local
   /// scheduling and specifies hybrid concurrency when message passing
   int asynchLocalEvalConcurrency;
@@ -441,11 +428,11 @@ private:
 
   /// interface synchronization specification: synchronous (default)
   /// or asynchronous
-  short interfaceSynchronization;
+  String interfaceSynchronization;
 
-  /// used by synchronize_nowait to manage header output frequency (since this
-  /// function may be called many times prior to any completions)
-  bool headerFlag;
+  // used by synch_nowait to manage output frequency (since this
+  // function may be called many times prior to any completions)
+  //bool headerFlag;
 
   /// used to manage a user request to deactivate the active set vector
   /// control.
@@ -457,27 +444,10 @@ private:
   /// used to manage a user request to deactivate the function evaluation
   /// cache (i.e., queries and insertions using the data_pairs cache).
   bool evalCacheFlag;
-  /// flag indicating optional usage of tolerance-based duplication detection
-  /// (less efficient, but helpful when experiencing restart cache misses)
-  bool nearbyDuplicateDetect;
-  /// tolerance value for tolerance-based duplication detection
-  Real nearbyTolerance;
 
   /// used to manage a user request to deactivate the restart file (i.e., 
   /// insertions into write_restart).
   bool restartFileFlag;
-
-  /// type of gradients present in associated Response
-  String gradientType;
-
-  /// type of Hessians present in associated Response
-  String hessianType;
-
-  /// IDs of analytic gradients when mixed gradients present
-  IntSet gradMixedAnalyticIds;
-
-  /// IDs of analytic gradients when mixed gradients present
-  IntSet hessMixedAnalyticIds;
 
   /// the static ASV values used when the user has selected asvControl = off
   ShortArray defaultASV;
@@ -505,12 +475,12 @@ private:
 
   /// used to bookkeep vars/set/response of nonduplicate asynchronous core
   /// evaluations.  This is the queue of jobs populated by asynchronous map()
-  /// that is later scheduled in synchronize() or synchronize_nowait().
+  /// that is later scheduled in synch() or synch_nowait().
   PRPQueue beforeSynchCorePRPQueue;
 
   /// used to bookkeep vars/set/response of asynchronous algebraic evaluations.
   /// This is the queue of algebraic jobs populated by asynchronous map()
-  /// that is later evaluated in synchronize() or synchronize_nowait().
+  /// that is later evaluated in synch() or synch_nowait().
   PRPQueue beforeSynchAlgPRPQueue;
 
   /// used by nonblocking asynchronous local schedulers to bookkeep
@@ -518,10 +488,7 @@ private:
   PRPQueue asynchLocalActivePRPQueue;
   /// used by nonblocking message passing schedulers to bookkeep which
   /// jobs are running remotely
-  std::map<int, IntSizetPair> msgPassRunningMap;
-  /// fnEvalId reference point for preserving modulo arithmetic-based
-  /// job assignment in case of peer static nonblocking schedulers
-  int nowaitEvalIdRef;
+  std::map<int, IntIntPair> msgPassRunningMap;
 
   /// array of pack buffers for evaluation jobs queued to a server
   MPIPackBuffer*   sendBuffers;
@@ -564,7 +531,7 @@ inline int ApplicationInterface::asynch_local_evaluation_concurrency() const
 { return asynchLocalEvalConcurrency; }
 
 
-inline short ApplicationInterface::interface_synchronization() const
+inline String ApplicationInterface::interface_synchronization() const
 { return interfaceSynchronization; }
 
 
@@ -619,7 +586,10 @@ synchronous_local_analysis(int analysis_id)
 
 inline void ApplicationInterface::
 broadcast_evaluation(const ParamResponsePair& pair)
-{ broadcast_evaluation(pair.eval_id(), pair.variables(), pair.active_set()); }
+{
+  broadcast_evaluation(pair.eval_id(), pair.prp_parameters(),
+		       pair.active_set());
+}
 
 
 inline void ApplicationInterface::
@@ -632,7 +602,7 @@ send_evaluation(PRPQueueIter& prp_it, size_t buff_index, int server_id,
     //sendBuffers[buff_index].resize(lenVarsActSetMessage); // protected
     recvBuffers[buff_index].resize(lenResponseMessage);
   }
-  sendBuffers[buff_index] << prp_it->variables() << prp_it->active_set();
+  sendBuffers[buff_index] << prp_it->prp_parameters() << prp_it->active_set();
 
   int fn_eval_id = prp_it->eval_id();
   if (outputLevel > SILENT_OUTPUT) {

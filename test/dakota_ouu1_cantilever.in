@@ -1,11 +1,10 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_DOT
 # DAKOTA Input File: dakota_ouu1_cantilever.in
 # Optimization under uncertainty
 # using the cantilever test function.
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -72,7 +71,7 @@ method,
         sampling
 	  samples = 50 sample_type lhs
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  output quiet
 
 model,

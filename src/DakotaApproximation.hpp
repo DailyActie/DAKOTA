@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -49,8 +49,7 @@ public:
   /// default constructor
   Approximation();
   /// standard constructor for envelope
-  Approximation(ProblemDescDB& problem_db, const SharedApproxData& shared_data,
-                const String& approx_label);
+  Approximation(ProblemDescDB& problem_db, const SharedApproxData& shared_data);
    /// alternate constructor
   Approximation(const SharedApproxData& shared_data);
   /// copy constructor
@@ -68,29 +67,20 @@ public:
 
   /// builds the approximation from scratch
   virtual void build();
-  /// exports the approximation
-  virtual void export_model(const String& fn_label = "", 
-      const String& export_prefix = "", 
-      const unsigned short export_format = NO_MODEL_FORMAT );
   /// rebuilds the approximation incrementally
   virtual void rebuild();
   /// removes entries from end of SurrogateData::{vars,resp}Data
   /// (last points appended, or as specified in args)
   virtual void pop(bool save_data);
-  /// restores state prior to previous pop()
-  virtual void push();
+  /// restores state prior to previous append()
+  virtual void restore();
   /// finalize approximation by applying all remaining trial sets
   virtual void finalize();
 
-  /// store current approximation state for later combination
-  virtual void store(size_t index = _NPOS);
-  /// restore previous approximation state
-  virtual void restore(size_t index = _NPOS);
-  /// remove a stored approximation prior to combination
-  virtual void remove_stored(size_t index = _NPOS);
-
+  /// store current approximation for later combination
+  virtual void store();
   /// combine current approximation with previously stored approximation
-  virtual void combine(short corr_type, size_t swap_index);
+  virtual void combine(short corr_type);
 
   /// retrieve the approximate function value for a given parameter vector
   virtual Real value(const Variables& vars);
@@ -100,51 +90,29 @@ public:
   virtual const RealSymMatrix& hessian(const Variables& vars);
   /// retrieve the variance of the predicted value for a given parameter vector
   virtual Real prediction_variance(const Variables& vars);
-    
-  /// retrieve the approximate function value for a given parameter vector
-  virtual Real value(const RealVector& c_vars);
-  /// retrieve the approximate function gradient for a given parameter vector
-  virtual const RealVector& gradient(const RealVector& c_vars);
-  /// retrieve the approximate function Hessian for a given parameter vector
-  virtual const RealSymMatrix& hessian(const RealVector& c_vars);
-  /// retrieve the variance of the predicted value for a given parameter vector
-  virtual Real prediction_variance(const RealVector& c_vars);
-    
 
   /// check if diagnostics are available for this approximation type
   virtual bool diagnostics_available();
   /// retrieve a single diagnostic metric for the diagnostic type specified
   virtual Real diagnostic(const String& metric_type);
-  /// retrieve diagnostic metrics for the diagnostic types specified, applying 
-  // num_folds-cross validation
-  virtual RealArray cv_diagnostic(const StringArray& metric_types,
-				  unsigned num_folds);
   /// compute and print all requested diagnostics and cross-validation 
   virtual void primary_diagnostics(int fn_index);
-  /// compute requested diagnostics for user provided challenge pts
-  virtual RealArray challenge_diagnostic(const StringArray& metric_types,
-			    const RealMatrix& challenge_points,
-                            const RealVector& challenge_responses);
   /// compute and print all requested diagnostics for user provided
   /// challenge pts
-  virtual void challenge_diagnostics(int fn_index, 
-				     const RealMatrix& challenge_points, 
-                                     const RealVector& challenge_responses);
-  // TODO: private implementation of cross-validation:
-  //  void cross_validate(metrics, folds)
+  virtual void challenge_diagnostics(const RealMatrix& challenge_points, 
+				     int fn_index);
 
   /// return the coefficient array computed by build()/rebuild()
-  virtual RealVector approximation_coefficients(bool normalized) const;
+  virtual const RealVector& approximation_coefficients() const;
   /// set the coefficient array from external sources, rather than
   /// computing with build()/rebuild()
-  virtual void approximation_coefficients(const RealVector& approx_coeffs,
-					  bool normalized);
+  virtual void approximation_coefficients(const RealVector& approx_coeffs);
 
   /// print the coefficient array computed in build()/rebuild()
   virtual void coefficient_labels(std::vector<std::string>& coeff_labels) const;
 
   /// print the coefficient array computed in build()/rebuild()
-  virtual void print_coefficients(std::ostream& s, bool normalized);
+  virtual void print_coefficients(std::ostream& s, bool normalized = false);
 
   /// return the minimum number of samples (unknowns) required to
   /// build the derived class approximation type in numVars dimensions
@@ -197,10 +165,6 @@ public:
   void add(const Response& response, int fn_index, bool anchor_flag,
 	   bool deep_copy);
 
-  /// add data from the provided samples and response matrices,
-  /// assuming continuous variables and function values only
-  void add(const RealMatrix& sample_vars, const RealVector& sample_resp);
-
   /// appends to popCountStack (number of entries to pop from end of
   /// SurrogateData::{vars,resp}Data, based on size of last data set appended)
   void pop_count(size_t count);
@@ -216,8 +180,8 @@ public:
   void clear_anchor();
   /// clear SurrogateData::{vars,resp}Data
   void clear_data();
-  /// clear popCountStack and SurrogateData::popped{Vars,Resp}Trials
-  void clear_popped();
+  /// clear popCountStack and SurrogateData::saved{Vars,Resp}Trials
+  void clear_saved();
 
   /// set approximation lower and upper bounds (currently only used by graphics)
   void set_bounds(const RealVector&  c_l_bnds, const RealVector&  c_u_bnds,
@@ -241,8 +205,7 @@ protected:
   /// (BaseConstructor overloading avoids infinite recursion in the
   /// derived class constructors - Coplien, p. 139)
   Approximation(BaseConstructor, const ProblemDescDB& problem_db,
-		const SharedApproxData& shared_data, 
-                const String& approx_label);
+		const SharedApproxData& shared_data);
 
   /// constructor initializes the base class part of letter classes
   /// (BaseConstructor overloading avoids infinite recursion in the
@@ -268,9 +231,6 @@ protected:
   /// contains the approximation data that is shared among the response set
   SharedApproxData* sharedDataRep;
 
-  /// label for approximation, if applicable
-  String approxLabel;
-
 private:
 
   //
@@ -280,8 +240,7 @@ private:
   /// Used only by the standard envelope constructor to initialize
   /// approxRep to the appropriate derived type.
   Approximation* get_approx(ProblemDescDB& problem_db,
-			    const SharedApproxData& shared_data,
-                            const String& approx_label);
+			    const SharedApproxData& shared_data);
 
   /// Used only by the alternate envelope constructor to initialize
   /// approxRep to the appropriate derived type.
@@ -445,13 +404,13 @@ inline void Approximation::clear_data()
 }
 
 
-inline void Approximation::clear_popped()
+inline void Approximation::clear_saved()
 {
   if (approxRep) // envelope fwd to letter
-    approxRep->clear_popped();
+    approxRep->clear_saved();
   else { // not virtual: base class implementation
     popCountStack.clear();
-    approxData.clear_popped();
+    approxData.clear_saved();
   }
 }
 

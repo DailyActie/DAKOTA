@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,6 +37,7 @@ namespace Dakota {
 SharedSurfpackApproxData::
 SharedSurfpackApproxData(ProblemDescDB& problem_db, size_t num_vars):
   SharedApproxData(BaseConstructor(), problem_db, num_vars),
+  exportModelName(problem_db.get_string("model.surrogate.export_model_file")),
   diagnosticSet(problem_db.get_sa("model.metrics")),
   crossValidateFlag(problem_db.get_bool("model.surrogate.cross_validate")),
   numFolds(problem_db.get_int("model.surrogate.folds")),

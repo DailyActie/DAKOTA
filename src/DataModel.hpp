@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -27,17 +27,12 @@ enum { DEFAULT_POINTS, MINIMUM_POINTS, RECOMMENDED_POINTS, TOTAL_POINTS };
 
 /// define special values for SurrogateModel::responseMode
 enum { NO_SURROGATE=0,  UNCORRECTED_SURROGATE, AUTO_CORRECTED_SURROGATE,
-       BYPASS_SURROGATE, MODEL_DISCREPANCY, AGGREGATED_MODELS };
+       BYPASS_SURROGATE, MODEL_DISCREPANCY };
 
 /// define special values for approxCorrectionType
 enum { NO_CORRECTION=0,  ADDITIVE_CORRECTION, MULTIPLICATIVE_CORRECTION,
        COMBINED_CORRECTION };
 
-/// define types of random field approximations
-enum { RF_KARHUNEN_LOEVE=0, RF_PCA_GP, RF_ICA };
-
-/// define types of analytic covariance functions
-enum { NOCOVAR=0, EXP_L2, EXP_L1 };
 
 /// Body class for model specification data.
 
@@ -87,20 +82,6 @@ public:
   /// \ref ModelNested)
   String subMethodPointer;
 
-  // single/simulation models
-
-  /// (state) variable identifier that defines a set or range of solution
-  /// level controls (space/time discretization levels, iterative convergence
-  /// tolerances, etc.) for defining a secondary hierarchy of fidelity within
-  /// the scope of a single model form (from \c solution_level_control
-  /// specification; see also \c ordered_model_fidelities)
-  String solutionLevelControl;
-  /// array of relative simulation costs corresponding to each of the
-  /// solution levels (from \c solution_level_cost specification; see also
-  /// \c solution_level_control); a scalar input is interpreted as a constant
-  /// cost multiplier to be applied recursively
-  RealVector solutionLevelCost;
-
   // surrogate models
 
   /// array specifying the response function set that is approximated
@@ -110,13 +91,15 @@ public:
   /// polynomial,kriging), or hierarchical
   String surrogateType;
   /// pointer to the model specification for constructing the truth model
-  /// used in constructing surrogates (from the \c actual_model_pointer
-  /// specification in \ref ModelSurrL and \ref ModelSurrMP)
-  String actualModelPointer;
-  /// an ordered list of model pointers (low to high) corresponding to a
-  /// hierarchy of modeling fidelity (from the \c ordered_model_fidelities
+  /// used in building local, multipoint, and hierarchical approximations
+  /// (from the \c actual_model_pointer specification in \ref ModelSurrL
+  /// and \ref ModelSurrMP and the \c high_fidelity_model_pointer
   /// specification in \ref ModelSurrH)
-  StringArray orderedModelPointers;
+  String truthModelPointer;
+  /// pointer to the low fidelity model specification used in
+  /// hierarchical approximations (from the \c low_fidelity_model_pointer
+  /// specification in \ref ModelSurrH)
+  String lowFidelityModelPointer;
 
   // controls for number of points with which to build the model
 
@@ -131,37 +114,20 @@ public:
   /// region, or file (from the \c reuse_samples specification in
   /// \ref ModelSurrG)
   String approxPointReuse;
-
-  /// the file name from the \c import_build_points_file specification in
+  /// the file name from the \c import_points_file specification in
   /// \ref ModelSurrG
-  String importBuildPtsFile;
-  /// tabular format for the build point import file
-  unsigned short importBuildFormat;
-  /// whether to import active variables only
-  bool importBuildActive;
-
-  // the file name from the \c import_approx_points_file specification in
-  // \ref ModelSurrG
-  //String importApproxPtsFile;
-  // tabular format for the approx point import file
-  //unsigned short importApproxFormat;
-  // whether to import active variables only
-  //bool importApproxActive;
-
-  /// the file name from the \c export_approx_points_file specification in
+  String approxImportFile;
+  /// whether the point import file is annotated (default true)
+  bool approxImportAnnotated;
+  /// the file name from the \c export_points_file specification in
   /// \ref ModelSurrG
-  String exportApproxPtsFile;
-  /// tabular format for the approx point export file
-  unsigned short exportApproxFormat;
+  String approxExportFile;
+  /// whether the point export file is annotated (default true)
+  bool approxExportAnnotated;
 
-  /// Option to turn on surrogate model export (export_model)
-  bool exportSurrogate;
-
-  /// the filename prefix for export_model
-  String modelExportPrefix;
-
-  /// Format selection for export_model
-  unsigned short modelExportFormat;
+  /// the file name from the \c export_model_file specification in
+  /// \ref ModelSurrG
+  String approxExportModelFile;
 
   /// correction type for global and hierarchical approximations:
   /// NO_CORRECTION, ADDITIVE_CORRECTION, MULTIPLICATIVE_CORRECTION,
@@ -195,6 +161,8 @@ public:
   Real krigingNugget;
   /// option to have Kriging find the best nugget value to use
   short krigingFindNugget;
+  /// polynomial order for moving least squares approximation
+  short mlsPolyOrder;
   /// weight function for moving least squares approximation
   short mlsWeightFunction;
   /// bases for radial basis function approximation
@@ -215,21 +183,6 @@ public:
   short annNodes;
   /// range for artificial neural network approximation
   Real annRange;
-
-  /// whether domain decomposition is enabled
-  bool domainDecomp;
-  /// type of local cell of domain decomp
-  String decompCellType;
-  /// number of support layers for each local basis function
-  int decompSupportLayers;
-  /// whether discontinuity detection is enabled
-  bool decompDiscontDetect;
-  /// function value (jump) threshold for discontinuity detection in
-  /// domain decomp
-  Real discontJumpThresh;
-  /// gradient threshold for discontinuity detection in domain decomp
-  Real discontGradThresh;
-
   /// scalar integer indicating the order of the Gaussian process mean
   /// (0= constant, 1=linear, 2=quadratic, 3=cubic); from the
   /// \c gaussian_process specification  in \ref ModelSurrG)
@@ -247,14 +200,12 @@ public:
   Real percentFold;
   /// flag indicating the use of PRESS on the metrics specified
   bool pressFlag;
-
   /// the file name from the \c challenge_points_file specification in
   /// \ref ModelSurrG
-  String importChallengePtsFile;
-  /// tabular format of the challenge data file
-  unsigned short importChallengeFormat;
-  /// whether to import active variables only
-  bool importChallengeActive;
+  String approxChallengeFile;
+  /// whether the challenge data file is annotated (default true)
+  bool approxChallengeAnnotated;
+
 
   // nested models
 
@@ -282,73 +233,6 @@ public:
   /// level (constraint) functions (from the \c secondary_response_mapping
   /// specification in \ref ModelNested)
   RealVector secondaryRespCoeffs;
-  /// number of servers for concurrent sub-iterator parallelism
-  int subMethodServers;
-  /// number of processors for each concurrent sub-iterator partition
-  int subMethodProcs;
-  /// scheduling approach for concurrent sub-iterator parallelism:
-  /// {DEFAULT,MASTER,PEER}_SCHEDULING
-  short subMethodScheduling;
-
-  // subspace models
-
-  /// initial samples to build the subspace model
-  int initialSamples;
-
-  /// sampling method for building the subspace model
-  unsigned short subspaceSampleType;
-
-  /// refinement samples to add in each batch
-  IntVector refineSamples;
-  /// maximum number of subspace build iterations
-  int maxIterations;
-  /// convergence tolerance on build process
-  Real convergenceTolerance;
-
-  /// Flag to use Bing Li method to identify active subspace dimension
-  bool subspaceIdBingLi;
-
-  /// Flag to use Constantine method to identify active subspace dimension
-  bool subspaceIdConstantine;
-
-  /// Flag to use eigenvalue energy method to identify active subspace dimension
-  bool subspaceIdEnergy;
-
-  /// Flag to build surrogate over active subspace
-  bool subspaceBuildSurrogate;
-
-  /// Size of subspace
-  int dimension;
-
-  /// Number of bootstrap samples for subspace identification
-  int numReplicates;
-
-  /// whether automatic surrogate refinement is enabled
-  bool autoRefine;
-  /// maximum evals in refinement
-  int maxFunctionEvals;
-  /// metric to use in cross-validation guided refinement
-  String refineCVMetric;
-  /// max number of iterations in refinement without improvement
-  int softConvergenceLimit;
-  /// number of cross-validation folds in guided refinement
-  int refineCVFolds;
-  
-  // random field models
-
-  /// Contains which type of random field model 
-  unsigned short randomFieldIdForm;
-
-  /// Contains which type of analytic covariance function 
-  unsigned short analyticCovIdForm;
-
-  /// truncation tolerance on build process: percent variance explained
-  Real truncationTolerance;
-
-  /// pointer to the model through which to propagate the random field
-  String propagationModelPointer;
-  /// File from which to build the random field
-  String rfDataFileName;
 
 private:
 
@@ -428,11 +312,9 @@ public:
 
   /// read a DataModel object from a packed MPI buffer
   void read(MPIUnpackBuffer& s);
+
   /// write a DataModel object to a packed MPI buffer
   void write(MPIPackBuffer& s) const;
-
-  /// return dataModelRep
-  DataModelRep* data_rep();
 
 private:
 
@@ -443,10 +325,6 @@ private:
   /// pointer to the body (handle-body idiom)
   DataModelRep* dataModelRep;
 };
-
-
-inline DataModelRep* DataModel::data_rep()
-{return dataModelRep; }
 
 
 /// MPIPackBuffer insertion operator for DataModel

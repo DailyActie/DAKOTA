@@ -1,0 +1,12 @@
+Blurb::
+What does this do???????????????
+Description::
+<b> See the page \ref topic-package_scolib for important information
+
+!!!!!! NOT ACTUALLY MENTIONED AT ALL IN THE REFMAN??!?!?!
+
+Topics::	package_scolib, package_coliny, problem, not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	method-coliny_direct, method-coliny_pattern_search, method-coliny_cobyla, method-coliny_ea, method-coliny_solis_wets

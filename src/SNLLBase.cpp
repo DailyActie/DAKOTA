@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -40,7 +40,7 @@ int        SNLLBase::lastEvalMode(1);
 RealVector SNLLBase::lastEvalVars;
 
 
-SNLLBase::SNLLBase(ProblemDescDB& problem_db)
+SNLLBase::SNLLBase(Model& model)
 {
   // Use constructor only to populate problem_db attributes inherited by 
   // SNLLOptimizer/SNLLLeastSq from SNLLBase.  For attributes inherited by
@@ -48,6 +48,7 @@ SNLLBase::SNLLBase(ProblemDescDB& problem_db)
   // needed in SNLLBase, it's a bit cleaner/more flexible to have them passed
   // through member function parameter lists rather than re-extracted from
   // problem_db.
+  const ProblemDescDB& problem_db = model.problem_description_db();
   searchMethod    =  problem_db.get_string("method.optpp.search_method");
   constantASVFlag = !problem_db.get_bool("interface.active_set_vector");
   maxStep         =  problem_db.get_real("method.optpp.max_step");
@@ -112,12 +113,12 @@ void SNLLBase::snll_pre_instantiate(bool bound_constr_flag, int num_constr)
 
 
 void SNLLBase::
-snll_post_instantiate(int num_cv, bool vendor_num_grad_flag,
-		      const String& finite_diff_type, const RealVector& fdss,
-		      int max_iter, int max_fn_evals,
-		      Real conv_tol, Real grad_tol,
-		      Real max_step, bool bound_constr_flag,
-		      int num_constr, short output_lev,
+snll_post_instantiate(const int& num_cv, bool vendor_num_grad_flag,
+		      const String& finite_diff_type, const Real& fdss,
+		      const int& max_iter, const int& max_fn_evals,
+		      const Real& conv_tol, const Real& grad_tol,
+		      const Real& max_step, bool bound_constr_flag,
+		      const int& num_constr, short output_lev,
 		      OPTPP::OptimizeClass* the_optimizer, 
 		      OPTPP::NLP0* nlf_objective,
 		      OPTPP::FDNLF1* fd_nlf1, OPTPP::FDNLF1* fd_nlf1_con)
@@ -129,18 +130,18 @@ snll_post_instantiate(int num_cv, bool vendor_num_grad_flag,
   // fcn_acc = fdss*fdss (forward) || fdss*fdss*fdss (central)
   if ( vendor_num_grad_flag ) {
     // OPT++'s internal finite differencing in use.
-    Real fcn_acc, mcheps = DBL_EPSILON, fd_step_size = fdss[0]; // first entry
+    Real fcn_acc, mcheps = DBL_EPSILON;
     if (finite_diff_type == "central") {
       fd_nlf1->setDerivOption(OPTPP::CentralDiff); // See libopt/globals.h
       if (num_constr)
         fd_nlf1_con->setDerivOption(OPTPP::CentralDiff);
-      fcn_acc = std::pow(fd_step_size, 3);
+      fcn_acc = std::pow(fdss, 3);
     }
     else {
       fd_nlf1->setDerivOption(OPTPP::ForwardDiff); // See libopt/globals.h
       if (num_constr)
         fd_nlf1_con->setDerivOption(OPTPP::ForwardDiff);
-      fcn_acc = std::pow(fd_step_size, 2);
+      fcn_acc = std::pow(fdss, 2);
     }
     fcn_acc = std::max(mcheps,fcn_acc);
     RealVector fcn_accrcy(num_cv);
@@ -209,9 +210,7 @@ snll_initialize_run(OPTPP::NLP0* nlf_objective, OPTPP::NLP* nlp_constraint,
   // within opt++.  This occurs within the context of the run function so that
   // any variable reassignment at the strategy layer (after iterator
   // construction) is captured with setX.
-
-  // perform a deep copy to disconnect from Dakota's Teuchos::View
-  RealVector x(Teuchos::Copy, init_pt.values(), init_pt.length());
+  RealVector x(init_pt);
   nlf_objective->setX(x);  // setX accepts a ColumnVector
   size_t num_cv = init_pt.length();
 
@@ -225,12 +224,8 @@ snll_initialize_run(OPTPP::NLP0* nlf_objective, OPTPP::NLP* nlp_constraint,
   // so that any bounds modifications at the strategy layer (e.g., 
   // BranchBndStrategy, SurrBasedOptStrategy) are properly captured.
   if (bound_constr_flag) {
-    RealVector optpp_lbounds(Teuchos::Copy, lower_bounds.values(),
-			     lower_bounds.length());
-    RealVector optpp_ubounds(Teuchos::Copy, upper_bounds.values(),
-			     upper_bounds.length());
     OPTPP::Constraint bc
-      = new OPTPP::BoundConstraint(num_cv, optpp_lbounds, optpp_ubounds);
+      = new OPTPP::BoundConstraint(num_cv, lower_bounds, upper_bounds);
     constraint_array.append(bc);
   }
 
@@ -246,25 +241,15 @@ snll_initialize_run(OPTPP::NLP0* nlf_objective, OPTPP::NLP* nlp_constraint,
   if (num_lin_con) {
 
     if (num_lin_ineq_con){
-      RealMatrix optpp_lin_ineq_coeffs(Teuchos::Copy, lin_ineq_coeffs,
-				       num_lin_ineq_con, init_pt.length());
-      RealVector optpp_lin_ineq_lbnds(Teuchos::Copy, lin_ineq_l_bnds.values(),
-				      num_lin_ineq_con);
-      RealVector optpp_lin_ineq_ubnds(Teuchos::Copy, lin_ineq_u_bnds.values(),
-				      num_lin_ineq_con);
-      OPTPP::Constraint li = new OPTPP::LinearInequality(optpp_lin_ineq_coeffs,
-							 optpp_lin_ineq_lbnds,
-							 optpp_lin_ineq_ubnds);
+      OPTPP::Constraint li = new OPTPP::LinearInequality(lin_ineq_coeffs,
+							 lin_ineq_l_bnds,
+							 lin_ineq_u_bnds);
       constraint_array.append(li);
     }
 
     if (num_lin_eq_con) {
-      RealMatrix optpp_lin_eq_coeffs(Teuchos::Copy, lin_eq_coeffs,
-				     num_lin_eq_con, init_pt.length());
-      RealVector optpp_lin_eq_targets(Teuchos::Copy, lin_eq_targets.values(),
-				      num_lin_eq_con);
-      OPTPP::Constraint le = new OPTPP::LinearEquation(optpp_lin_eq_coeffs,
-						       optpp_lin_eq_targets);
+      OPTPP::Constraint le = new OPTPP::LinearEquation(lin_eq_coeffs,
+						       lin_eq_targets);
       constraint_array.append(le);
     }
   }
@@ -331,7 +316,7 @@ void SNLLBase::snll_post_run(OPTPP::NLP0* nlf_objective)
 
 void SNLLBase::
 copy_con_vals_dak_to_optpp(const RealVector& local_fn_vals, RealVector& g,
-              size_t offset)
+              const size_t& offset)
 {
   // Unlike DAKOTA, OPT++ expects nonlinear equations followed by nonlinear
   // inequalities.  Therefore, we have to reorder the constraint values.
@@ -346,7 +331,7 @@ copy_con_vals_dak_to_optpp(const RealVector& local_fn_vals, RealVector& g,
 
 void SNLLBase::
 copy_con_vals_optpp_to_dak(const RealVector& g, RealVector& local_fn_vals,
-	      size_t offset)
+	      const size_t& offset)
 {
   // Unlike DAKOTA, OPT++ expects nonlinear equations followed by nonlinear
   // inequalities.  Therefore, we have to reorder the constraint values.
@@ -361,7 +346,7 @@ copy_con_vals_optpp_to_dak(const RealVector& g, RealVector& local_fn_vals,
 
 void SNLLBase::
 copy_con_grad(const RealMatrix& local_fn_grads, RealMatrix& grad_g,
-              size_t offset)
+              const size_t& offset)
 {
   // Unlike DAKOTA, OPT++ expects nonlinear equations followed by nonlinear
   // inequalities.  Therefore, we have to reorder the constraint gradients.
@@ -384,7 +369,8 @@ copy_con_grad(const RealMatrix& local_fn_grads, RealMatrix& grad_g,
 
 void SNLLBase::
 copy_con_hess(const RealSymMatrixArray& local_fn_hessians,
-              OPTPP::OptppArray<RealSymMatrix>& hess_g, size_t offset)
+              OPTPP::OptppArray<RealSymMatrix>& hess_g,
+	      const size_t& offset)
 {
   // Unlike DAKOTA, OPT++ expects nonlinear equations followed by nonlinear
   // inequalities.  Therefore, we have to reorder the constraint Hessians.

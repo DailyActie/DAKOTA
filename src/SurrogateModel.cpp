@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -30,11 +30,11 @@ namespace Dakota {
 SurrogateModel::SurrogateModel(ProblemDescDB& problem_db):
   Model(BaseConstructor(), problem_db),
   surrogateFnIndices(problem_db.get_is("model.surrogate.function_indices")),
-  responseMode(AUTO_CORRECTED_SURROGATE), surrModelEvalCntr(0), approxBuilds(0)
+  responseMode(AUTO_CORRECTED_SURROGATE), approxBuilds(0)
 {
   // process surrogateFnIndices. IntSets are sorted and unique.
   if (surrogateFnIndices.empty()) // default: all fns are approximated
-    for (int i=0; i<numFns; ++i)
+    for (int i=0; i<numFns; i++)
       surrogateFnIndices.insert(i);
   else {
     // check for out of range values
@@ -48,17 +48,15 @@ SurrogateModel::SurrogateModel(ProblemDescDB& problem_db):
 
 
 SurrogateModel::
-SurrogateModel(ProblemDescDB& problem_db, ParallelLibrary& parallel_lib,
-	       const SharedVariablesData& svd, const SharedResponseData& srd,
+SurrogateModel(ParallelLibrary& parallel_lib, const SharedVariablesData& svd,
 	       const ActiveSet& set, short output_level):
-  Model(LightWtBaseConstructor(), problem_db, parallel_lib, svd, srd,
-	set, output_level),
-  responseMode(AUTO_CORRECTED_SURROGATE), surrModelEvalCntr(0), approxBuilds(0)
+  Model(NoDBBaseConstructor(), parallel_lib, svd, set, output_level),
+  responseMode(AUTO_CORRECTED_SURROGATE), approxBuilds(0)
 {
   modelType = "surrogate";
 
   // set up surrogateFnIndices to use default (all fns are approximated)
-  for (int i=0; i<numFns; ++i)
+  for (int i=0; i<numFns; i++)
     surrogateFnIndices.insert(i);
 }
 
@@ -90,18 +88,15 @@ void SurrogateModel::check_submodel_compatibility(const Model& sub_model)
   if ( cv_active_view == sm_active_view ) {
     // common cases: Distinct on Distinct (e.g., opt/UQ on local/multipt/hier)
     //               All on All           (e.g., DACE/PStudy on global)
-    size_t sm_cv = sub_model.cv(),     sm_div = sub_model.div(),
-      sm_dsv = sub_model.dsv(),        sm_drv = sub_model.drv(),
-      cv_cv  = currentVariables.cv(),  cv_div = currentVariables.div(),
-      cv_dsv = currentVariables.dsv(), cv_drv = currentVariables.drv();
-    if ( sm_cv  != cv_cv  || sm_div != cv_div ||
-	 sm_dsv != cv_dsv || sm_drv != cv_drv ) {
+    size_t sm_cv = sub_model.cv(), sm_div = sub_model.div(),
+      sm_drv = sub_model.drv(), cv_cv = currentVariables.cv(),
+      cv_div = currentVariables.div(), cv_drv = currentVariables.drv();
+    if ( sm_cv != cv_cv || sm_div != cv_div || sm_drv != cv_drv ) {
       Cerr << "Error: incompatibility between approximate and actual model "
 	   << "variable sets within\n       SurrogateModel: active approximate "
 	   << "= " << cv_cv << " continuous, " << cv_div << " discrete int, "
-	   << cv_dsv << " discrete string, and " << cv_drv << " discrete real "
-	   << "and\n       active actual = " << sm_cv << " continuous, "
-	   << sm_div << " discrete int, " << sm_dsv << " discrete string, and "
+	   << "and " << cv_drv << " discrete real and\n       active actual = "
+	   << sm_cv << " continuous, " << sm_div << " discrete int, and "
 	   << sm_drv << " discrete real.  Check consistency of variables "
 	   << "specifications." << std::endl;
       error_flag = true;
@@ -111,42 +106,34 @@ void SurrogateModel::check_submodel_compatibility(const Model& sub_model)
     if ( ( sm_active_view == RELAXED_ALL || sm_active_view == MIXED_ALL ) &&
 	 cv_active_view >= RELAXED_DESIGN ) {
       // common case: Distinct on All (e.g., opt/UQ on global surrogate)
-      size_t sm_cv  = sub_model.cv(),      sm_div  = sub_model.div(),
-	sm_dsv  = sub_model.dsv(),         sm_drv  = sub_model.drv(),
-	cv_acv  = currentVariables.acv(),  cv_adiv = currentVariables.adiv(),
-	cv_adsv = currentVariables.adsv(), cv_adrv = currentVariables.adrv();
-      if ( sm_cv  != cv_acv  || sm_div != cv_adiv ||
-	   sm_dsv != cv_adsv || sm_drv != cv_adrv ) {
+      size_t sm_cv  = sub_model.cv(), sm_div  = sub_model.div(),
+	sm_drv  = sub_model.drv(), cv_acv = currentVariables.acv(),
+	cv_adiv = currentVariables.adiv(), cv_adrv = currentVariables.adrv();
+      if ( sm_cv != cv_acv || sm_div != cv_adiv || sm_drv != cv_adrv ) {
 	Cerr << "Error: incompatibility between approximate and actual model "
 	     << "variable sets within\n       SurrogateModel: active "
 	     << "approximate = " << cv_acv << " continuous, " << cv_adiv
-	     << " discrete int, " << cv_adsv << " discrete string, and "
-	     << cv_adrv << " discrete real (All view) and\n       "
-	     << "active actual = " << sm_cv << " continuous, " << sm_div
-	     << " discrete int, " << sm_dsv << " discrete string, and "
-	     << sm_drv << " discrete real.  Check consistency of variables "
-	     << "specifications." << std::endl;
+	     << " discrete int, and " << cv_adrv << " discrete real (All view) "
+	     << "and\n       active actual = " << sm_cv << " continuous, "
+	     << sm_div << " discrete int, and " << sm_drv << " discrete real.  "
+	     << "Check consistency of variables specifications." << std::endl;
 	error_flag = true;
       }
     }
     else if ( ( cv_active_view == RELAXED_ALL || cv_active_view == MIXED_ALL )
 	      && sm_active_view >= RELAXED_DESIGN ) {
       // common case: All on Distinct (e.g., DACE/PStudy on local/multipt/hier)
-      size_t sm_acv = sub_model.acv(),    sm_adiv = sub_model.adiv(),
-	sm_adsv = sub_model.adsv(),       sm_adrv = sub_model.adrv(),
-	cv_cv   = currentVariables.cv(),  cv_div  = currentVariables.div(),
-	cv_dsv  = currentVariables.dsv(), cv_drv  = currentVariables.drv();
-      if ( sm_acv  != cv_cv  || sm_adiv != cv_div ||
-	   sm_adsv != cv_dsv || sm_adrv != cv_drv ) {
+      size_t sm_acv = sub_model.acv(), sm_adiv = sub_model.adiv(),
+	sm_adrv = sub_model.adrv(), cv_cv = currentVariables.cv(),
+	cv_div = currentVariables.div(), cv_drv = currentVariables.drv();
+      if ( sm_acv != cv_cv || sm_adiv != cv_div || sm_adrv != cv_drv ) {
 	Cerr << "Error: incompatibility between approximate and actual model "
 	     << "variable sets within\n       SurrogateModel: active "
 	     << "approximate = " << cv_cv << " continuous, " << cv_div
-	     << " discrete int, " << cv_dsv << " discrete string, and "
-	     << cv_drv << " discrete real and\n       active actual = "
-	     << sm_acv << " continuous, " << sm_adiv << " discrete int, "
-	     << sm_adsv << " discrete string, and " << sm_adrv
-	     << " discrete real (All view).  Check consistency of variables "
-	     << "specifications." << std::endl;
+	     << " discrete int, and " << cv_drv << " discrete real and\n       "
+	     << "active actual = " << sm_acv << " continuous, " << sm_adiv
+	     << " discrete int, and " << sm_adrv << " discrete real (All view)."
+	     << "  Check consistency of variables specifications." << std::endl;
 	error_flag = true;
       }
     }
@@ -163,12 +150,10 @@ void SurrogateModel::check_submodel_compatibility(const Model& sub_model)
 	|| surrogateType == "hierarchical" ) &&
 	 ( sub_model.cv() != currentVariables.cv() ||
            sub_model.div() != currentVariables.div() ||
-           sub_model.dsv() != currentVariables.dsv() ||
            sub_model.drv() != currentVariables.drv() ) ) ||
        ( strbegins(surrogateType, "global_") &&
 	 ( sub_model.cv() != currentVariables.acv() ||
 	   sub_model.div() != currentVariables.adiv() ||
-	   sub_model.dsv() != currentVariables.adsv() ||
 	   sub_model.drv() != currentVariables.adrv() ) ) ) {
     Cerr << "Error: subordinate model not compatible within SurrogateModel.\n"
 	 << "       Check consistency of variables specifications for\n"
@@ -196,20 +181,12 @@ bool SurrogateModel::force_rebuild()
   // for global surrogates, force rebuild for change in active bounds
 
   Model& actual_model       = truth_model();
-
-  // Don't force rebuild for active subspace model:
-  // JAM TODO: There is probably a more elegant way to accomodate subspace models
-  if(actual_model.model_type() == "subspace")
-    return false;
-
   short  approx_active_view = currentVariables.view().first;
   if (actual_model.is_null()) {
     // compare reference vars against current inactive top-level data
     if ( referenceICVars  != currentVariables.inactive_continuous_variables() ||
 	 referenceIDIVars !=
 	 currentVariables.inactive_discrete_int_variables()                   ||
-	 referenceIDSVars !=
-	 currentVariables.inactive_discrete_string_variables()                ||
 	 referenceIDRVars !=
 	 currentVariables.inactive_discrete_real_variables() )
       return true;
@@ -222,7 +199,6 @@ bool SurrogateModel::force_rebuild()
 	   userDefinedConstraints.discrete_int_lower_bounds()                 ||
 	   referenceDIUBnds !=
 	   userDefinedConstraints.discrete_int_upper_bounds()                 ||
-	   // no discrete string bounds
 	   referenceDRLBnds !=
 	   userDefinedConstraints.discrete_real_lower_bounds()                ||
 	   referenceDRUBnds !=
@@ -240,8 +216,6 @@ bool SurrogateModel::force_rebuild()
 	 ( referenceICVars != currentVariables.inactive_continuous_variables()||
 	   referenceIDIVars !=
 	   currentVariables.inactive_discrete_int_variables()                 ||
-	   referenceIDSVars !=
-	   currentVariables.inactive_discrete_string_variables()              ||
 	   referenceIDRVars !=
 	   currentVariables.inactive_discrete_real_variables() ) )
       return true;
@@ -255,16 +229,12 @@ bool SurrogateModel::force_rebuild()
         currentVariables.continuous_variables());
       truthModelVars.all_discrete_int_variables(
         currentVariables.discrete_int_variables());
-      truthModelVars.all_discrete_string_variables(
-        currentVariables.discrete_string_variables());
       truthModelVars.all_discrete_real_variables(
         currentVariables.discrete_real_variables());
       // perform check on inactive data at sub-model level
       if ( referenceICVars  != truthModelVars.inactive_continuous_variables() ||
 	   referenceIDIVars !=
 	   truthModelVars.inactive_discrete_int_variables() ||
-	   referenceIDSVars !=
-	   truthModelVars.inactive_discrete_string_variables() ||
 	   referenceIDRVars !=
 	   truthModelVars.inactive_discrete_real_variables() )
 	return true;
@@ -274,9 +244,8 @@ bool SurrogateModel::force_rebuild()
     Model sub_model = actual_model.subordinate_model();
     while (sub_model.model_type() == "recast")
       sub_model = sub_model.subordinate_model();
-    if ( referenceICVars  != sub_model.inactive_continuous_variables()      ||
-         referenceIDIVars != sub_model.inactive_discrete_int_variables()    ||
-         referenceIDSVars != sub_model.inactive_discrete_string_variables() ||
+    if ( referenceICVars  != sub_model.inactive_continuous_variables()    ||
+         referenceIDIVars != sub_model.inactive_discrete_int_variables()  ||
          referenceIDRVars != sub_model.inactive_discrete_real_variables() )
       return true;
     */
@@ -290,10 +259,10 @@ bool SurrogateModel::force_rebuild()
 	// outer level values/bounds do not reflect inner level updates).
 
 	// force_rebuild() is called within the context of an approximate
-	// derived_evaluate(), whereas update_actual_model() and update_global()
-	// are called w/i the context of build_approximation().  Therefore, one
-	// must be cautious with assuming that top-level updates have propagated
-	// to lower levels.  (The only current use case involves
+	// derived_compute_response(), whereas update_actual_model() and
+	// update_global() are called w/i the context of build_approximation().
+	// Therefore, one must be cautious with assuming that top-level updates
+	// have propagated to lower levels.  (The only current use case involves
 	// uSpaceModel.force_rebuild() w/i NonDExpansion::compute_expansion(),
 	// although it may prove useful for other u-space approximations within
 	// PCE/SC and local/global reliability).
@@ -309,7 +278,6 @@ bool SurrogateModel::force_rebuild()
 	    referenceCUBnds  != sub_model.continuous_upper_bounds()    ||
 	    referenceDILBnds != sub_model.discrete_int_lower_bounds()  ||
 	    referenceDIUBnds != sub_model.discrete_int_upper_bounds()  ||
-	    // no discrete string bounds
 	    referenceDRLBnds != sub_model.discrete_real_lower_bounds() ||
 	    referenceDRUBnds != sub_model.discrete_real_upper_bounds())
 	  return true;
@@ -324,7 +292,6 @@ bool SurrogateModel::force_rebuild()
 		  userDefinedConstraints.discrete_int_lower_bounds()  ||
 		  referenceDIUBnds !=
 		  userDefinedConstraints.discrete_int_upper_bounds()  ||
-		  // no discrete string bounds
 		  referenceDRLBnds !=
 		  userDefinedConstraints.discrete_real_lower_bounds() ||
 		  referenceDRUBnds !=
@@ -342,7 +309,6 @@ bool SurrogateModel::force_rebuild()
 		  userDefinedConstraints.all_discrete_int_lower_bounds()   ||
 		  referenceDIUBnds !=
 		  userDefinedConstraints.all_discrete_int_upper_bounds()   ||
-		  // no discrete string bounds
 		  referenceDRLBnds !=
 		  userDefinedConstraints.all_discrete_real_lower_bounds()  ||
 		  referenceDRUBnds !=
@@ -362,7 +328,6 @@ bool SurrogateModel::force_rebuild()
 	  userDefinedConstraints.discrete_int_lower_bounds());
 	truthModelCons.all_discrete_int_upper_bounds(
 	  userDefinedConstraints.discrete_int_upper_bounds());
-	// no discrete string bounds
 	truthModelCons.all_discrete_real_lower_bounds(
 	  userDefinedConstraints.discrete_real_lower_bounds());
 	truthModelCons.all_discrete_real_upper_bounds(
@@ -372,7 +337,6 @@ bool SurrogateModel::force_rebuild()
 	     referenceCUBnds  != truthModelCons.continuous_upper_bounds()    ||
 	     referenceDILBnds != truthModelCons.discrete_int_lower_bounds()  ||
 	     referenceDIUBnds != truthModelCons.discrete_int_upper_bounds()  ||
-	     // no discrete string bounds
 	     referenceDRLBnds != truthModelCons.discrete_real_lower_bounds() ||
 	     referenceDRUBnds != truthModelCons.discrete_real_upper_bounds() )
 	  return true;
@@ -476,11 +440,7 @@ void SurrogateModel::
 asv_mapping(const ShortArray& orig_asv, ShortArray& actual_asv,
 	    ShortArray& approx_asv, bool build_flag)
 {
-  if (surrogateFnIndices.size() == numFns) {
-    if (build_flag) actual_asv = orig_asv;
-    else            approx_asv = orig_asv;
-  }
-  else { // mixed response set
+  if (surrogateFnIndices.size() != numFns) { // mixed response set
     if (build_flag) { // construct mode: define actual_asv
       actual_asv.assign(numFns, 0);
       for (ISIter it=surrogateFnIndices.begin();
@@ -504,6 +464,10 @@ asv_mapping(const ShortArray& orig_asv, ShortArray& actual_asv,
 	}
       }
     }
+  }
+  else {
+    if (build_flag) actual_asv = orig_asv;
+    else            approx_asv = orig_asv;
   }
 }
 
@@ -575,41 +539,6 @@ response_mapping(const Response& actual_response,
       }
     }
   }
-}
-
-
-void SurrogateModel::
-aggregate_response(const Response& hf_resp, const Response& lf_resp,
-		   Response& agg_resp)
-{
-  if (agg_resp.is_null())
-    agg_resp = currentResponse.copy(); // resized to 2x in resize_response()
-
-  const ShortArray& lf_asv =  lf_resp.active_set_request_vector();
-  const ShortArray& hf_asv =  hf_resp.active_set_request_vector();
-  ShortArray       agg_asv = agg_resp.active_set_request_vector();
-  size_t i, offset_i, num_lf_fns = lf_asv.size(), num_hf_fns = hf_asv.size();
-  short asv_i;
-
-  for (i=0; i<num_lf_fns; ++i) {
-    agg_asv[i] = asv_i = lf_asv[i];
-    if (asv_i & 1) agg_resp.function_value(lf_resp.function_value(i), i);
-    if (asv_i & 2)
-      agg_resp.function_gradient(lf_resp.function_gradient_view(i), i);
-    if (asv_i & 4) agg_resp.function_hessian(lf_resp.function_hessian(i), i);
-  }
-  
-  for (i=0; i<num_hf_fns; ++i) {
-    offset_i = i + num_lf_fns;
-    agg_asv[offset_i] = asv_i = hf_asv[i];
-    if (asv_i & 1) agg_resp.function_value(hf_resp.function_value(i), offset_i);
-    if (asv_i & 2)
-      agg_resp.function_gradient(hf_resp.function_gradient_view(i), offset_i);
-    if (asv_i & 4)
-      agg_resp.function_hessian(hf_resp.function_hessian(i), offset_i);
-  }
-
-  agg_resp.active_set_request_vector(agg_asv);
 }
 
 } // namespace Dakota

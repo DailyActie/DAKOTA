@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -13,8 +13,9 @@
 #include "DakotaGraphics.hpp"
 
 #ifdef HAVE_X_GRAPHICS
-#include "Graphics.hpp"
+#include "Graphics.H"
 #endif // HAVE_X_GRAPHICS
+#include "dakota_tabular_io.hpp"
 #include "DakotaVariables.hpp"
 #include "DakotaResponse.hpp"
 
@@ -25,7 +26,8 @@ Graphics::Graphics():
 #ifdef HAVE_X_GRAPHICS
   graphics2D(NULL), 
 #endif
-  win2dOn(false) //, win3dOn(false)
+  win2dOn(false), //win3dOn(false),
+  tabularDataFlag(false), graphicsCntr(1), tabularCntrLabel("eval_id")
 { }
 
 
@@ -176,36 +178,92 @@ void Graphics::create_plots_2d(const Variables& vars, const Response& response)
 }
 
 
+/** Opens the tabular data file stream and prints headings, one for
+    each continuous and discrete variable and one for each response
+    function, using the variable and response function labels. This
+    tabular data is used for post-processing of DAKOTA results in
+    Matlab, Tecplot, etc. */
+void Graphics::
+create_tabular_datastream(const Variables& vars, const Response& response,
+			  const std::string& tabular_data_file)
+{
+  // tabular data file set up
+  if (!tabularDataFlag) { // prevent multiple opens of tabular_data_file
+    TabularIO::open_file(tabularDataFStream, tabular_data_file, 
+			 "DakotaGraphics");
+    tabularDataFlag = true;
+  }
+
+  bool active_only = true;
+  bool response_labels = true;
+  bool annotated = true;  // tabular graphics data only supports annotated
+  if (annotated)
+    TabularIO::write_header_tabular(tabularDataFStream, vars, response,
+				    tabularCntrLabel, active_only,
+				    response_labels);
+}
+
 
 /** Adds data to each 2d plot and each tabular data column (one for
     each active variable and for each response function).
     graphicsCntr is used for the x axis in the graphics and the first
     column in the tabular data.  */
-void Graphics::add_datapoint(int graphics_cntr,
-			     const Variables& vars, const Response& response)
+void Graphics::add_datapoint(const Variables& vars, const Response& response)
 {
+  // If the response data only contains derivative info, then there are no
+  // response function values to record in either the graphics window or the
+  // tabular data file.
+  bool plot_data = false;
+  const ShortArray& asv = response.active_set_request_vector();
+  int i, num_fns = asv.size();
+  for (i=0; i<num_fns; ++i) {
+    if (asv[i] & 1) {
+      plot_data = true;
+      break;
+    }
+  }
+  if (!plot_data)
+    return;
+
 #ifdef HAVE_X_GRAPHICS
   if (win2dOn) {
     const RealVector& c_vars  = vars.continuous_variables();
     const IntVector&  di_vars = vars.discrete_int_variables();
     const RealVector& dr_vars = vars.discrete_real_variables();
-    const ShortArray& asv = response.active_set_request_vector();
     const RealVector& fn_vals = response.function_values();
-    int i, num_cv = c_vars.length(), num_div = di_vars.length(),
-      num_drv = dr_vars.length(), num_fns = asv.size();
+    int num_cv = c_vars.length(), num_div = di_vars.length(),
+      num_drv = dr_vars.length();
     for (i=0; i<num_fns; ++i) // add to each function graph
       if (asv[i] & 1) // better to skip a value than have a meaningless 0
-        graphics2D->add_datapoint2d(i, (double)graphics_cntr, fn_vals[i]);
+        graphics2D->add_datapoint2d(i, (double)graphicsCntr, fn_vals[i]);
     for (i=0; i<num_cv; ++i)  // add to each variable graph
-      graphics2D->add_datapoint2d(i+num_fns, (double)graphics_cntr, c_vars[i]);
+      graphics2D->add_datapoint2d(i+num_fns, (double)graphicsCntr, c_vars[i]);
     for (i=0; i<num_div; ++i)  // add to each variable graph
-      graphics2D->add_datapoint2d(i+num_fns+num_cv, (double)graphics_cntr, 
+      graphics2D->add_datapoint2d(i+num_fns+num_cv, (double)graphicsCntr, 
 				  (double)di_vars[i]);
     for (i=0; i<num_drv; ++i)  // add to each variable graph
       graphics2D->add_datapoint2d(i+num_fns+num_cv+num_div, 
-				  (double)graphics_cntr, dr_vars[i]);
+				  (double)graphicsCntr, dr_vars[i]);
   }
 #endif // HAVE_X_GRAPHICS
+
+  if (tabularDataFlag) {
+    // In the tabular graphics file, only the *active* variables are tabulated
+    // for top level evaluations/iterations in the strategy.  This differs from
+    // the "to_tabular" option of dakota_restart_util, which tabulates all
+    // variables for all application interface evaluations.
+
+    // NOTE: could add ability to monitor response data subsets based on
+    // user specification.
+    bool active_only = true;
+    bool write_responses = true;
+    TabularIO::write_data_tabular(tabularDataFStream, vars, response,
+				  graphicsCntr, active_only, write_responses);
+  }
+
+  // Only increment the graphics counter if posting data (incrementing on every
+  // call regardless of data posting causes skipping in the response plots).
+  ++graphicsCntr;
 }
 
 
@@ -327,10 +385,11 @@ void Graphics::close()
     graphics2D->thread_wait(); // wait for user to exit the graphics thread
 
     delete graphics2D; // 2D
-    // reset member data since this Graphics is currently global
-    win2dOn = false;
   }
 #endif // HAVE_X_GRAPHICS
+
+  if (tabularDataFlag)
+    tabularDataFStream.close();
 }
 
 

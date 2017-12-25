@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -77,32 +77,35 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  SNLLOptimizer(ProblemDescDB& problem_db, Model& model);
+  SNLLOptimizer(Model& model); ///< standard constructor
 
   /// alternate constructor for instantiations "on the fly"
-  SNLLOptimizer(const String& method_string, Model& model);
+  SNLLOptimizer(const String& method_name, Model& model);
 
   /// alternate constructor for instantiations "on the fly"
   SNLLOptimizer(const RealVector& initial_pt,
     const RealVector& var_l_bnds,      const RealVector& var_u_bnds,
-    const RealMatrix& lin_ineq_coeffs, const RealVector& lin_ineq_l_bnds,
-    const RealVector& lin_ineq_u_bnds, const RealMatrix& lin_eq_coeffs,
-    const RealVector& lin_eq_tgts,     const RealVector& nln_ineq_l_bnds,
+    const RealMatrix& lin_ineq_coeffs,
+    const RealVector& lin_ineq_l_bnds,
+    const RealVector& lin_ineq_u_bnds,
+    const RealMatrix& lin_eq_coeffs,   const RealVector& lin_eq_tgts,
+    const RealVector& nln_ineq_l_bnds,
     const RealVector& nln_ineq_u_bnds, const RealVector& nln_eq_tgts, 
-    void (*user_obj_eval) (int mode, int n, const RealVector& x, double& f,
-			   RealVector& grad_f, int& result_mode),
-    void (*user_con_eval) (int mode, int n, const RealVector& x, RealVector& g,
-			   RealMatrix& grad_g, int& result_mode));
+		void (*user_obj_eval) (int mode, int n, const RealVector& x,
+				       double& f, RealVector& grad_f,
+				       int& result_mode),
+		void (*user_con_eval) (int mode, int n, const RealVector& x, 
+				       RealVector& g, RealMatrix& grad_g,
+				       int& result_mode));
 
   ~SNLLOptimizer(); ///< destructor
     
   //
-  //- Heading: Virtual member function redefinitions
+  //- Heading: Member functions
   //
 
   /// Performs the iterations to determine the optimal solution.
-  void core_run();
+  void find_optimum();
 
 protected:
 
@@ -121,26 +124,6 @@ protected:
   void finalize_run();
 
 private:
-
-  //
-  //- Heading: Helper functions
-  //
-
-  /// instantiate an OPTPP_Q_NEWTON solver using standard settings
-  void default_instantiate_q_newton(
-    void (*obj_eval) (int mode, int n, const RealVector& x, double& f,
-		      RealVector& grad_f, int& result_mode),
-    void (*con_eval) (int mode, int n, const RealVector& x, RealVector& g,
-		      RealMatrix& grad_g, int& result_mode) );
-  /// instantiate an OPTPP_NEWTON solver using standard settings
-  void default_instantiate_newton(
-    void (*obj_eval) (int mode, int n, const RealVector& x, double& f,
-		      RealVector& grad_f, RealSymMatrix& hess_f,
-		      int& result_mode),
-    void (*con_eval) (int mode, int n, const RealVector& x, RealVector& g,
-		      RealMatrix& grad_g, 
-		      OPTPP::OptppArray<RealSymMatrix >& hess_g,
-		      int& result_mode) );
 
   //
   //- Heading: Static member functions required by opt++

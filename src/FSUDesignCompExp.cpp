@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,7 +14,7 @@
 #include "dakota_system_defs.hpp"
 #include "fsu.H"
 #include "ProblemDescDB.hpp"
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
 #include "Distribution.h"
 #elif defined(DAKOTA_UTILIB)
 #include <utilib/seconds.h>
@@ -30,14 +30,12 @@ namespace Dakota {
 
 /** This constructor is called for a standard iterator built with data from
     probDescDB. */
-FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
-  PStudyDACE(problem_db, model),
+FSUDesignCompExp::FSUDesignCompExp(Model& model): PStudyDACE(model),
   samplesSpec(probDescDB.get_int("method.samples")), numSamples(samplesSpec),
   allDataFlag(false), numDACERuns(0),
   latinizeFlag(probDescDB.get_bool("method.latinize"))
 {
-  switch (methodName) {
-  case FSU_CVT: {
+  if (methodName == "fsu_cvt") {
     // CVT inputs
     randomSeed   = seedSpec =  probDescDB.get_int("method.random_seed");
     varyPattern  = !probDescDB.get_bool("method.fixed_seed");
@@ -51,9 +49,8 @@ FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
       trialType = 1;
     else
       trialType = -1; // default is "random"
-    break;
   }
-  case FSU_HALTON: case FSU_HAMMERSLEY: {
+  else if (methodName == "fsu_halton" || methodName == "fsu_hammersley") {
     // QMC inputs
     sequenceStart =  probDescDB.get_iv("method.fsu_quasi_mc.sequenceStart");
     sequenceLeap  =  probDescDB.get_iv("method.fsu_quasi_mc.sequenceLeap");
@@ -78,7 +75,7 @@ FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
     }
     if (primeBase.empty()) {
       primeBase.resize(numContinuousVars);
-      if (methodName == FSU_HALTON) 
+      if (methodName == "fsu_halton") 
 	for (size_t i=0; i<numContinuousVars; i++)
 	  primeBase[i] = prime(i+1);
       else { // fsu_hammersley
@@ -87,7 +84,7 @@ FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
 	  primeBase[i] = prime(i);
       }
     }
-    else if (methodName == FSU_HALTON) {
+    else if (methodName == "fsu_halton") {
       if (primeBase.length() != numContinuousVars) {
 	Cerr << "\nError: wrong number of prime_base inputs.\n";
 	abort_handler(-1);
@@ -105,22 +102,15 @@ FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
       primeBase[0] = -numSamples;
       //Cout << primeBase;
     }
-    break;
   }
-  default:
+  else {
     Cerr << "Error: FSU DACE method \"" << methodName << "\" is not an option."
 	 << std::endl;
     abort_handler(-1);
   }
 
-  if (numDiscreteIntVars > 0 || numDiscreteStringVars > 0 || 
-      numDiscreteRealVars > 0) {
-    Cerr << "\nError: fsu_* methods do not support discrete variables.\n";
-    abort_handler(-1);
-  }
-
   if (numSamples) // samples is optional (default = 0)
-    maxEvalConcurrency *= numSamples;
+    maxConcurrency *= numSamples;
 }
 
 
@@ -129,18 +119,20 @@ FSUDesignCompExp::FSUDesignCompExp(ProblemDescDB& problem_db, Model& model):
     queries are used. */
 FSUDesignCompExp::
 FSUDesignCompExp(Model& model, int samples, int seed,
-		 unsigned short sampling_method):
-  PStudyDACE(sampling_method, model), samplesSpec(samples), numSamples(samples),
-  allDataFlag(true), numDACERuns(0), latinizeFlag(false), varyPattern(true)
+		 const String& sampling_method):
+  PStudyDACE(NoDBBaseConstructor(), model), samplesSpec(samples),
+  numSamples(samples), allDataFlag(true), numDACERuns(0), latinizeFlag(false),
+  varyPattern(true)
 {
-  switch (methodName) {
-  case FSU_CVT:
+  methodName  = sampling_method;
+
+  if (methodName == "fsu_cvt") {
     // CVT inputs and defaults
     randomSeed   = seedSpec = seed;
     numCVTTrials = 10000;
     trialType    = -1; // default is "random"
-    break;
-  case FSU_HALTON: case FSU_HAMMERSLEY:
+  }
+  else if (methodName == "fsu_halton" || methodName == "fsu_hammersley") {
     // QMC inputs and defaults
     // initialize defaults
     sequenceStart.resize(numContinuousVars);
@@ -148,7 +140,7 @@ FSUDesignCompExp(Model& model, int samples, int seed,
     sequenceLeap.resize(numContinuousVars);
     sequenceLeap = 1;
     primeBase.resize(numContinuousVars);
-    if (methodName == FSU_HALTON) 
+    if (methodName == "fsu_halton") 
       for (size_t i=0; i<numContinuousVars; i++)
 	primeBase[i] = prime(i+1);
     else { // fsu_hammersley
@@ -156,68 +148,49 @@ FSUDesignCompExp(Model& model, int samples, int seed,
       for (size_t i=1; i<numContinuousVars; i++)
 	primeBase[i] = prime(i);
     }
-    break;
-  default:
+  }
+  else {
     Cerr << "Error: FSU DACE method \"" << methodName << "\" is not an option."
 	 << std::endl;
     abort_handler(-1);
   }
 
-  if (numDiscreteIntVars > 0 || numDiscreteStringVars > 0 || 
-      numDiscreteRealVars > 0) {
-    Cerr << "\nError: fsu_* methods do not support discrete variables.\n";
-    abort_handler(-1);
-  }
-
   if (numSamples) // samples is optional (default = 0)
-    maxEvalConcurrency *= numSamples;
+    maxConcurrency *= numSamples;
 }
 
 
 FSUDesignCompExp::~FSUDesignCompExp() { }
 
-bool FSUDesignCompExp::resize()
-{
-  bool parent_reinit_comms = PStudyDACE::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
-
 
 void FSUDesignCompExp::pre_run()
 {
-  Analyzer::pre_run();
-
-  // error check on input parameters
-  enforce_input_rules();
-
-  // If VBD has been selected, generate a series of replicate parameter sets
-  // (each of the size specified by the user) in order to compute VBD metrics.
-  if (varBasedDecompFlag)
-    get_vbd_parameter_sets(iteratedModel, numSamples);
-  else
+  // obtain a set of samples for evaluation; in VBD case, defer to run
+  if (!varBasedDecompFlag)
     get_parameter_sets(iteratedModel);
 }
 
 
-void FSUDesignCompExp::core_run()
+void FSUDesignCompExp::extract_trends()
 {
-  bool compute_corr_flag = (!subIteratorFlag),
-    log_resp_flag = (allDataFlag || compute_corr_flag),
-    log_best_flag = (numObjFns || numLSqTerms); // opt or NLS data set
-  evaluate_parameter_sets(iteratedModel, log_resp_flag, log_best_flag);
+  // If VBD has been selected, evaluate a series of parameter sets
+  // (each of the size specified by the user) in order to compute VBD metrics.
+  // If there are active discrete variables, FSUDace currently ignores them.
+  if (varBasedDecompFlag)
+    variance_based_decomp(numContinuousVars, 0, 0, numSamples);
+  // if VBD has not been selected, evaluate a single parameter set of the size
+  // specified by the user and stored in allSamples
+  else {
+    bool compute_corr_flag = (!subIteratorFlag),
+      log_resp_flag = (allDataFlag || compute_corr_flag),
+      log_best_flag = (numObjFns || numLSqTerms); // opt or NLS data set
+    evaluate_parameter_sets(iteratedModel, log_resp_flag, log_best_flag);
+  }
 }
 
 
 void FSUDesignCompExp::post_input()
 {
-  // error check on input parameters (make sure numSamples is valid)
-  enforce_input_rules();
-
   // call convenience function from Analyzer
   read_variables_responses(numSamples, numContinuousVars);
 }
@@ -225,39 +198,29 @@ void FSUDesignCompExp::post_input()
 
 void FSUDesignCompExp::post_run(std::ostream& s)
 {
-  // error check on input parameters (make sure numSamples is valid)
-  enforce_input_rules();
-
-  // BMA TODO: always compute all stats, even in VBD mode (stats on
-  // first two replicates)
-  if (varBasedDecompFlag)
-    compute_vbd_stats(numSamples, allResponses);
-  else {
+  // In VBD case, stats are managed in the run phase  
+  if (!varBasedDecompFlag) {
     // compute correlation statistics if (compute_corr_flag)
     bool compute_corr_flag = (!subIteratorFlag);
     if (compute_corr_flag)
       pStudyDACESensGlobal.compute_correlations(allSamples, allResponses);
   }
 
-  Analyzer::post_run(s);
+  Iterator::post_run(s);
 }
 
 
 void FSUDesignCompExp::get_parameter_sets(Model& model)
 {
-  get_parameter_sets(model, numSamples, allSamples);
-}
+  // error check on input parameters
+  enforce_input_rules();
 
-
-void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
-					  RealMatrix& design_matrix)
-{
   // keep track of number of DACE executions for this object
   numDACERuns++;
 
   // Get bounded region and check that (1) the lengths of bounds arrays are 
   // consistent with numContinuousVars, and (2) the bounds are not default 
-  // bounds (upper/lower = +/-inf) since this results in Infinity in the 
+  // bounds (upper/lower = +/-DBL_MAX) since this results in Infinity in the 
   // sample_points returned.  Discrepancies can occur in the case of uncertain
   // variables, since they do not currently have global bounds specifications.
   // It would be nice to detect this and automatically delete any uncertain
@@ -272,9 +235,8 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
   }
   size_t i, j;
   RealVector c_bnds_range(numContinuousVars);
-  Real dbl_inf = std::numeric_limits<Real>::infinity();
   for (i=0; i<numContinuousVars; i++) {
-    if (c_l_bnds[i] == -dbl_inf || c_u_bnds[i] == dbl_inf) {
+    if (c_l_bnds[i] <= -DBL_MAX/2. || c_u_bnds[i] >= DBL_MAX/2.) {
       Cerr << "\nError: FSUDesignCompExp requires specification of variable "
 	   << "bounds for all active variables." << std::endl;
       abort_handler(-1);
@@ -282,26 +244,23 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
     c_bnds_range[i] = c_u_bnds[i] - c_l_bnds[i];
   }
 
-  //Real* sample_points = new Real [numContinuousVars*num_samples];
-  if (design_matrix.numRows() != numContinuousVars ||
-      design_matrix.numCols() != num_samples)
-    design_matrix.shapeUninitialized(numContinuousVars, num_samples);
+  //Real* sample_points = new Real [numContinuousVars*numSamples];
+  if (allSamples.numRows() != numContinuousVars ||
+      allSamples.numCols() != numSamples)
+    allSamples.shapeUninitialized(numContinuousVars, numSamples);
 
-  switch (methodName) {
-  case FSU_HALTON: {
-    int qmc_step = (varyPattern) ? (numDACERuns-1)*num_samples+1 : 1;
-    fsu_halton(numContinuousVars, num_samples, qmc_step, sequenceStart.values(),
-	       sequenceLeap.values(), primeBase.values(), design_matrix.values());
-    break;
+  if( methodName == "fsu_halton") {
+    int qmc_step = (varyPattern) ? (numDACERuns-1)*numSamples+1 : 1;
+    fsu_halton(numContinuousVars, numSamples, qmc_step, sequenceStart.values(),
+	       sequenceLeap.values(), primeBase.values(), allSamples.values());
   }
-  case FSU_HAMMERSLEY: {
-    int qmc_step = (varyPattern) ? (numDACERuns-1)*num_samples+1 : 1;
-    fsu_hammersley(numContinuousVars, num_samples, qmc_step,
+  else if( methodName == "fsu_hammersley") {
+    int qmc_step = (varyPattern) ? (numDACERuns-1)*numSamples+1 : 1;
+    fsu_hammersley(numContinuousVars, numSamples, qmc_step,
 		   sequenceStart.values(), sequenceLeap.values(),
-		   primeBase.values(), design_matrix.values());
-    break;
+		   primeBase.values(), allSamples.values());
   }
-  case FSU_CVT: {
+  else if( methodName == "fsu_cvt") {
 
     // # of initialization sampes = # samples
     // some initialization types (grid) may truncate a pattern if the number
@@ -326,8 +285,8 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
 
     // batch_size is no longer part of the spec; we now use:
     int batch_size = std::min(10000, numCVTTrials);
-    if (numCVTTrials < num_samples)
-      numCVTTrials = num_samples *10;
+    if (numCVTTrials < numSamples)
+      numCVTTrials = numSamples *10;
 
     // assign default maxIterations (DataMethod default is -1)
     if (maxIterations < 0)
@@ -335,11 +294,11 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
 
     // Set seed value for input to CVT.  A user-specified seed gives you
     // repeatable behavior but no specification gives you random behavior (seed
-    // generated from a system clock).  For the cases where core_run() may be
-    // called multiple times for the same DACE object (e.g., SBO), a
-    // deterministic sequence of seed values is used (unless fixed_seed has
-    // been specified).  This renders the study repeatable but the sampling
-    // pattern varies from one run to the next.
+    // generated from a system clock).  For the cases where extract_trends() may
+    // be called multiple times for the same DACE object (e.g., SBO), a
+    // deterministic sequence of seed values is used (unless fixed_seed has been
+    // specified).  This renders the study repeatable but the sampling pattern
+    // varies from one run to the next.
     if (numDACERuns == 1) { // set initial seed
       if (!seedSpec) // no user specification: random behavior
 	// Generate initial seed from a system clock.  NOTE: the system clock
@@ -351,7 +310,7 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
 	// user-specified case.  This has the additional benefit that a random
 	// run can be recreated by specifying the clock-generated seed in the
 	// input file.
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
 	randomSeed = 1 + DistributionBase::timeSeed(); // microsecs, time of day
 #elif defined(DAKOTA_UTILIB)
         randomSeed = 1 + (int)CurrentTime(); // secs, time of day
@@ -370,7 +329,7 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
       std::srand(randomSeed);
       randomSeed = 1 + std::rand(); // from 1 to RANDMAX+1
     }
-    Cout << "\nFSU DACE method = " << methodName << " Samples = " << num_samples;
+    Cout << "\nFSU DACE method = " << methodName << " Samples = " << numSamples;
     if (numDACERuns == 1 || !varyPattern) {
       if (seedSpec) Cout << " Seed (user-specified) = ";
       else          Cout << " Seed (system-generated) = ";
@@ -385,25 +344,23 @@ void FSUDesignCompExp::get_parameter_sets(Model& model, const int num_samples,
     int* diag_num_iter = new int; // CVT returns actual number of iterations
 
     // Now generate the array of samples
-    fsu_cvt(numContinuousVars, num_samples, batch_size, init_type, trialType,
-	    numCVTTrials, maxIterations, p_seed, design_matrix.values(),
+    fsu_cvt(numContinuousVars, numSamples, batch_size, init_type, trialType,
+	    numCVTTrials, maxIterations, p_seed, allSamples.values(),
 	    diag_num_iter);
 
     p_seed = NULL;
     delete diag_num_iter;
-    break;
-  }
   }
 
   if (latinizeFlag)
-    fsu_latinize(numContinuousVars, num_samples, design_matrix.values());
+    fsu_latinize(numContinuousVars, numSamples, allSamples.values());
 
   if (volQualityFlag)
-    volumetric_quality(numContinuousVars, num_samples, design_matrix.values());
+    volumetric_quality(numContinuousVars, numSamples, allSamples.values());
 
   // Convert from [0,1] to [lower,upper]
-  for (i=0; i<num_samples; ++i) {
-    Real* samples_i = design_matrix[i];
+  for (i=0; i<numSamples; ++i) {
+    Real* samples_i = allSamples[i];
     for (j=0; j<numContinuousVars; ++j)
       samples_i[j] = c_l_bnds[j] + samples_i[j] * c_bnds_range[j];
   }
@@ -423,7 +380,7 @@ void FSUDesignCompExp::enforce_input_rules()
     abort_handler(-1);
   }
 
-  if (methodName == FSU_CVT) {
+  if (methodName == "fsu_cvt") {
     // no input rules yet
   }
   else { // QMC

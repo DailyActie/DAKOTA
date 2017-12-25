@@ -1,7 +1,6 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
-environment,
+strategy,
 #	graphics
+	single_method
 	method_pointer = 'SBLO'
 
 method,
@@ -75,8 +74,8 @@ responses,
 	objective_functions = 1
 	nonlinear_inequality_constraints = 1
 	analytic_gradients
-	no_hessians				#s0
-#	quasi_hessians sr1			#s1
+	no_hessians				#0
+#	quasi_hessians sr1			#1
 
 ##########################################
 # begin optional interface specification #

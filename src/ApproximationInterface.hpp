@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -44,7 +44,7 @@ public:
   /// primary constructor
   ApproximationInterface(ProblemDescDB& problem_db, const Variables& am_vars,
 			 bool am_cache, const String& am_interface_id,
-			 const StringArray& fn_labels);
+			 size_t num_fns);
   /// alternate constructor for instantiations on the fly
   ApproximationInterface(const String& approx_type,
 			 const UShortArray& approx_order,
@@ -96,43 +96,33 @@ protected:
 			   const RealVector& dr_l_bnds,
 			   const RealVector& dr_u_bnds);
 
-  void export_approximation();
-
   void rebuild_approximation(const BoolDeque& rebuild_deque);
   void pop_approximation(bool save_surr_data);
-  void push_approximation();
-  bool push_available();
+  void restore_approximation();
+  bool restore_available();
   void finalize_approximation();
 
-  void store_approximation(size_t index = _NPOS);
-  void restore_approximation(size_t index = _NPOS);
-  void remove_stored_approximation(size_t index = _NPOS);
+  void store_approximation();
   void combine_approximation(short corr_type);
-
-  Real2DArray cv_diagnostics(const StringArray& metrics, unsigned num_folds);
-  Real2DArray challenge_diagnostics(const StringArray& metric_types,
-				    const RealMatrix& challenge_pts,
-				    const RealVector& challenge_resps);
 
   void clear_current();
   void clear_all();
-  void clear_popped();
+  void clear_saved();
 
   SharedApproxData& shared_approximation();
   std::vector<Approximation>& approximations();
   const Pecos::SurrogateData& approximation_data(size_t index);
 
-  const RealVectorArray& approximation_coefficients(bool normalized = false);
-  void approximation_coefficients(const RealVectorArray& approx_coeffs,
-				  bool normalized = false);
+  const RealVectorArray& approximation_coefficients();
+  void approximation_coefficients(const RealVectorArray& approx_coeffs);
 
   const RealVector& approximation_variances(const Variables& vars);
 
   // mimic asynchronous operations for those iterators which call
   // asynch_compute_response and synchronize/synchronize_nowait on an
   // approximateModel
-  const IntResponseMap& synchronize();
-  const IntResponseMap& synchronize_nowait();
+  const IntResponseMap& synch();
+  const IntResponseMap& synch_nowait();
 
 private:
 
@@ -150,16 +140,12 @@ private:
   void shallow_add(const Variables& vars, const Response& response,
 		   bool anchor);
 
-  /// populate continuous variables within vars from sample_c_vars
-  void sample_to_variables(const Real* sample_c_vars, size_t num_cv,
-			   Variables& vars);
-
   /// append to the popCountStack within each of the functionSurfaces
   /// based on the active set definitions within resp_map
   void update_pop_counts(const IntResponseMap& resp_map);
 
   /// Load approximation test points from user challenge points file
-  void read_challenge_points(bool active_only);
+  void read_challenge_points();
 
   //
   //- Heading: Data
@@ -178,7 +164,8 @@ private:
       to support it. */
   std::vector<Approximation> functionSurfaces;
 
-  /// array of approximation coefficient vectors, one per response function
+  /// array of approximation coefficient vectors, one vector per
+  /// response function
   RealVectorArray functionSurfaceCoeffs;
   /// vector of approximation variances, one value per response function
   RealVector functionSurfaceVariances;
@@ -195,14 +182,10 @@ private:
   /// data file for user-supplied challenge data (per interface, since may
   /// contain multiple responses)
   String challengeFile;
-  /// tabular format of the challenge points file
-  unsigned short challengeFormat;
-  /// whether to import active only
-  bool challengeActiveOnly;
-  /// container for the challenge points data (variables only)
+  /// whether the points file is annotated
+  bool challengeAnnotated;
+  /// container for the challenge points data
   RealMatrix challengePoints;
-  /// container for the challenge points data (responses only)
-  RealMatrix challengeResponses;
 
   /// copy of the actualModel variables object used to simplify conversion 
   /// among differing variable views
@@ -212,8 +195,8 @@ private:
   /// the interface id from the actualModel used for ordered PRPCache lookups
   String actualModelInterfaceId;
 
-  /// bookkeeping map to catalogue responses generated in map() for use in
-  /// synchronize() and synchronize_nowait(). This supports pseudo-asynchronous
+  /// bookkeeping map to catalogue responses generated in map() for use
+  /// in synch() and synch_nowait().  This supports pseudo-asynchronous
   /// operations (approximate responses are always computed synchronously,
   /// but asynchronous virtual functions are supported through bookkeeping).
   IntResponseMap beforeSynchResponseMap;
@@ -268,17 +251,17 @@ inline void ApproximationInterface::pop_approximation(bool save_surr_data)
 
 /** This function updates the coefficients for each Approximation based
     on data increments provided by {update,append}_approximation(). */
-inline void ApproximationInterface::push_approximation()
+inline void ApproximationInterface::restore_approximation()
 {
-  sharedData.pre_push(); // do shared aggregation first
+  sharedData.pre_restore(); // do shared aggregation first
   for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); ++it)
-    functionSurfaces[*it].push(); // requires sharedData restoration index
-  sharedData.post_push(); // do shared cleanup last
+    functionSurfaces[*it].restore(); // requires sharedData restoration index
+  sharedData.post_restore(); // do shared cleanup last
 }
 
 
-inline bool ApproximationInterface::push_available()
-{ return sharedData.push_available(); }
+inline bool ApproximationInterface::restore_available()
+{ return sharedData.restore_available(); }
 
 
 inline void ApproximationInterface::finalize_approximation()
@@ -290,36 +273,20 @@ inline void ApproximationInterface::finalize_approximation()
 }
 
 
-inline void ApproximationInterface::store_approximation(size_t index)
+inline void ApproximationInterface::store_approximation()
 {
-  sharedData.store(index); // do shared storage first
+  sharedData.store(); // do shared storage first
   for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); ++it)
-    functionSurfaces[*it].store(index);
-}
-
-
-inline void ApproximationInterface::restore_approximation(size_t index)
-{
-  sharedData.restore(index); // do shared storage first
-  for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); ++it)
-    functionSurfaces[*it].restore(index);
-}
-
-
-inline void ApproximationInterface::remove_stored_approximation(size_t index)
-{
-  sharedData.remove_stored(index); // do shared storage first
-  for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); ++it)
-    functionSurfaces[*it].remove_stored(index);
+    functionSurfaces[*it].store();
 }
 
 
 inline void ApproximationInterface::combine_approximation(short corr_type)
 {
-  size_t swap_index = sharedData.pre_combine(corr_type);//shared aggregation 1st
+  sharedData.pre_combine(corr_type); // do shared aggregation first
   for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); ++it)
-    functionSurfaces[*it].combine(corr_type, swap_index);
-  sharedData.post_combine(corr_type); // shared cleanup last
+    functionSurfaces[*it].combine(corr_type);
+  sharedData.post_combine(corr_type); // do shared cleanup last
 }
 
 
@@ -337,10 +304,10 @@ inline void ApproximationInterface::clear_all()
 }
 
 
-inline void ApproximationInterface::clear_popped()
+inline void ApproximationInterface::clear_saved()
 {
   for (ISIter it=approxFnIndices.begin(); it!=approxFnIndices.end(); it++)
-    functionSurfaces[*it].clear_popped();
+    functionSurfaces[*it].clear_saved();
 }
 
 
@@ -361,23 +328,6 @@ approximation_data(size_t index)
     abort_handler(-1);
   }
   return functionSurfaces[index].approximation_data();
-}
-
-
-inline void ApproximationInterface::
-sample_to_variables(const Real* sample_c_vars, size_t num_cv, Variables& vars)
-{
-  if (vars.cv() == num_cv)
-    for (size_t i=0; i<num_cv; ++i)
-      vars.continuous_variable(sample_c_vars[i], i);
-  else if (vars.acv() == num_cv)
-    for (size_t i=0; i<num_cv; ++i)
-      vars.all_continuous_variable(sample_c_vars[i], i);
-  else {
-    Cerr << "Error: size mismatch in ApproximationInterface::"
-	 << "sample_to_variables()" << std::endl;
-    abort_handler(-1);
-  }
 }
 
 } // namespace Dakota

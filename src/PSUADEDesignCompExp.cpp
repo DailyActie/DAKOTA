@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -13,7 +13,7 @@
 #include "PSUADEDesignCompExp.hpp"
 #include "dakota_system_defs.hpp"
 #include "ProblemDescDB.hpp"
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
 #include "Distribution.h"
 #elif defined(DAKOTA_UTILIB)
 #include <utilib/seconds.h>
@@ -30,52 +30,28 @@ namespace Dakota {
 
 /** This constructor is called for a standard iterator built with data from
     probDescDB. */
-PSUADEDesignCompExp::
-PSUADEDesignCompExp(ProblemDescDB& problem_db, Model& model):
-  PStudyDACE(problem_db, model),
+PSUADEDesignCompExp::PSUADEDesignCompExp(Model& model): PStudyDACE(model),
   samplesSpec(probDescDB.get_int("method.samples")), numSamples(samplesSpec),
-  varPartitionsSpec(probDescDB.get_usa("method.partitions")),
-  numPartitions(0), allDataFlag(false), numDACERuns(0), varyPattern(true), 
+  varPartitionsSpec(probDescDB.get_usa("method.partitions")), numPartitions(0),
+  allDataFlag(false), numDACERuns(0), varyPattern(true), 
   seedSpec(probDescDB.get_int("method.random_seed")), randomSeed(seedSpec)
 {
-  if (methodName != PSUADE_MOAT) {
-    Cerr << "\nError: PSUADE method \"" << method_string() 
-	 << "\" is not an option." << std::endl;
-    abort_handler(-1);
-  }
-  if (numDiscreteIntVars > 0 || numDiscreteStringVars > 0 || 
-      numDiscreteRealVars > 0) {
-    Cerr << "\nError: psuade_* methods do not support discrete variables.\n";
+  if (methodName != "psuade_moat") {
+    Cerr << "Error: PSUADE method \"" << methodName << "\" is not an option."
+	 << std::endl;
     abort_handler(-1);
   }
 
   if (numSamples) // samples is optional (default = 0)
-    maxEvalConcurrency *= numSamples;
+    maxConcurrency *= numSamples;
 }
 
 
-PSUADEDesignCompExp::~PSUADEDesignCompExp()
-{ }
-
-bool PSUADEDesignCompExp::resize()
-{
-  bool parent_reinit_comms = PStudyDACE::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
+PSUADEDesignCompExp::~PSUADEDesignCompExp() { }
 
 
 void PSUADEDesignCompExp::pre_run()
 {
-  Analyzer::pre_run();
-
-  // error check on input parameters; also adjusts numSamples if needed
-  enforce_input_rules();
-
   // obtain a set of samples for evaluation
   get_parameter_sets(iteratedModel);
 }
@@ -83,15 +59,12 @@ void PSUADEDesignCompExp::pre_run()
 
 void PSUADEDesignCompExp::post_input()
 {
-  // error check on input parameters; also adjusts numSamples if needed
-  enforce_input_rules();
-
   // call convenience function from Analyzer
   read_variables_responses(numSamples, numContinuousVars);
 }
 
 
-void PSUADEDesignCompExp::core_run()
+void PSUADEDesignCompExp::extract_trends()
 {
   // evaluate the sample set to obtain the corresponding set of results
   //evaluate_parameter_sets(iteratedModel, allDataFlag, true);
@@ -103,9 +76,6 @@ void PSUADEDesignCompExp::core_run()
 
 void PSUADEDesignCompExp::post_run(std::ostream& s)
 {
-  // error check on input parameters; also adjusts numSamples if needed
-  enforce_input_rules();
-
   // Perform post-processing with MOAT Analyzer
   
   // define the data structure necessary for analyzing a PSUADE MOAT sample
@@ -161,18 +131,21 @@ void PSUADEDesignCompExp::post_run(std::ostream& s)
   delete psuadeAnalyzer;
   psuadeAnalyzer = NULL;
 
-  Analyzer::post_run(s);
+  Iterator::post_run(s);
 }
 
 
 void PSUADEDesignCompExp::get_parameter_sets(Model& model)
 {
+  // error check on input parameters
+  enforce_input_rules();
+
   // keep track of number of DACE executions for this object
   numDACERuns++;
 
   // Get bounded region and check that (1) the lengths of bounds arrays are 
   // consistent with numContinuousVars, and (2) the bounds are not default 
-  // bounds (upper/lower = +/-inf) since this results in Infinity in the 
+  // bounds (upper/lower = +/-DBL_MAX) since this results in Infinity in the 
   // sample_points returned.  Discrepancies can occur in the case of uncertain
   // variables, since they do not currently have global bounds specifications.
   // It would be nice to detect this and automatically delete any uncertain
@@ -189,9 +162,8 @@ void PSUADEDesignCompExp::get_parameter_sets(Model& model)
   }
   size_t i, j;
   RealVector c_bnds_range(numContinuousVars);
-  Real dbl_inf = std::numeric_limits<Real>::infinity();
   for (i=0; i<numContinuousVars; i++) {
-    if (c_l_bnds[i] == -dbl_inf || c_u_bnds[i] == dbl_inf) {
+    if (c_l_bnds[i] <= -DBL_MAX/2. || c_u_bnds[i] >= DBL_MAX/2.) {
       Cerr << "\nError: PSUADEDesignCompExp requires specification of variable "
 	   << "bounds for all active variables." << std::endl;
       abort_handler(-1);
@@ -199,15 +171,15 @@ void PSUADEDesignCompExp::get_parameter_sets(Model& model)
     c_bnds_range[i] = c_u_bnds[i] - c_l_bnds[i];
   }
 
-  if( methodName == PSUADE_MOAT ) {
+  if( methodName == "psuade_moat" ) {
 
     // Set seed value for input to CVT.  A user-specified seed gives you
     // repeatable behavior but no specification gives you random behavior (seed
-    // generated from a system clock).  For the cases where core_run() may be
-    // called multiple times for the same DACE object (e.g., SBO), a
-    // deterministic sequence of seed values is used (unless fixed_seed has
-    // been specified).  This renders the study repeatable but the sampling
-    // pattern varies from one run to the next.
+    // generated from a system clock).  For the cases where extract_trends() may
+    // be called multiple times for the same DACE object (e.g., SBO), a
+    // deterministic sequence of seed values is used (unless fixed_seed has been
+    // specified).  This renders the study repeatable but the sampling pattern
+    // varies from one run to the next.
     if (numDACERuns == 1) { // set initial seed
       if (!seedSpec) // no user specification: random behavior
 	// Generate initial seed from a system clock.  NOTE: the system clock
@@ -219,7 +191,7 @@ void PSUADEDesignCompExp::get_parameter_sets(Model& model)
 	// user-specified case.  This has the additional benefit that a random
 	// run can be recreated by specifying the clock-generated seed in the
 	// input file.
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
 	randomSeed = 1 + DistributionBase::timeSeed(); // microsecs, time of day
 #elif defined(DAKOTA_UTILIB)
         randomSeed = 1 + (int)CurrentTime(); // secs, time of day
@@ -301,40 +273,49 @@ void PSUADEDesignCompExp::get_parameter_sets(Model& model)
     enforce any restrictions imposed by the sampling algorithms. */
 void PSUADEDesignCompExp::enforce_input_rules()
 {
-  // if no samples specified, make at 10*number of inputs
-  // otherwise round up to next largest permissible number
-  if (numSamples <= 0) {
-    numSamples = 10*(numContinuousVars+1);
-    Cout << "\nWarning: Number of samples not specified for PSUADE MOAT.\n"
-	 << "         Resetting samples to " << numSamples 
-	 << " 10*(num_cdv+1).\n";
-  }
-  else if (numSamples/(numContinuousVars+1)*(numContinuousVars+1) != 
-	   numSamples) {
-    int num_reps = numSamples/(numContinuousVars+1);
-    numSamples = (num_reps+1)*(numContinuousVars+1);
-    Cout << "\nWarning: PSUADE MOAT requires number of samples to be a "
-	 << "multiple of num_cdv+1.\n         Resetting samples to " 
-	 << numSamples <<".\n";
-  }
-  if (varPartitionsSpec.size() >= 1) {
-    numPartitions = varPartitionsSpec[0];
-    if (varPartitionsSpec.size() > 1)
-      Cout << "\nWarning: PSUADE MOAT accepts one partition specification "
-	   << "(which applies to all\n         variables). Taking first "
-	   << "component.\n";
-  }
-  if (numPartitions <= 0) {
-    numPartitions = 3;
-    Cout << "\nWarning: PSUADE MOAT partitions must be positive.\n"
-	 << "         Setting to" << " default partitions = 3 (levels = 4)."
-	 << "\n";
-  }
-  else if (numPartitions % 2 == 0) {
-    numPartitions++;
-    Cout << "\nWarning: PSUADE MOAT partitions must be odd (even number of "
-	 << "levels).\n         Setting to partitions = "
-	 << numPartitions << " (levels = " << numPartitions+1 << ").\n";
+  if (methodName == "psuade_moat") {
+
+    // if no samples specified, make at 10*number of inputs
+    // otherwise round up to next largest permissible number
+    if (numSamples <= 0) {
+      numSamples = 10*(numContinuousVars+1);
+      Cout << "\nWarning: Number of samples not specified for PSUADE MOAT.\n"
+	   << "         Resetting samples to " << numSamples 
+	   << " 10*(num_cdv+1).\n";
+    }
+    else if (numSamples/(numContinuousVars+1)*(numContinuousVars+1) != 
+	     numSamples) {
+      int num_reps = numSamples/(numContinuousVars+1);
+      numSamples = (num_reps+1)*(numContinuousVars+1);
+      Cout << "\nWarning: PSUADE MOAT requires number of samples to be a "
+	   << "multiple of num_cdv+1.\n         Resetting samples to " 
+	   << numSamples <<".\n";
+    }
+    if (varPartitionsSpec.size() >= 1) {
+      numPartitions = varPartitionsSpec[0];
+      if (varPartitionsSpec.size() > 1)
+	Cout << "\nWarning: PSUADE MOAT accepts one partition specification "
+	     << "(which applies to all\n         variables). Taking first "
+	     << "component.\n";
+    }
+    if (numPartitions <= 0) {
+      numPartitions = 3;
+      Cout << "\nWarning: PSUADE MOAT partitions must be positive.\n"
+	   << "         Setting to" << " default partitions = 3 (levels = 4)."
+	   << "\n";
+    }
+    else if (numPartitions % 2 == 0) {
+      numPartitions++;
+      Cout << "\nWarning: PSUADE MOAT partitions must be odd (even number of "
+	   << "levels).\n         Setting to partitions = "
+	   << numPartitions << " (levels = " << numPartitions+1 << ").\n";
+    }
+ 
+  }  
+  else if (numSamples <= 0) {
+    Cout << "Error: number of DACE samples must be greater than zero."
+         << std::endl;
+    abort_handler(-1);
   }
 }
 

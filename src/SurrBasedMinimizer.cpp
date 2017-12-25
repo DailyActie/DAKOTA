@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,7 +14,6 @@
 #include "SurrBasedMinimizer.hpp"
 #include "DakotaGraphics.hpp"
 #include "ProblemDescDB.hpp"
-#include "ParallelLibrary.hpp"
 #include "ParamResponsePair.hpp"
 #include "PRPMultiIndex.hpp"
 #include "dakota_data_io.hpp"
@@ -52,18 +51,28 @@ void NNLS_F77( double* a, int& mda, int& m, int& n, double* b, double* x,
 using namespace std;
 
 namespace Dakota {
+  extern Graphics dakota_graphics; // defined in ParallelLibrary.cpp
   extern PRPCache data_pairs; // global container
 
-SurrBasedMinimizer::SurrBasedMinimizer(ProblemDescDB& problem_db, Model& model):
-  Minimizer(problem_db, model), sbIterNum(0),
+SurrBasedMinimizer::SurrBasedMinimizer(Model& model):
+  Minimizer(model), sbIterNum(0),
   // See Conn, Gould, and Toint, pp. 598-599
   penaltyParameter(5.), eta(1.), alphaEta(0.1), betaEta(0.9),
   etaSequence(eta*std::pow(2.*penaltyParameter, -alphaEta))
 {
-  if (model.primary_fn_type() == OBJECTIVE_FNS)
+  iteratedModel = model;
+
+  size_t num_obj_fns
+    = probDescDB.get_sizet("responses.num_objective_functions"), num_lsq_terms
+    = probDescDB.get_sizet("responses.num_least_squares_terms");
+  if (num_obj_fns) {
     optimizationFlag  = true;
-  else if (model.primary_fn_type() == CALIB_TERMS)
+    numUserPrimaryFns = num_obj_fns;
+  }
+  else if (num_lsq_terms) {
     optimizationFlag  = false;
+    numUserPrimaryFns = num_lsq_terms;
+  }
   else {
     Cerr << "Error: unsupported response type specification in "
 	 << "SurrBasedMinimizer constructor." << std::endl;
@@ -102,79 +111,29 @@ SurrBasedMinimizer::~SurrBasedMinimizer()
 { }
 
 
-void SurrBasedMinimizer::derived_init_communicators(ParLevLIter pl_iter)
-{
-  // iteratedModel is evaluated to add truth data (single evaluate())
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // Allocate comms in approxSubProbModel/iteratedModel for parallel SBM.
-  // For DataFitSurrModel, concurrency is from daceIterator evals (global) or
-  // numerical derivs (local/multipt) on actualModel.  For HierarchSurrModel,
-  // concurrency is from approxSubProbMinimizer on lowFidelityModel.
-  // As for constructors, we recursively set and restore DB list nodes
-  // (initiated from the restored starting point following construction).
-  size_t method_index = probDescDB.get_db_method_node(),
-         model_index  = probDescDB.get_db_model_node(); // for restoration
-  probDescDB.set_db_list_nodes(approxSubProbMinimizer.method_id());
-  approxSubProbMinimizer.init_communicators(pl_iter);
-  probDescDB.set_db_method_node(method_index); // restore method only
-  probDescDB.set_db_model_nodes(model_index);  // restore all model nodes
-}
-
-
-void SurrBasedMinimizer::derived_set_communicators(ParLevLIter pl_iter)
-{
-  // Virtual destructor handles referenceCount at Strategy level.
-
-  miPLIndex = methodPCIter->mi_parallel_level_index(pl_iter);
-
-  // iteratedModel is evaluated to add truth data (single evaluate())
-  iteratedModel.set_communicators(pl_iter, maxEvalConcurrency);
-
-  // set communicators for approxSubProbModel/iteratedModel
-  approxSubProbMinimizer.set_communicators(pl_iter);
-}
-
-
-void SurrBasedMinimizer::derived_free_communicators(ParLevLIter pl_iter)
-{
-  // Virtual destructor handles referenceCount at Strategy level.
-
-  // free communicators for approxSubProbModel/iteratedModel
-  approxSubProbMinimizer.free_communicators(pl_iter);
-
-  // iteratedModel is evaluated to add truth data (single evaluate())
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-}
-
-
-void SurrBasedMinimizer::initialize_graphics(int iterator_server_id)
+void SurrBasedMinimizer::
+initialize_graphics(bool graph_2d, bool tabular_data,
+		    const String& tabular_file)
 {
   // may want to replace customized graphics w/ std graphics for use in
   // Hybrid & Concurrent Strategies
   //if (!strategyFlag) {
 
-  Model& truth_model = (methodName == SURROGATE_BASED_LOCAL ||
-                        methodName == SURROGATE_BASED_GLOBAL) ?
+  // Customizations must follow 2D plot initialization (setting axis labels
+  // calls SciPlotUpdate) and must precede tabular data file initialization
+  // (so that the file header includes any updates to tabularCntrLabel).
+  Model& truth_model = (strbegins(methodName, "surrogate_based_")) ?
     iteratedModel.truth_model() : iteratedModel;
-  OutputManager& mgr = parallelLib.output_manager();
-  Graphics& dakota_graphics = mgr.graphics();
-  const Variables& vars = truth_model.current_variables();
-  const Response&  resp = truth_model.current_response();
-
-  // For graphics, limit (currently) to server id 1, for both ded master
-  // (parent partition rank 1) and peer partitions (parent partition rank 0)
-  if (mgr.graph2DFlag && iterator_server_id == 1) { // initialize the 2D plots
-    mgr.graphics_counter(0); // starting point is iteration 0
-    dakota_graphics.create_plots_2d(vars, resp);
+  if (graph_2d) {     // initialize the 2D plots
+    dakota_graphics.create_plots_2d(truth_model.current_variables(),
+				    truth_model.current_response());
     dakota_graphics.set_x_labels2d("Surr-Based Iteration No.");
+    dakota_graphics.graphics_counter(0); // starting point is iteration 0
   }
-
-  // For output/restart/tabular data, all Iterator masters stream output
-  if (mgr.tabularDataFlag) { // initialize data tabulation
-    mgr.graphics_counter(0); // starting point is iteration 0
-    mgr.tabular_counter_label("iter_no");
-    mgr.create_tabular_datastream(vars, resp);
+  if (tabular_data) { // initialize data tabulation
+    dakota_graphics.tabular_counter_label("iter_no");
+    dakota_graphics.create_tabular_datastream(truth_model.current_variables(),
+      truth_model.current_response(), tabular_file);
   }
 
   //}
@@ -259,8 +218,6 @@ update_lagrange_multipliers(const RealVector& fn_vals,
 #ifdef DAKOTA_F90
       int nsetp, ierr;
       RealVector bnd(2*num_active_lag); // bounds on lambda
-      // lawson_hanson2.f90: BVLS ignore bounds based on huge(), so +/-DBL_MAX
-      // is sufficient here
       for (i=0; i<num_active_lag; ++i) {
 	bnd[i*2]   = (i<num_active_lag_ineq) ? 0. : -DBL_MAX; // lower bound
 	bnd[i*2+1] = DBL_MAX;                                 // upper bound
@@ -753,8 +710,7 @@ void SurrBasedMinimizer::print_results(std::ostream& s)
   // initialize the results archive for this dataset
   archive_allocate_best(num_best);
 
-  const String& interface_id = (methodName == SURROGATE_BASED_LOCAL ||
-				methodName == SURROGATE_BASED_GLOBAL) ?
+  const String& interface_id = (strbegins(methodName, "surrogate_based_")) ?
     iteratedModel.truth_model().interface_id() : iteratedModel.interface_id();
   int eval_id;
   activeSet.request_values(1);
@@ -776,7 +732,7 @@ void SurrBasedMinimizer::print_results(std::ostream& s)
     else
       s << "<<<<< Best residual terms      ";
     if (num_best > 1) s << "(set " << i+1 << ") "; s << "=\n";
-    write_data_partial(s, (size_t)0, numUserPrimaryFns, best_fns);
+    write_data_partial(s, 0, numUserPrimaryFns, best_fns);
     size_t num_cons = numFunctions - numUserPrimaryFns;
     if (num_cons) {
       s << "<<<<< Best constraint values   ";
@@ -787,20 +743,12 @@ void SurrBasedMinimizer::print_results(std::ostream& s)
     // directly because the optimizers track the best iterate internally and 
     // return the best results after iteration completion.  Therfore, perform a
     // search in data_pairs to extract the evalId for the best fn eval.
-    PRPCacheHIter cache_it = lookup_by_val(data_pairs, interface_id,
-					   bestVariablesArray[i], activeSet);
-    if (cache_it == data_pairs.get<hashed>().end())
+    if (lookup_by_val(data_pairs, interface_id, bestVariablesArray[i],
+		      activeSet, eval_id))
+      s << "<<<<< Best data captured at function evaluation " << eval_id
+	<< "\n\n";
+    else
       s << "<<<<< Best data not found in evaluation cache\n\n";
-    else {
-      eval_id = cache_it->eval_id();
-      if (eval_id > 0)
-	s << "<<<<< Best data captured at function evaluation " << eval_id
-	  << "\n\n";
-      else // should not occur
-	s << "<<<<< Best data not found in evaluations from current execution,"
-	  << "\n      but retrieved from restart archive with evaluation id "
-	  << -eval_id << "\n\n";
-    }
 
     // pass data to the results archive
     archive_best(i, bestVariablesArray[i], bestResponseArray[i]);

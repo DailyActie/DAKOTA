@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -28,11 +28,11 @@ namespace Dakota {
 
 /** Add or update existing entry */
 void ResultsDBAny::
-insert(const StrStrSizet& iterator_id,
-       const std::string& data_name,
-       const boost::any& result,
-       const MetaDataType& metadata
-       )
+add_data(const StrStrSizet& iterator_id,
+	 const std::string& data_name,
+	 const boost::any& result,
+	 const MetaDataType& metadata
+	 )
 {
   ResultsKeyType key = make_key(iterator_id, data_name); 
 

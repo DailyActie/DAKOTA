@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -40,24 +40,19 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  NonDLocalInterval(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDLocalInterval();                                       ///< destructor
+  NonDLocalInterval(Model& model); ///< constructor
+  ~NonDLocalInterval();            ///< destructor
 
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Member functions
   //
 
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
-  /// Performs a gradient-based optimization to determine interval
-  /// bounds for an entire function or interval bounds on a particular
-  /// statistical estimator
-  void core_run();
+  /// Performs an optimization to determine interval bounds for an   
+  /// entire function or interval bounds on a particular statistical estimator
+  void quantify_uncertainty(); // pure virtual, called by run_iterator
 
   /// return name of active optimizer method
-  unsigned short uses_method() const;
+  String uses_method() const;
   /// perform an MPP optimizer method switch due to a detected conflict
   void method_recourse();
 
@@ -116,8 +111,8 @@ private:
 };
 
 
-inline unsigned short NonDLocalInterval::uses_method() const
-{ return (npsolFlag) ? NPSOL_SQP : OPTPP_Q_NEWTON; }
+inline String NonDLocalInterval::uses_method() const
+{ return (npsolFlag) ? "npsol_sqp" : "optpp_q_newton"; }
 
 } // namespace Dakota
 

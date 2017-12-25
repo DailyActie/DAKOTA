@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -43,11 +43,11 @@ private:
 };
 
 
-NonlinearCGOptimizer::
-NonlinearCGOptimizer(ProblemDescDB& problem_db, Model& model): 
-  Optimizer(problem_db, model), initialStep(0.01), linesearchTolerance(1.0e-2),
-  linesearchType(CG_LS_SIMPLE), maxLinesearchIters(10), relFunctionTol(0.0),
-  relGradientTol(0.0), resetStep(true), restartIter(1000000),
+NonlinearCGOptimizer::NonlinearCGOptimizer(Model& model): 
+  Optimizer(model), initialStep(0.01), linesearchTolerance(1.0e-2),
+  linesearchType(CG_LS_SIMPLE), maxLinesearchIters(10),
+  relFunctionTol(0.0), relGradientTol(0.0), resetStep(true),
+  restartIter(1000000),
   updateType(CG_FLETCHER_REEVES)
 {
   if (numFunctions > 1 || numConstraints > 0 || boundConstraintFlag) {
@@ -63,10 +63,11 @@ NonlinearCGOptimizer(ProblemDescDB& problem_db, Model& model):
 
 
 NonlinearCGOptimizer::~NonlinearCGOptimizer()
-{ }
+{    
+}
 
 
-void NonlinearCGOptimizer::core_run()
+void NonlinearCGOptimizer::find_optimum()
 {
 
   // TODO: Once DAKOTA moves to Teuchos for its numerical data type,
@@ -82,7 +83,7 @@ void NonlinearCGOptimizer::core_run()
     // get function and gradient -- should discern whether linesearch
     // is in use and only request gradient if appropriate
     activeSet.request_values(3);
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response&   response  = iteratedModel.current_response();
     const RealVector& functions = response.function_values();
 
@@ -602,7 +603,7 @@ Real NonlinearCGOptimizer::linesearch_eval(const Real& trial_step,
     trialVars[i] = designVars[i] + trial_step * searchDirection[i];
   iteratedModel.continuous_variables(trialVars);
   activeSet.request_values(req_val);
-  iteratedModel.evaluate(activeSet);
+  iteratedModel.compute_response(activeSet);
   const Response& response = iteratedModel.current_response();
   const RealVector& functions = response.function_values();
   

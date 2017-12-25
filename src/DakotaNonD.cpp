@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -19,12 +19,11 @@
 #include "ProblemDescDB.hpp"
 #include "dakota_tabular_io.hpp"
 #include "pecos_stat_util.hpp"
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
 #include "Distribution.h"
 #elif defined(DAKOTA_UTILIB)
 #include <utilib/seconds.h>
 #endif
-#include "ParallelLibrary.hpp"
 
 //#define DEBUG
 
@@ -36,24 +35,19 @@ namespace Dakota {
 NonD* NonD::nondInstance(NULL);
 
 
-NonD::NonD(ProblemDescDB& problem_db, Model& model):
-  Analyzer(problem_db, model), numContDesVars(0), numDiscIntDesVars(0),
-  numDiscStringDesVars(0), numDiscRealDesVars(0), numDesignVars(0),
-  numContStateVars(0), numDiscIntStateVars(0), numDiscStringStateVars(0),
-  numDiscRealStateVars(0), numStateVars(0), numNormalVars(0),
-  numLognormalVars(0), numUniformVars(0), numLoguniformVars(0),
-  numTriangularVars(0), numExponentialVars(0), numBetaVars(0), numGammaVars(0),
-  numGumbelVars(0), numFrechetVars(0), numWeibullVars(0),
-  numHistogramBinVars(0), numPoissonVars(0), numBinomialVars(0),
-  numNegBinomialVars(0), numGeometricVars(0), numHyperGeomVars(0),
-  numHistogramPtIntVars(0), numHistogramPtStringVars(0),
-  numHistogramPtRealVars(0), numContIntervalVars(0), numDiscIntervalVars(0),
-  numDiscSetIntUncVars(0), numDiscSetStringUncVars(0), numDiscSetRealUncVars(0),
-  numContAleatUncVars(0), numDiscIntAleatUncVars(0),
-  numDiscStringAleatUncVars(0), numDiscRealAleatUncVars(0),
+NonD::NonD(Model& model): Analyzer(model), numContDesVars(0),
+  numDiscIntDesVars(0), numDiscRealDesVars(0), numDesignVars(0),
+  numContStateVars(0), numDiscIntStateVars(0), numDiscRealStateVars(0),
+  numStateVars(0), numNormalVars(0), numLognormalVars(0), numUniformVars(0),
+  numLoguniformVars(0), numTriangularVars(0), numExponentialVars(0),
+  numBetaVars(0), numGammaVars(0), numGumbelVars(0), numFrechetVars(0),
+  numWeibullVars(0), numHistogramBinVars(0), numPoissonVars(0),
+  numBinomialVars(0), numNegBinomialVars(0), numGeometricVars(0),
+  numHyperGeomVars(0), numHistogramPtVars(0), numContIntervalVars(0),
+  numDiscIntervalVars(0), numDiscSetIntUncVars(0), numDiscSetRealUncVars(0),
+  numContAleatUncVars(0), numDiscIntAleatUncVars(0), numDiscRealAleatUncVars(0),
   numAleatoryUncVars(0), numContEpistUncVars(0), numDiscIntEpistUncVars(0),
-  numDiscStringEpistUncVars(0), numDiscRealEpistUncVars(0),
-  numEpistemicUncVars(0),
+  numDiscRealEpistUncVars(0), numEpistemicUncVars(0),
   respLevelTarget(probDescDB.get_short("method.nond.response_level_target")),
   respLevelTargetReduce(
     probDescDB.get_short("method.nond.response_level_target_reduce")),
@@ -67,9 +61,7 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
   pdfOutput(false), distParamDerivs(false)
 {
   bool err_flag = false;
-  const Variables& vars = iteratedModel.current_variables();
-  short active_view = vars.view().first;
-  const SharedVariablesData& svd = vars.shared_data();
+  short active_view = iteratedModel.current_variables().view().first;
 
   // initialize aleatory uncertain variables
   if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
@@ -90,6 +82,10 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
     numWeibullVars = probDescDB.get_sizet("variables.weibull_uncertain");
     numHistogramBinVars
       = probDescDB.get_sizet("variables.histogram_uncertain.bin");
+    numContAleatUncVars = numNormalVars + numLognormalVars + numUniformVars +
+      numLoguniformVars + numTriangularVars + numExponentialVars + numBetaVars +
+      numGammaVars + numGumbelVars + numFrechetVars + numWeibullVars +
+      numHistogramBinVars;
 
     numPoissonVars = probDescDB.get_sizet("variables.poisson_uncertain");
     numBinomialVars = probDescDB.get_sizet("variables.binomial_uncertain");
@@ -98,46 +94,49 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
     numGeometricVars = probDescDB.get_sizet("variables.geometric_uncertain");
     numHyperGeomVars
       = probDescDB.get_sizet("variables.hypergeometric_uncertain");
-    numHistogramPtIntVars
-      = probDescDB.get_sizet("variables.histogram_uncertain.point_int");
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscIntAleatUncVars = numPoissonVars + numBinomialVars +
+	numNegBinomialVars + numGeometricVars + numHyperGeomVars;
+    else                                                       // relaxed
+      numContAleatUncVars += numPoissonVars + numBinomialVars +
+	numNegBinomialVars + numGeometricVars + numHyperGeomVars;
 
-    numHistogramPtStringVars
-      = probDescDB.get_sizet("variables.histogram_uncertain.point_string");
+    numHistogramPtVars
+      = probDescDB.get_sizet("variables.histogram_uncertain.point");
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscRealAleatUncVars = numHistogramPtVars;
+    else                                                       // relaxed
+      numContAleatUncVars += numHistogramPtVars;
 
-    numHistogramPtRealVars
-      = probDescDB.get_sizet("variables.histogram_uncertain.point_real");
-
-    svd.aleatory_uncertain_counts(numContAleatUncVars, numDiscIntAleatUncVars,
-				  numDiscStringAleatUncVars,
-				  numDiscRealAleatUncVars);
-    numAleatoryUncVars = numContAleatUncVars       + numDiscIntAleatUncVars
-                       + numDiscStringAleatUncVars + numDiscRealAleatUncVars;
+    numAleatoryUncVars = numContAleatUncVars + numDiscIntAleatUncVars +
+      numDiscRealAleatUncVars;
   }
-
   // initialize epistemic uncertain variables
   if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
       active_view == RELAXED_EPISTEMIC_UNCERTAIN ||
       active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
       active_view == MIXED_EPISTEMIC_UNCERTAIN) { // epistemic or both
-    numContIntervalVars
+    numContEpistUncVars = numContIntervalVars
       = probDescDB.get_sizet("variables.continuous_interval_uncertain");
 
     numDiscIntervalVars
       = probDescDB.get_sizet("variables.discrete_interval_uncertain");
     numDiscSetIntUncVars
       = probDescDB.get_sizet("variables.discrete_uncertain_set_int");
-
-    numDiscSetStringUncVars
-      = probDescDB.get_sizet("variables.discrete_uncertain_set_string");
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscIntEpistUncVars = numDiscIntervalVars + numDiscSetIntUncVars;
+    else                                                       // relaxed
+      numContEpistUncVars += numDiscIntervalVars + numDiscSetIntUncVars;
 
     numDiscSetRealUncVars
       = probDescDB.get_sizet("variables.discrete_uncertain_set_real");
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscRealEpistUncVars = numDiscSetRealUncVars;
+    else                                                       // relaxed
+      numContEpistUncVars += numDiscSetRealUncVars;
 
-    svd.epistemic_uncertain_counts(numContEpistUncVars, numDiscIntEpistUncVars,
-				   numDiscStringEpistUncVars,
-				   numDiscRealEpistUncVars);
     numEpistemicUncVars = numContEpistUncVars + numDiscIntEpistUncVars +
-      numDiscStringEpistUncVars + numDiscRealEpistUncVars;
+      numDiscRealEpistUncVars;
   }
 
   // default mode definition (can be overridden in derived classes, e.g.,
@@ -150,19 +149,38 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
   // initialize design variables (if active)
   if (active_view == RELAXED_ALL    || active_view == MIXED_ALL ||
       active_view == RELAXED_DESIGN || active_view == MIXED_DESIGN) {
-    svd.design_counts(numContDesVars, numDiscIntDesVars, numDiscStringDesVars,
-		      numDiscRealDesVars);
-    numDesignVars = numContDesVars + numDiscIntDesVars + numDiscStringDesVars
-                  + numDiscRealDesVars;
+    numContDesVars = probDescDB.get_sizet("variables.continuous_design");
+    if (active_view == RELAXED_ALL || active_view == RELAXED_DESIGN)
+      numContDesVars += probDescDB.get_sizet("variables.discrete_design_range")
+	+ probDescDB.get_sizet("variables.discrete_design_set_int")
+	+ probDescDB.get_sizet("variables.discrete_design_set_real");
+    else {
+      numDiscIntDesVars
+	= probDescDB.get_sizet("variables.discrete_design_range")
+	+ probDescDB.get_sizet("variables.discrete_design_set_int");
+      numDiscRealDesVars
+	= probDescDB.get_sizet("variables.discrete_design_set_real");
+    }
+    numDesignVars = numContDesVars + numDiscIntDesVars + numDiscRealDesVars;
   }
 
   // initialize state variables (if active)
   if (active_view == RELAXED_ALL   || active_view == MIXED_ALL ||
       active_view == RELAXED_STATE || active_view == MIXED_STATE) {
-    svd.state_counts(numContStateVars, numDiscIntStateVars,
-		     numDiscStringStateVars, numDiscRealStateVars);
-    numStateVars = numContStateVars       + numDiscIntStateVars
-                 + numDiscStringStateVars + numDiscRealStateVars;
+    numContStateVars = probDescDB.get_sizet("variables.continuous_state");
+    if (active_view == RELAXED_ALL || active_view == RELAXED_STATE)
+      numContStateVars += probDescDB.get_sizet("variables.discrete_state_range")
+	+ probDescDB.get_sizet("variables.discrete_state_set_int")
+	+ probDescDB.get_sizet("variables.discrete_state_set_real");
+    else {
+      numDiscIntStateVars
+	= probDescDB.get_sizet("variables.discrete_state_range")
+	+ probDescDB.get_sizet("variables.discrete_state_set_int");
+      numDiscRealStateVars
+	= probDescDB.get_sizet("variables.discrete_state_set_real");
+    }
+    numStateVars
+      = numContStateVars + numDiscIntStateVars + numDiscRealStateVars;
   }
 
   if ( !numUncertainVars && !numDesignVars && !numStateVars ) {
@@ -170,13 +188,12 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
 	 << "NonD." << std::endl;
     err_flag = true;
   }
-  if (numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-      numDiscreteRealVars != numDesignVars + numUncertainVars + numStateVars) {
+  if (numContinuousVars + numDiscreteIntVars + numDiscreteRealVars !=
+      numDesignVars     + numUncertainVars   + numStateVars) {
     Cerr << "\nError: inconsistent active variable counts ("
-	 << numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-            numDiscreteRealVars << ", " << numDesignVars + numUncertainVars +
-            numStateVars << ") in Dakota::" << "NonD(Model&) for method "
-	 << method_enum_to_string(methodName) << '.' << std::endl;
+	 << numContinuousVars + numDiscreteIntVars + numDiscreteRealVars << ", "
+	 << numDesignVars + numUncertainVars + numStateVars << ") in Dakota::"
+	 << "NonD(Model&) for method " << methodName << '.' << std::endl;
     err_flag = true;
   }
 
@@ -207,55 +224,205 @@ NonD::NonD(ProblemDescDB& problem_db, Model& model):
 }
 
 
-NonD::NonD(unsigned short method_name, Model& model):
-  Analyzer(method_name, model), numContDesVars(0), numDiscIntDesVars(0),
-  numDiscStringDesVars(0), numDiscRealDesVars(0), numDesignVars(0),
-  numContStateVars(0), numDiscIntStateVars(0), numDiscStringStateVars(0),
-  numDiscRealStateVars(0), numStateVars(0), numNormalVars(0),
-  numLognormalVars(0), numUniformVars(0), numLoguniformVars(0),
-  numTriangularVars(0), numExponentialVars(0), numBetaVars(0), numGammaVars(0),
-  numGumbelVars(0), numFrechetVars(0), numWeibullVars(0),
-  numHistogramBinVars(0), numPoissonVars(0), numBinomialVars(0),
-  numNegBinomialVars(0), numGeometricVars(0), numHyperGeomVars(0),
-  numHistogramPtIntVars(0), numHistogramPtStringVars(0),
-  numHistogramPtRealVars(0), numContIntervalVars(0), numDiscIntervalVars(0),
-  numDiscSetIntUncVars(0), numDiscSetStringUncVars(0), numDiscSetRealUncVars(0),
-  numContAleatUncVars(0), numDiscIntAleatUncVars(0),
-  numDiscStringAleatUncVars(0), numDiscRealAleatUncVars(0),
+NonD::NonD(NoDBBaseConstructor, Model& model):
+  Analyzer(NoDBBaseConstructor(), model), numContDesVars(0),
+  numDiscIntDesVars(0), numDiscRealDesVars(0), numDesignVars(0),
+  numContStateVars(0), numDiscIntStateVars(0), numDiscRealStateVars(0),
+  numStateVars(0), numNormalVars(0), numLognormalVars(0), numUniformVars(0),
+  numLoguniformVars(0), numTriangularVars(0), numExponentialVars(0),
+  numBetaVars(0), numGammaVars(0), numGumbelVars(0), numFrechetVars(0),
+  numWeibullVars(0), numHistogramBinVars(0), numPoissonVars(0),
+  numBinomialVars(0), numNegBinomialVars(0), numGeometricVars(0),
+  numHyperGeomVars(0), numHistogramPtVars(0), numContIntervalVars(0),
+  numDiscIntervalVars(0), numDiscSetIntUncVars(0), numDiscSetRealUncVars(0),
+  numContAleatUncVars(0), numDiscIntAleatUncVars(0), numDiscRealAleatUncVars(0),
   numAleatoryUncVars(0), numContEpistUncVars(0), numDiscIntEpistUncVars(0),
-  numDiscStringEpistUncVars(0), numDiscRealEpistUncVars(0),
-  numEpistemicUncVars(0), totalLevelRequests(0), cdfFlag(true),
-  pdfOutput(false), distParamDerivs(false)
+  numDiscRealEpistUncVars(0), numEpistemicUncVars(0), totalLevelRequests(0),
+  cdfFlag(true), pdfOutput(false), distParamDerivs(false)
 {
   // NonDEvidence and NonDAdaptImpSampling use this ctor
 
-  size();
+  bool err_flag = false;
+  short active_view = model.current_variables().view().first;
 
-  // current set of statistics is mean, standard deviation, and 
-  // probability of failure for each response function 
-  //ShortArray asv(3*numFunctions, 1); 
+  // initialize aleatory uncertain variables
+  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
+      active_view == RELAXED_ALEATORY_UNCERTAIN ||
+      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
+      active_view == MIXED_ALEATORY_UNCERTAIN) { // aleatory or both
+    Pecos::AleatoryDistParams& adp = model.aleatory_distribution_parameters();
+    numNormalVars       = adp.normal_means().length();
+    numLognormalVars    = adp.lognormal_means().length();
+    numUniformVars      = adp.uniform_lower_bounds().length();
+    numLoguniformVars   = adp.loguniform_lower_bounds().length();
+    numTriangularVars   = adp.triangular_modes().length();
+    numExponentialVars  = adp.exponential_betas().length();
+    numBetaVars         = adp.beta_alphas().length();
+    numGammaVars        = adp.gamma_alphas().length();
+    numGumbelVars       = adp.gumbel_alphas().length();
+    numFrechetVars      = adp.frechet_alphas().length();
+    numWeibullVars      = adp.weibull_alphas().length();
+    numHistogramBinVars = adp.histogram_bin_pairs().size();
+    numContAleatUncVars = numNormalVars + numLognormalVars + numUniformVars +
+      numLoguniformVars + numTriangularVars + numExponentialVars + numBetaVars +
+      numGammaVars + numGumbelVars + numFrechetVars + numWeibullVars +
+      numHistogramBinVars;
+
+    numPoissonVars     = adp.poisson_lambdas().length();
+    numBinomialVars    = adp.binomial_probability_per_trial().length();
+    numNegBinomialVars = adp.negative_binomial_probability_per_trial().length();
+    numGeometricVars   = adp.geometric_probability_per_trial().length();
+    numHyperGeomVars   = adp.hypergeometric_num_drawn().length();
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN)
+      numDiscIntAleatUncVars = numPoissonVars + numBinomialVars +
+	numNegBinomialVars + numGeometricVars + numHyperGeomVars;
+    else
+      numContAleatUncVars += numPoissonVars + numBinomialVars +
+	numNegBinomialVars + numGeometricVars + numHyperGeomVars;
+
+    numHistogramPtVars = adp.histogram_point_pairs().size();
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN)
+      numDiscRealAleatUncVars = numHistogramPtVars;
+    else
+      numContAleatUncVars += numHistogramPtVars;
+
+    numAleatoryUncVars = numContAleatUncVars + numDiscIntAleatUncVars +
+      numDiscRealAleatUncVars;
+  }
+
+  // initialize epistemic uncertain variables
+  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
+      active_view == RELAXED_EPISTEMIC_UNCERTAIN ||
+      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
+      active_view == MIXED_EPISTEMIC_UNCERTAIN) { // epistemic or both
+    Pecos::EpistemicDistParams& edp = model.epistemic_distribution_parameters();
+    numContEpistUncVars = numContIntervalVars
+      = edp.continuous_interval_probabilities().size();
+
+    numDiscIntervalVars  = edp.discrete_interval_probabilities().size();
+    numDiscSetIntUncVars = edp.discrete_set_int_values_probabilities().size();
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscIntEpistUncVars = numDiscIntervalVars + numDiscSetIntUncVars;
+    else                                                       // relaxed
+      numContEpistUncVars += numDiscIntervalVars + numDiscSetIntUncVars;
+
+    numDiscSetRealUncVars = edp.discrete_set_real_values_probabilities().size();
+    if (active_view == MIXED_ALL || active_view >= MIXED_DESIGN) // mixed
+      numDiscRealEpistUncVars = numDiscSetRealUncVars;
+    else                                                       // relaxed
+      numContEpistUncVars += numDiscSetRealUncVars;
+
+    numEpistemicUncVars = numContEpistUncVars + numDiscIntEpistUncVars +
+      numDiscRealEpistUncVars;
+  }
+
+  // default mode definition (can be overridden in derived classes, e.g.,
+  // based on NonDSampling::samplingVarsMode):
+  epistemicStats = (numEpistemicUncVars > 0);
+
+  // initialize total uncertain variables
+  numUncertainVars = numAleatoryUncVars + numEpistemicUncVars;
+
+  // initialize design/state variables for all_variables mode
+  if (active_view == RELAXED_ALL || active_view == MIXED_ALL) {
+    UShortMultiArrayConstView acv_types = model.all_continuous_variable_types();
+    numContDesVars   = std::count(acv_types.begin(), acv_types.end(),
+				  (unsigned short)CONTINUOUS_DESIGN);
+    numContStateVars = std::count(acv_types.begin(), acv_types.end(),
+				  (unsigned short)CONTINUOUS_STATE);
+    if (active_view == RELAXED_ALL) {
+      numContDesVars   += std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_DESIGN_RANGE) +
+	                  std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_DESIGN_SET_INT) +
+	                  std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_DESIGN_SET_REAL);
+      numContStateVars += std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_STATE_RANGE) +
+	                  std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_STATE_SET_INT) +
+	                  std::count(acv_types.begin(), acv_types.end(),
+				     (unsigned short)DISCRETE_STATE_SET_REAL);
+    }
+    else {
+      UShortMultiArrayConstView adiv_types
+	= model.all_discrete_int_variable_types();
+      UShortMultiArrayConstView adrv_types
+	= model.all_discrete_real_variable_types();
+      numDiscIntDesVars = std::count(adiv_types.begin(), adiv_types.end(),
+				     (unsigned short)DISCRETE_DESIGN_RANGE) +
+	                  std::count(adiv_types.begin(), adiv_types.end(),
+				     (unsigned short)DISCRETE_DESIGN_SET_INT);
+      numDiscRealDesVars = std::count(adrv_types.begin(), adrv_types.end(),
+				      (unsigned short)DISCRETE_DESIGN_SET_REAL);
+      numDiscIntStateVars = std::count(adiv_types.begin(), adiv_types.end(),
+				       (unsigned short)DISCRETE_STATE_RANGE) +
+	                    std::count(adiv_types.begin(), adiv_types.end(),
+				       (unsigned short)DISCRETE_STATE_SET_INT);
+      numDiscRealStateVars = std::count(adrv_types.begin(), adrv_types.end(),
+				       (unsigned short)DISCRETE_STATE_SET_REAL);
+    }
+    numDesignVars = numContDesVars + numDiscIntDesVars + numDiscRealDesVars;
+    numStateVars
+      = numContStateVars + numDiscIntStateVars + numDiscRealStateVars;
+  }
+  else if (active_view == RELAXED_DESIGN || active_view == MIXED_DESIGN) {
+    // can happen with EGO usage of on-the-fly NonDLHSSampling construction.
+    // TO DO: would selecting samplingVarsMode=ALL_UNIFORM from EGO be OK?
+    numContDesVars     = model.cv();
+    numDiscIntDesVars  = model.div();
+    numDiscRealDesVars = model.drv();
+    numDesignVars = numContDesVars + numDiscIntDesVars + numDiscRealDesVars;
+  }
+  else if (active_view == RELAXED_STATE || active_view == MIXED_STATE) {
+    // can happen with EGO usage of on-the-fly NonDLHSSampling construction.
+    // TO DO: would selecting samplingVarsMode=ALL_UNIFORM from EGO be OK?
+    numContStateVars     = model.cv();
+    numDiscIntStateVars  = model.div();
+    numDiscRealStateVars = model.drv();
+    numStateVars
+      = numContStateVars + numDiscIntStateVars + numDiscRealStateVars;
+  }
+  else if (!numUncertainVars) {
+    Cerr << "\nError: number of uncertain variables must be nonzero in "
+	 << "Dakota::NonD." << std::endl;
+    err_flag = true;
+  }
+
+  if (numContinuousVars + numDiscreteIntVars + numDiscreteRealVars !=
+      numDesignVars     + numUncertainVars   + numStateVars) {
+    Cout << "\nError: inconsistent active variable counts ("
+	 << numContinuousVars + numDiscreteIntVars + numDiscreteRealVars << ", "
+	 << numDesignVars     + numUncertainVars   + numStateVars
+	 << ") in Dakota::NonD(NoDBBaseConstructor, Model&)." << std::endl;
+    err_flag = true;
+  }
+
+  // current set of statistics is mean, standard deviation, and
+  // probability of failure for each response function
+  //ShortArray asv(3*numFunctions, 1);
   //finalStatistics = Response(numUncertainVars, asv);
+
+  if (err_flag)
+    abort_handler(-1);
 }
 
 
-NonD::NonD(unsigned short method_name, const RealVector& lower_bnds,
+NonD::NonD(NoDBBaseConstructor, const RealVector& lower_bnds,
 	   const RealVector& upper_bnds):
-  Analyzer(method_name), numContDesVars(0), numDiscIntDesVars(0),
-  numDiscStringDesVars(0), numDiscRealDesVars(0), numDesignVars(0),
-  numContStateVars(0), numDiscIntStateVars(0), numDiscStringStateVars(0),
-  numDiscRealStateVars(0), numStateVars(0), numNormalVars(0),
-  numLognormalVars(0), numUniformVars(0), numLoguniformVars(0),
-  numTriangularVars(0), numExponentialVars(0), numBetaVars(0), numGammaVars(0),
-  numGumbelVars(0), numFrechetVars(0), numWeibullVars(0),
-  numHistogramBinVars(0), numPoissonVars(0), numBinomialVars(0),
-  numNegBinomialVars(0), numGeometricVars(0), numHyperGeomVars(0),
-  numHistogramPtIntVars(0), numHistogramPtStringVars(0),
-  numHistogramPtRealVars(0), numContIntervalVars(0), numDiscIntervalVars(0),
-  numDiscSetIntUncVars(0), numDiscSetStringUncVars(0), numDiscSetRealUncVars(0),
-  numContAleatUncVars(0), numDiscIntAleatUncVars(0),
-  numDiscStringAleatUncVars(0), numDiscRealAleatUncVars(0),
-  numAleatoryUncVars(0), numContEpistUncVars(0), numDiscIntEpistUncVars(0),
-  numDiscStringEpistUncVars(0), numDiscRealEpistUncVars(0),
+  Analyzer(NoDBBaseConstructor()), numContDesVars(0), numDiscIntDesVars(0),
+  numDiscRealDesVars(0), numDesignVars(0), numContStateVars(0),
+  numDiscIntStateVars(0), numDiscRealStateVars(0), numStateVars(0),
+  numNormalVars(0), numLognormalVars(0), numUniformVars(lower_bnds.length()),
+  numLoguniformVars(0), numTriangularVars(0), numExponentialVars(0),
+  numBetaVars(0), numGammaVars(0), numGumbelVars(0), numFrechetVars(0),
+  numWeibullVars(0), numHistogramBinVars(0), numPoissonVars(0),
+  numBinomialVars(0), numNegBinomialVars(0), numGeometricVars(0),
+  numHyperGeomVars(0), numHistogramPtVars(0), numContIntervalVars(0),
+  numDiscIntervalVars(0), numDiscSetIntUncVars(0), numDiscSetRealUncVars(0),
+  numContAleatUncVars(numUniformVars), numDiscIntAleatUncVars(0),
+  numDiscRealAleatUncVars(0), numAleatoryUncVars(numUniformVars),
+  numContEpistUncVars(0), numDiscIntEpistUncVars(0), numDiscRealEpistUncVars(0),
   numEpistemicUncVars(0), numUncertainVars(numUniformVars),
   epistemicStats(false), totalLevelRequests(0), cdfFlag(true), pdfOutput(false),
   distParamDerivs(false)
@@ -264,243 +431,7 @@ NonD::NonD(unsigned short method_name, const RealVector& lower_bnds,
   // initial points or multibjective weight sets.
 
   numContinuousVars  = numUniformVars;
-  numDiscreteIntVars = numDiscreteStringVars = numDiscreteRealVars = 0;
-}
-
-
-void NonD::size()
-{
-  bool err_flag = false;
-  const Variables& vars = iteratedModel.current_variables();
-  short active_view = vars.view().first;
-  const SharedVariablesData& svd = vars.shared_data();
-
-  // update sizes for aleatory uncertain variables
-  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
-      active_view == RELAXED_ALEATORY_UNCERTAIN ||
-      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
-      active_view == MIXED_ALEATORY_UNCERTAIN) { // aleatory or both
-    const Pecos::AleatoryDistParams& adp
-      = iteratedModel.aleatory_distribution_parameters();
-    numNormalVars       = adp.normal_means().length();
-    numLognormalVars    = adp.lognormal_means().length();
-    numUniformVars      = adp.uniform_lower_bounds().length();
-    numLoguniformVars   = adp.loguniform_lower_bounds().length();
-    numTriangularVars   = adp.triangular_modes().length();
-    numExponentialVars  = adp.exponential_betas().length();
-    numBetaVars         = adp.beta_alphas().length();
-    numGammaVars        = adp.gamma_alphas().length();
-    numGumbelVars       = adp.gumbel_alphas().length();
-    numFrechetVars      = adp.frechet_alphas().length();
-    numWeibullVars      = adp.weibull_alphas().length();
-    numHistogramBinVars = adp.histogram_bin_pairs().size();
-
-    numPoissonVars     = adp.poisson_lambdas().length();
-    numBinomialVars    = adp.binomial_probability_per_trial().length();
-    numNegBinomialVars = adp.negative_binomial_probability_per_trial().length();
-    numGeometricVars   = adp.geometric_probability_per_trial().length();
-    numHyperGeomVars   = adp.hypergeometric_num_drawn().length();
-    numHistogramPtIntVars = adp.histogram_point_int_pairs().size();
-
-    numHistogramPtStringVars = adp.histogram_point_string_pairs().size();
-
-    numHistogramPtRealVars   = adp.histogram_point_real_pairs().size();
-
-    svd.aleatory_uncertain_counts(numContAleatUncVars, numDiscIntAleatUncVars,
-				  numDiscStringAleatUncVars,
-				  numDiscRealAleatUncVars);
-    numAleatoryUncVars = numContAleatUncVars       + numDiscIntAleatUncVars
-                       + numDiscStringAleatUncVars + numDiscRealAleatUncVars;
-  }
-
-  // update sizes for epistemic uncertain variables
-  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
-      active_view == RELAXED_EPISTEMIC_UNCERTAIN ||
-      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
-      active_view == MIXED_EPISTEMIC_UNCERTAIN) { // epistemic or both
-    const Pecos::EpistemicDistParams& edp
-      = iteratedModel.epistemic_distribution_parameters();
-    numContIntervalVars  = edp.continuous_interval_basic_probabilities().size();
-
-    numDiscIntervalVars  = edp.discrete_interval_basic_probabilities().size();
-    numDiscSetIntUncVars = edp.discrete_set_int_values_probabilities().size();
-
-    numDiscSetStringUncVars
-      = edp.discrete_set_string_values_probabilities().size();
-
-    numDiscSetRealUncVars = edp.discrete_set_real_values_probabilities().size();
-
-    svd.epistemic_uncertain_counts(numContEpistUncVars, numDiscIntEpistUncVars,
-				   numDiscStringEpistUncVars,
-				   numDiscRealEpistUncVars);
-    numEpistemicUncVars = numContEpistUncVars       + numDiscIntEpistUncVars
-                        + numDiscStringEpistUncVars + numDiscRealEpistUncVars;
-  }
-
-  // default mode definition (can be overridden in derived classes, e.g.,
-  // based on NonDSampling::samplingVarsMode):
-  epistemicStats = (numEpistemicUncVars > 0);
-
-  // update total uncertain variables
-  numUncertainVars = numAleatoryUncVars + numEpistemicUncVars;
-
-  // update sizes for design variables (if active)
-  if (active_view == RELAXED_ALL    || active_view == MIXED_ALL ||
-      active_view == RELAXED_DESIGN || active_view == MIXED_DESIGN) {
-    svd.design_counts(numContDesVars, numDiscIntDesVars, numDiscStringDesVars,
-		      numDiscRealDesVars);
-    numDesignVars = numContDesVars       + numDiscIntDesVars
-                  + numDiscStringDesVars + numDiscRealDesVars;
-  }
-
-  // update sizes for state variables (if active)
-  if (active_view == RELAXED_ALL   || active_view == MIXED_ALL ||
-      active_view == RELAXED_STATE || active_view == MIXED_STATE) {
-    svd.state_counts(numContStateVars, numDiscIntStateVars,
-		     numDiscStringStateVars, numDiscRealStateVars);
-    numStateVars = numContStateVars       + numDiscIntStateVars
-                 + numDiscStringStateVars + numDiscRealStateVars;
-  }
-
-  if ( !numUncertainVars && !numDesignVars && !numStateVars ) {
-    Cerr << "\nError: number of active variables must be nonzero in Dakota::"
-	 << "NonD::resize()." << std::endl;
-    err_flag = true;
-  }
-  if (numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-      numDiscreteRealVars != numDesignVars + numUncertainVars + numStateVars) {
-    Cout << "\nError: inconsistent active variable counts ("
-	 << numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-            numDiscreteRealVars << ", " << numDesignVars + numUncertainVars +
-            numStateVars << ") in Dakota::NonD::resize()." << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
-    abort_handler(-1);
-}
-
-
-bool NonD::resize()
-{
-  bool parent_reinit_comms = Analyzer::resize();
-
-  bool err_flag = false;
-  const Variables& vars = iteratedModel.current_variables();
-  short active_view = vars.view().first;
-  const SharedVariablesData& svd = vars.shared_data();
-
-  // update sizes for aleatory uncertain variables
-  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
-      active_view == RELAXED_ALEATORY_UNCERTAIN ||
-      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
-      active_view == MIXED_ALEATORY_UNCERTAIN) { // aleatory or both
-    const Pecos::AleatoryDistParams& adp
-      = iteratedModel.aleatory_distribution_parameters();
-    numNormalVars       = adp.normal_means().length();
-    numLognormalVars    = adp.lognormal_means().length();
-    numUniformVars      = adp.uniform_lower_bounds().length();
-    numLoguniformVars   = adp.loguniform_lower_bounds().length();
-    numTriangularVars   = adp.triangular_modes().length();
-    numExponentialVars  = adp.exponential_betas().length();
-    numBetaVars         = adp.beta_alphas().length();
-    numGammaVars        = adp.gamma_alphas().length();
-    numGumbelVars       = adp.gumbel_alphas().length();
-    numFrechetVars      = adp.frechet_alphas().length();
-    numWeibullVars      = adp.weibull_alphas().length();
-    numHistogramBinVars = adp.histogram_bin_pairs().size();
-
-    numPoissonVars     = adp.poisson_lambdas().length();
-    numBinomialVars    = adp.binomial_probability_per_trial().length();
-    numNegBinomialVars = adp.negative_binomial_probability_per_trial().length();
-    numGeometricVars   = adp.geometric_probability_per_trial().length();
-    numHyperGeomVars   = adp.hypergeometric_num_drawn().length();
-    numHistogramPtIntVars = adp.histogram_point_int_pairs().size();
-
-    numHistogramPtStringVars = adp.histogram_point_string_pairs().size();
-
-    numHistogramPtRealVars   = adp.histogram_point_real_pairs().size();
-
-    svd.aleatory_uncertain_counts(numContAleatUncVars, numDiscIntAleatUncVars,
-				  numDiscStringAleatUncVars,
-				  numDiscRealAleatUncVars);
-    numAleatoryUncVars = numContAleatUncVars       + numDiscIntAleatUncVars
-                       + numDiscStringAleatUncVars + numDiscRealAleatUncVars;
-  }
-
-  // update sizes for epistemic uncertain variables
-  if (active_view == RELAXED_ALL || active_view == RELAXED_UNCERTAIN ||
-      active_view == RELAXED_EPISTEMIC_UNCERTAIN ||
-      active_view == MIXED_ALL || active_view == MIXED_UNCERTAIN ||
-      active_view == MIXED_EPISTEMIC_UNCERTAIN) { // epistemic or both
-    const Pecos::EpistemicDistParams& edp
-      = iteratedModel.epistemic_distribution_parameters();
-    numContIntervalVars  = edp.continuous_interval_basic_probabilities().size();
-
-    numDiscIntervalVars  = edp.discrete_interval_basic_probabilities().size();
-    numDiscSetIntUncVars = edp.discrete_set_int_values_probabilities().size();
-
-    numDiscSetStringUncVars
-      = edp.discrete_set_string_values_probabilities().size();
-
-    numDiscSetRealUncVars = edp.discrete_set_real_values_probabilities().size();
-
-    svd.epistemic_uncertain_counts(numContEpistUncVars, numDiscIntEpistUncVars,
-				   numDiscStringEpistUncVars,
-				   numDiscRealEpistUncVars);
-    numEpistemicUncVars = numContEpistUncVars       + numDiscIntEpistUncVars
-                        + numDiscStringEpistUncVars + numDiscRealEpistUncVars;
-  }
-
-  // default mode definition (can be overridden in derived classes, e.g.,
-  // based on NonDSampling::samplingVarsMode):
-  epistemicStats = (numEpistemicUncVars > 0);
-
-  // update total uncertain variables
-  numUncertainVars = numAleatoryUncVars + numEpistemicUncVars;
-
-  // update sizes for design variables (if active)
-  if (active_view == RELAXED_ALL    || active_view == MIXED_ALL ||
-      active_view == RELAXED_DESIGN || active_view == MIXED_DESIGN) {
-    svd.design_counts(numContDesVars, numDiscIntDesVars, numDiscStringDesVars,
-		      numDiscRealDesVars);
-    numDesignVars = numContDesVars       + numDiscIntDesVars
-                  + numDiscStringDesVars + numDiscRealDesVars;
-  }
-
-  // update sizes for state variables (if active)
-  if (active_view == RELAXED_ALL   || active_view == MIXED_ALL ||
-      active_view == RELAXED_STATE || active_view == MIXED_STATE) {
-    svd.state_counts(numContStateVars, numDiscIntStateVars,
-		     numDiscStringStateVars, numDiscRealStateVars);
-    numStateVars = numContStateVars       + numDiscIntStateVars
-                 + numDiscStringStateVars + numDiscRealStateVars;
-  }
-
-  if ( !numUncertainVars && !numDesignVars && !numStateVars ) {
-    Cerr << "\nError: number of active variables must be nonzero in Dakota::"
-	 << "NonD::resize()." << std::endl;
-    err_flag = true;
-  }
-  if (numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-      numDiscreteRealVars != numDesignVars + numUncertainVars + numStateVars) {
-    Cout << "\nError: inconsistent active variable counts ("
-	 << numContinuousVars + numDiscreteIntVars + numDiscreteStringVars +
-            numDiscreteRealVars << ", " << numDesignVars + numUncertainVars +
-            numStateVars << ") in Dakota::NonD::resize()." << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
-    abort_handler(-1);
-
-  return parent_reinit_comms;
-}
-
-void NonD::derived_set_communicators(ParLevLIter pl_iter)
-{
-  miPLIndex = methodPCIter->mi_parallel_level_index(pl_iter);
-  iteratedModel.set_communicators(pl_iter, maxEvalConcurrency);
+  numDiscreteIntVars = numDiscreteRealVars = 0;
 }
 
 
@@ -515,7 +446,7 @@ int NonD::generate_system_seed()
   // case.  This has the additional benefit that a random run can be
   // recreated by specifying the clock-generated seed in the input file.
   int seed = 1;
-#ifdef HAVE_DDACE
+#ifdef DAKOTA_DDACE
   seed += DistributionBase::timeSeed(); // microsecs, time of day
 #elif defined(DAKOTA_UTILIB)
   seed += (int)CurrentTime();           // secs, time of day
@@ -532,8 +463,7 @@ requested_levels(const RealVectorArray& req_resp_levels,
 		 const RealVectorArray& req_prob_levels,
 		 const RealVectorArray& req_rel_levels,
 		 const RealVectorArray& req_gen_rel_levels,
-		 short resp_lev_tgt, short resp_lev_tgt_reduce,
-		 bool cdf_flag, bool pdf_output)
+		 short resp_lev_tgt, short resp_lev_tgt_reduce, bool cdf_flag)
 {
   respLevelTarget = resp_lev_tgt;
   respLevelTargetReduce = resp_lev_tgt_reduce;
@@ -578,7 +508,7 @@ requested_levels(const RealVectorArray& req_resp_levels,
       totalLevelRequests += requestedGenRelLevels[i].length();
   }
 
-  if (totalLevelRequests && pdf_output)
+  if (totalLevelRequests && outputLevel >= NORMAL_OUTPUT)
     pdfOutput = true;
 
   initialize_final_statistics();
@@ -635,18 +565,11 @@ void NonD::distribute_levels(RealVectorArray& levels, bool ascending)
 
 
 void NonD::
-transform_model(Model& x_model, Model& u_model,
-		bool truncated_bounds, Real bound)
+transform_model(Model& x_model, Model& u_model, bool global_bounds, Real bound)
 {
-  ///////////////////////
-  // Perform recasting //
-  ///////////////////////
-
   size_t i, num_cdv_cauv = numContDesVars+numContAleatUncVars;
   Sizet2DArray vars_map, primary_resp_map, secondary_resp_map;
-  SizetArray recast_vars_comps_total; // default: no change in cauv total
-  // we do not reorder the u-space variable types such that we preserve a
-  // 1-to-1 mapping with consistent ordering
+  SizetArray recast_vars_comps_total; // default: no change in size
   vars_map.resize(numContinuousVars);
   for (i=0; i<numContinuousVars; ++i) {
     vars_map[i].resize(1);
@@ -659,56 +582,35 @@ transform_model(Model& x_model, Model& u_model,
   }
   // Nataf is a nonlinear tranformation for all variables except Normals.
   // Nonlinear mappings require special ASV logic for transforming Hessians.
-  const std::vector<Pecos::RandomVariable>& x_ran_vars
-    = natafTransform.x_random_variables();
+  const Pecos::ShortArray& x_types = natafTransform.x_types();
   const Pecos::ShortArray& u_types = natafTransform.u_types();
-  bool nonlinear_vars_map = false; short x_type, u_type;
-  for (i=numContDesVars; i<num_cdv_cauv; ++i) {
-    x_type = x_ran_vars[i].type(); u_type = u_types[i];
-    if ( x_type != u_type &&
-	 !( x_type == Pecos::NORMAL && u_type == Pecos::STD_NORMAL ) &&
-	 !( ( x_type == Pecos::UNIFORM || x_type == Pecos::HISTOGRAM_BIN ||
-	      x_type == Pecos::CONTINUOUS_DESIGN   ||
-	      x_type == Pecos::CONTINUOUS_INTERVAL ||
-	      x_type == Pecos::CONTINUOUS_STATE ) &&
-	    u_type == Pecos::STD_UNIFORM ) &&
-	 !( x_type == Pecos::EXPONENTIAL && u_type == Pecos::STD_EXPONENTIAL) &&
-	 !( x_type == Pecos::BETA   && u_type == Pecos::STD_BETA ) &&
-	 !( x_type == Pecos::GAMMA  && u_type == Pecos::STD_GAMMA ) )
+  bool nonlinear_vars_map = false;
+  for (i=numContDesVars; i<num_cdv_cauv; ++i)
+    if ( x_types[i] != u_types[i] &&
+	 !( x_types[i] == Pecos::NORMAL && u_types[i] == Pecos::STD_NORMAL ) &&
+	 !( ( x_types[i] == Pecos::UNIFORM ||
+	      x_types[i] == Pecos::HISTOGRAM_BIN ) &&
+	    u_types[i] == Pecos::STD_UNIFORM ) &&
+	 !( x_types[i] == Pecos::EXPONENTIAL &&
+	    u_types[i] == Pecos::STD_EXPONENTIAL ) &&
+	 !( x_types[i] == Pecos::BETA   && u_types[i] == Pecos::STD_BETA ) &&
+	 !( x_types[i] == Pecos::GAMMA  && u_types[i] == Pecos::STD_GAMMA ) )
       { nonlinear_vars_map = true; break; }
-  }
 
   // There is no additional response mapping beyond that required by the
   // nonlinear variables mapping.
   BoolDequeArray nonlinear_resp_map(numFunctions, BoolDeque(1, false));
-  const Response& x_resp = x_model.current_response();
-  const SharedVariablesData& svd = x_model.current_variables().shared_data();
-  const BitArray& all_relax_di = svd.all_relaxed_discrete_int();
-  const BitArray& all_relax_dr = svd.all_relaxed_discrete_real();
-  short recast_resp_order = 1; // recast resp order to be same as original resp
-  if (!x_resp.function_gradients().empty()) recast_resp_order |= 2;
-  if (!x_resp.function_hessians().empty())  recast_resp_order |= 4;
   RecastModel* recast_model = new RecastModel(x_model, vars_map,
-    recast_vars_comps_total, all_relax_di, all_relax_dr, nonlinear_vars_map,
-    vars_u_to_x_mapping, set_u_to_x_mapping, primary_resp_map,
-    secondary_resp_map, 0, recast_resp_order, nonlinear_resp_map,
-    resp_x_to_u_mapping, NULL);
+    recast_vars_comps_total, nonlinear_vars_map, vars_u_to_x_mapping,
+    set_u_to_x_mapping, primary_resp_map, secondary_resp_map, 0,
+    nonlinear_resp_map, resp_x_to_u_mapping, NULL);
   u_model.assign_rep(recast_model, false);
   // publish inverse mappings for use in data imports.  Since derivatives are
   // not imported and response values are not transformed, an inverse variables
   // transformation is sufficient for this purpose.
   recast_model->inverse_mappings(vars_x_to_u_mapping, NULL, NULL, NULL);
 
-  // Update continuous aleatory variable types (needed for Model::
-  // continuous_{probability_density,distribution_bounds,distribution_moment}())
-  for (i=numContDesVars; i<num_cdv_cauv; ++i)
-    recast_model->continuous_variable_type(
-      pecos_to_dakota_variable_type(u_types[i]), i);
-
-  /////////////////////////////////////////////////////////////////
-  // Populate aleatory distribution params for transformed space //
-  /////////////////////////////////////////////////////////////////
-
+  // Populate aleatory random var distribution params for transformed u-space.
   // *** Note ***: For use with REGRESSION approaches, variable ordering in
   // get_parameter_sets() does not use x_types/u_types as in NonDQuadrature/
   // NonDSparseGrid and thus a possibility for future ordering errors exists.
@@ -741,42 +643,42 @@ transform_model(Model& x_model, Model& u_model,
     = x_model.aleatory_distribution_parameters();
   Pecos::AleatoryDistParams&       u_adp
     = u_model.aleatory_distribution_parameters();
-  Real dbl_inf = std::numeric_limits<Real>::infinity();
   if (num_u_nuv || num_u_bnuv) {
-    size_t num_total_nuv = num_u_nuv + num_u_bnuv;
-    // u_adp was lightweight constructed; must size before entry assign
-    u_adp.nuv(num_total_nuv);
+    size_t num_total_nuv = num_u_nuv+num_u_bnuv;
+    RealVector nuv_means(num_total_nuv, false),
+      nuv_std_devs(num_total_nuv, false), nuv_l_bnds(num_total_nuv, false),
+      nuv_u_bnds(num_total_nuv, false);
     if (num_u_bnuv) {
-      size_t u_n_cntr = 0, x_n_cntr = 0;
+      const Pecos::RealVector& x_nuv_means    = x_adp.normal_means();
+      const Pecos::RealVector& x_nuv_std_devs = x_adp.normal_std_deviations();
+      const Pecos::RealVector& x_nuv_l_bnds   = x_adp.normal_lower_bounds();
+      const Pecos::RealVector& x_nuv_u_bnds   = x_adp.normal_upper_bounds();
+      size_t n_cntr = 0, x_n_cntr = 0;;
       for (i=numContDesVars; i<num_cdv_cauv; ++i) {
-	x_type = x_ran_vars[i].type(); u_type = u_types[i];
-	if (u_type == Pecos::BOUNDED_NORMAL) {
-	  u_adp.normal_mean(x_adp.normal_mean(x_n_cntr), u_n_cntr);
-	  u_adp.normal_std_deviation(
-	    x_adp.normal_std_deviation(x_n_cntr), u_n_cntr);
-	  u_adp.normal_lower_bound(x_adp.normal_lower_bound(x_n_cntr),u_n_cntr);
-	  u_adp.normal_upper_bound(x_adp.normal_upper_bound(x_n_cntr),u_n_cntr);
-	  ++u_n_cntr;
+	if (u_types[i] == Pecos::BOUNDED_NORMAL) {
+	  nuv_means[n_cntr]    = x_nuv_means[x_n_cntr];
+	  nuv_std_devs[n_cntr] = x_nuv_std_devs[x_n_cntr];
+	  nuv_l_bnds[n_cntr]   = x_nuv_l_bnds[x_n_cntr];
+	  nuv_u_bnds[n_cntr]   = x_nuv_u_bnds[x_n_cntr];
+	  ++n_cntr;
 	}
-	else if (u_type == Pecos::STD_NORMAL) {
-	  u_adp.normal_mean(0., u_n_cntr);
-	  u_adp.normal_std_deviation(1., u_n_cntr);
-	  u_adp.normal_lower_bound(-dbl_inf, u_n_cntr);
-	  u_adp.normal_upper_bound( dbl_inf, u_n_cntr);
-	  ++u_n_cntr;
+	else if (u_types[i] == Pecos::STD_NORMAL) {
+	  nuv_means[n_cntr]  = 0.;	 nuv_std_devs[n_cntr] = 1.;
+	  nuv_l_bnds[n_cntr] = -DBL_MAX; nuv_u_bnds[n_cntr]   = DBL_MAX;
+	  ++n_cntr;
 	}
-	if (x_type == Pecos::NORMAL || x_type == Pecos::BOUNDED_NORMAL)
+	if (x_types[i] == Pecos::NORMAL || x_types[i] == Pecos::BOUNDED_NORMAL)
 	  ++x_n_cntr;
       }
     }
     else {
-      for (i=0; i<num_total_nuv; ++i) {
-	u_adp.normal_mean(0., i);
-	u_adp.normal_std_deviation(1., i);
-	u_adp.normal_lower_bound(-dbl_inf, i);
-	u_adp.normal_upper_bound( dbl_inf, i);
-      }
+      nuv_means  = 0.;       nuv_std_devs = 1.;
+      nuv_l_bnds = -DBL_MAX; nuv_u_bnds   = DBL_MAX;
     }
+    u_adp.normal_means(nuv_means);
+    u_adp.normal_std_deviations(nuv_std_devs);
+    u_adp.normal_lower_bounds(nuv_l_bnds);
+    u_adp.normal_upper_bounds(nuv_u_bnds);
   }
   if (num_u_lnuv || num_u_blnuv) {
     u_adp.lognormal_means(x_adp.lognormal_means());
@@ -790,9 +692,10 @@ transform_model(Model& x_model, Model& u_model,
     }
   }
   if (num_u_uuv) {
-    u_adp.uuv(num_u_uuv); // size before entry assign
-    for (i=0; i<num_u_uuv; ++i)
-      { u_adp.uniform_lower_bound(-1., i); u_adp.uniform_upper_bound(1., i); }
+    RealVector uuv_l_bnds(num_u_uuv, false); uuv_l_bnds = -1.;
+    RealVector uuv_u_bnds(num_u_uuv, false); uuv_u_bnds =  1.;
+    u_adp.uniform_lower_bounds(uuv_l_bnds);
+    u_adp.uniform_upper_bounds(uuv_u_bnds);
   }
   if (num_u_luuv) {
     u_adp.loguniform_lower_bounds(x_adp.loguniform_lower_bounds());
@@ -804,25 +707,21 @@ transform_model(Model& x_model, Model& u_model,
     u_adp.triangular_upper_bounds(x_adp.triangular_upper_bounds());
   }
   if (num_u_euv) {
-    u_adp.euv(num_u_euv); // size before entry assign
-    for (i=0; i<num_u_euv; ++i)
-      u_adp.exponential_beta(1., i);
+    RealVector euv_betas(num_u_euv, false); euv_betas = 1.;
+    u_adp.exponential_betas(euv_betas);
   }
   if (num_u_buv) {
-    u_adp.buv(num_u_buv); // size before entry assign
-    for (i=0; i<num_u_buv; ++i) {
-      u_adp.beta_alpha(x_adp.beta_alpha(i), i);
-      u_adp.beta_beta(x_adp.beta_beta(i), i);
-      u_adp.beta_lower_bound(-1., i);
-      u_adp.beta_upper_bound( 1., i);
-    }
+    RealVector buv_l_bnds(num_u_buv, false); buv_l_bnds = -1.;
+    RealVector buv_u_bnds(num_u_buv, false); buv_u_bnds =  1.;
+    u_adp.beta_alphas(x_adp.beta_alphas());
+    u_adp.beta_betas(x_adp.beta_betas());
+    u_adp.beta_lower_bounds(buv_l_bnds);
+    u_adp.beta_upper_bounds(buv_u_bnds);
   }
   if (num_u_gauv) {
-    u_adp.gauv(num_u_gauv); // size before entry assign
-    for (i=0; i<num_u_gauv; ++i) {
-      u_adp.gamma_alpha(x_adp.gamma_alpha(i), i);
-      u_adp.gamma_beta(1., i);
-    }
+    u_adp.gamma_alphas(x_adp.gamma_alphas());
+    RealVector gauv_betas(num_u_gauv, false); gauv_betas = 1.;
+    u_adp.gamma_betas(gauv_betas);
   }
   if (num_u_guuv) {
     u_adp.gumbel_alphas(x_adp.gumbel_alphas());
@@ -839,36 +738,47 @@ transform_model(Model& x_model, Model& u_model,
   if (num_u_hbuv)
     u_adp.histogram_bin_pairs(x_adp.histogram_bin_pairs());
 
-  //////////////////////////////////////////////////////////////////
-  // Populate epistemic distribution params for transformed space //
-  //////////////////////////////////////////////////////////////////
-
+  // Populate epistemic random var distribution params for transformed u-space
   const Pecos::EpistemicDistParams& x_edp
     = x_model.epistemic_distribution_parameters();
   size_t num_ciuv = x_edp.ceuv();
   if (num_ciuv) {
-    RealRealPairRealMapArray ciuv_bpa(num_ciuv);
-    RealRealPair bnds(-1., 1.);
-    for (i=0; i<num_ciuv; ++i) // one standard cell per variable in u-space
-      ciuv_bpa[i][bnds] = 1.;
+    RealVectorArray ciuv_probs(num_ciuv);
+    RealVectorArray ciuv_l_bnds(num_ciuv);
+    RealVectorArray ciuv_u_bnds(num_ciuv);
+    for (i=0; i<num_ciuv; ++i) { // one standard cell per variable in u-space
+      ciuv_probs[i].sizeUninitialized(1);  ciuv_probs[i][0]  =  1.;
+      ciuv_l_bnds[i].sizeUninitialized(1); ciuv_l_bnds[i][0] = -1.;
+      ciuv_u_bnds[i].sizeUninitialized(1); ciuv_u_bnds[i][0] =  1.;
+    }
     Pecos::EpistemicDistParams& u_edp
       = u_model.epistemic_distribution_parameters();
-    u_edp.continuous_interval_basic_probabilities(ciuv_bpa);
+    u_edp.continuous_interval_probabilities(ciuv_probs);
+    u_edp.continuous_interval_lower_bounds(ciuv_l_bnds);
+    u_edp.continuous_interval_upper_bounds(ciuv_u_bnds);
   }
 
-  /////////////////////////////////////////////////
-  // Populate model bounds for transformed space //
-  /////////////////////////////////////////////////
-
-  // [-1,1] are standard bounds for design, state, epistemic, uniform, & beta
-  RealVector c_l_bnds(numContinuousVars, false); c_l_bnds = -1.;
-  RealVector c_u_bnds(numContinuousVars, false); c_u_bnds =  1.;
-  if (truncated_bounds) {
-    // truncate unbounded distributions for approaches requiring bounds:
-    //   standard sampling modes: model bounds only used for design/state
-    //   *_UNIFORM modes: model bounds are used for all active variables
-    size_t nuv_cntr = 0, lnuv_cntr = 0, gauv_cntr = 0, guuv_cntr = 0,
-      fuv_cntr = 0, wuv_cntr = 0;
+  if (global_bounds) {
+    // [-1,1] are standard bounds for design, state, epistemic, uniform, & beta
+    RealVector c_l_bnds(numContinuousVars, false); c_l_bnds = -1.;
+    RealVector c_u_bnds(numContinuousVars, false); c_u_bnds =  1.;
+    // handle nonstandard bounds
+    const RealVector& x_c_l_bnds = x_model.continuous_lower_bounds();
+    const RealVector& x_c_u_bnds = x_model.continuous_upper_bounds();
+    const RealVector& lnuv_means     = x_adp.lognormal_means();
+    const RealVector& lnuv_std_devs  = x_adp.lognormal_std_deviations();
+    const RealVector& lnuv_lambdas   = x_adp.lognormal_lambdas();
+    const RealVector& lnuv_zetas     = x_adp.lognormal_zetas();
+    const RealVector& lnuv_err_facts = x_adp.lognormal_error_factors();
+    const RealVector& gauv_alphas = x_adp.gamma_alphas();
+    const RealVector& guuv_alphas = x_adp.gumbel_alphas();
+    const RealVector& guuv_betas  = x_adp.gumbel_betas();
+    const RealVector& fuv_alphas  = x_adp.frechet_alphas();
+    const RealVector& fuv_betas   = x_adp.frechet_betas();
+    const RealVector& wuv_alphas  = x_adp.weibull_alphas();
+    const RealVector& wuv_betas   = x_adp.weibull_betas();
+    size_t i, lnuv_cntr = 0, gauv_cntr = 0, guuv_cntr = 0, fuv_cntr = 0,
+      wuv_cntr = 0;
     for (i=numContDesVars; i<num_cdv_cauv; ++i) {
       switch (u_types[i]) {
       case Pecos::STD_NORMAL:      // mean +/- bound std devs
@@ -877,169 +787,56 @@ transform_model(Model& x_model, Model& u_model,
 	c_l_bnds[i] =     0.; c_u_bnds[i] = 1.+bound; break;
       case Pecos::STD_GAMMA: {
 	Real mean, stdev;
-	Pecos::GammaRandomVariable::
-	  moments_from_params(x_adp.gamma_alpha(gauv_cntr), 1., mean, stdev);
-	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound * stdev; break;
+	Pecos::moments_from_gamma_params(gauv_alphas[guuv_cntr], 1.,
+					 mean, stdev);
+	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound*stdev; ++gauv_cntr; break;
       }
-      case Pecos::BOUNDED_NORMAL: {
-	// Note: as for NIDR initialization, we use the gauss{Mean,StdDev}
-	// parameters rather than computing the actual mean,std_dev of the 
-	// bounded distribution
-	Real l_bnd = x_adp.normal_lower_bound(nuv_cntr),
-             u_bnd = x_adp.normal_upper_bound(nuv_cntr);
-	c_l_bnds[i] = (l_bnd > -dbl_inf) ? l_bnd : // use specified bound
-	  x_adp.normal_mean(nuv_cntr)              // infer bound
-	  - bound * x_adp.normal_std_deviation(nuv_cntr);
-	c_u_bnds[i] = (u_bnd <  dbl_inf) ? u_bnd : // use specified bound
-	  x_adp.normal_mean(nuv_cntr)              // infer bound
-	  + bound * x_adp.normal_std_deviation(nuv_cntr);
-	break;
-      }
-      case Pecos::BOUNDED_LOGNORMAL: {
-	c_l_bnds[i] = x_adp.lognormal_lower_bound(lnuv_cntr); // specified or 0
-	Real u_bnd  = x_adp.lognormal_upper_bound(lnuv_cntr);
-	if (u_bnd < dbl_inf)
-	  c_u_bnds[i] = u_bnd; // use specified bound
-	else {                 // infer bound
-	  // Note: as for NIDR initialization, we use the mean,std_dev
-	  // parameters rather than computing the actual mean,std_dev of the 
-	  // bounded distribution
-	  Real mean, stdev;
-	  Pecos::moments_from_lognormal_spec(x_adp.lognormal_means(),
-	    x_adp.lognormal_std_deviations(), x_adp.lognormal_lambdas(),
-	    x_adp.lognormal_zetas(), x_adp.lognormal_error_factors(),
-	    lnuv_cntr, mean, stdev);
-	  c_u_bnds[i] = mean + bound * stdev;
-	}
-	break;
-      }
+      case Pecos::BOUNDED_NORMAL: case Pecos::BOUNDED_LOGNORMAL:
       case Pecos::LOGUNIFORM:     case Pecos::TRIANGULAR:
       case Pecos::HISTOGRAM_BIN:
 	// bounded distributions: x-space has desired bounds
-	c_l_bnds[i] = x_model.continuous_lower_bound(i);
-	c_u_bnds[i] = x_model.continuous_upper_bound(i); break;
-      // Note: Could use x_model bounds for the following cases as well except
-      // that NIDR uses +/-3 sigma, whereas here we're using +/-10 sigma
+	c_l_bnds[i] = x_c_l_bnds[i]; c_u_bnds[i] = x_c_u_bnds[i]; break;
+      // Note: Could use x_c_l_bnds/x_c_u_bnds for the following cases as well
+      // except that NIDR uses +/-3 sigma, whereas here we're using +/-10 sigma
       case Pecos::LOGNORMAL: { // semi-bounded distribution
 	Real mean, stdev;
-	Pecos::moments_from_lognormal_spec(x_adp.lognormal_means(),
-	  x_adp.lognormal_std_deviations(), x_adp.lognormal_lambdas(),
-	  x_adp.lognormal_zetas(), x_adp.lognormal_error_factors(),
-	  lnuv_cntr, mean, stdev);
-	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound * stdev; break;
+	Pecos::moments_from_lognormal_spec(lnuv_means, lnuv_std_devs,
+					   lnuv_lambdas, lnuv_zetas,
+					   lnuv_err_facts, lnuv_cntr,
+					   mean, stdev);
+	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound*stdev; ++lnuv_cntr; break;
       }
       case Pecos::GUMBEL: { // unbounded distribution
 	Real mean, stdev;
-	Pecos::GumbelRandomVariable::
-	  moments_from_params(x_adp.gumbel_alpha(guuv_cntr),
-			      x_adp.gumbel_beta(guuv_cntr), mean, stdev);
-	c_l_bnds[i] = mean - bound * stdev; c_u_bnds[i] = mean + bound * stdev;
-	break;
+	Pecos::moments_from_gumbel_params(guuv_alphas[guuv_cntr],
+					  guuv_betas[guuv_cntr], mean, stdev);
+	c_l_bnds[i] = mean - bound*stdev; c_u_bnds[i] = mean + bound*stdev;
+	++guuv_cntr; break;
       }
       case Pecos::FRECHET: { // semibounded distribution
 	Real mean, stdev;
-	Pecos::FrechetRandomVariable::
-	  moments_from_params(x_adp.frechet_alpha(fuv_cntr),
-			      x_adp.frechet_beta(fuv_cntr), mean, stdev);
-	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound * stdev; break;
+	Pecos::moments_from_frechet_params(fuv_alphas[fuv_cntr],
+					   fuv_betas[fuv_cntr], mean, stdev);
+	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound*stdev; ++fuv_cntr; break;
       }
       case Pecos::WEIBULL: { // semibounded distribution
 	Real mean, stdev;
-	Pecos::WeibullRandomVariable::
-	  moments_from_params(x_adp.weibull_alpha(wuv_cntr),
-			      x_adp.weibull_beta(wuv_cntr), mean, stdev);
-	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound * stdev; break;
+	Pecos::moments_from_weibull_params(wuv_alphas[wuv_cntr],
+					   wuv_betas[wuv_cntr], mean, stdev);
+	c_l_bnds[i] = 0.; c_u_bnds[i] = mean + bound*stdev; ++wuv_cntr; break;
       }
-      }
-      switch (x_ran_vars[i].type()) {
-      case Pecos::NORMAL:    case Pecos::BOUNDED_NORMAL:     ++nuv_cntr; break;
-      case Pecos::LOGNORMAL: case Pecos::BOUNDED_LOGNORMAL: ++lnuv_cntr; break;
-      case Pecos::GAMMA:                                    ++gauv_cntr; break;
-      case Pecos::GUMBEL:                                   ++guuv_cntr; break;
-      case Pecos::FRECHET:                                   ++fuv_cntr; break;
-      case Pecos::WEIBULL:                                   ++wuv_cntr; break;
       }
     }
-  }
-  else { // retain infinite model bounds where distributions are unbounded
-    size_t nuv_cntr = 0, lnuv_cntr = 0;
-    for (i=numContDesVars; i<num_cdv_cauv; ++i) {
-      switch (u_types[i]) {
-      case Pecos::STD_NORMAL: case Pecos::GUMBEL: // unbounded distributions
-	c_l_bnds[i] = -dbl_inf; c_u_bnds[i] = dbl_inf; break;
-      case Pecos::LOGNORMAL:  case Pecos::STD_EXPONENTIAL:
-      case Pecos::STD_GAMMA:  case Pecos::FRECHET:
-      case Pecos::WEIBULL:                      // semibounded distributions
-	c_l_bnds[i] = 0.; c_u_bnds[i] = dbl_inf; break;
-      case Pecos::BOUNDED_NORMAL:
-	// can't rely on x_model bounds since could be 1-sided
-	c_l_bnds[i] = x_adp.normal_lower_bound(nuv_cntr);
-	c_u_bnds[i] = x_adp.normal_upper_bound(nuv_cntr); break;
-      case Pecos::BOUNDED_LOGNORMAL:
-	// can't rely on x_model bounds since could be 1-sided
-	c_l_bnds[i] = x_adp.lognormal_lower_bound(lnuv_cntr);
-	c_u_bnds[i] = x_adp.lognormal_upper_bound(lnuv_cntr); break;
-      case Pecos::LOGUNIFORM: case Pecos::TRIANGULAR:
-      case Pecos::HISTOGRAM_BIN:                    // bounded distributions
-	// 2-sided: can rely on x_model bounds
-	c_l_bnds[i] = x_model.continuous_lower_bound(i);
-	c_u_bnds[i] = x_model.continuous_upper_bound(i); break;
-      }
-      switch (x_ran_vars[i].type()) {
-      case Pecos::NORMAL:    case Pecos::BOUNDED_NORMAL:     ++nuv_cntr; break;
-      case Pecos::LOGNORMAL: case Pecos::BOUNDED_LOGNORMAL: ++lnuv_cntr; break;
-      }
-    }
-  }
-  u_model.continuous_lower_bounds(c_l_bnds);
-  u_model.continuous_upper_bounds(c_u_bnds);
-}
-
-
-unsigned short NonD::
-pecos_to_dakota_variable_type(unsigned short pecos_var_type)
-{
-  switch (pecos_var_type) {
-  case Pecos::CONTINUOUS_DESIGN:           return CONTINUOUS_DESIGN;      break;
-  case Pecos::STD_NORMAL: case Pecos::NORMAL: case Pecos::BOUNDED_NORMAL:
-    return NORMAL_UNCERTAIN; break;
-  case Pecos::LOGNORMAL: case Pecos::BOUNDED_LOGNORMAL:
-    return LOGNORMAL_UNCERTAIN; break;
-  case Pecos::STD_UNIFORM: case Pecos::UNIFORM:
-    return UNIFORM_UNCERTAIN; break;
-  case Pecos::LOGUNIFORM:                  return LOGUNIFORM_UNCERTAIN;   break;
-  case Pecos::TRIANGULAR:                  return TRIANGULAR_UNCERTAIN;   break;
-  case Pecos::STD_EXPONENTIAL: case Pecos::EXPONENTIAL:
-    return EXPONENTIAL_UNCERTAIN; break;
-  case Pecos::STD_BETA:  case Pecos::BETA:      return BETA_UNCERTAIN;    break;
-  case Pecos::STD_GAMMA: case Pecos::GAMMA:     return GAMMA_UNCERTAIN;   break;
-  case Pecos::GUMBEL:                           return GUMBEL_UNCERTAIN;  break;
-  case Pecos::FRECHET:                          return FRECHET_UNCERTAIN; break;
-  case Pecos::WEIBULL:                          return WEIBULL_UNCERTAIN; break;
-  case Pecos::HISTOGRAM_BIN:     return HISTOGRAM_BIN_UNCERTAIN;          break;
-  case Pecos::POISSON:           return POISSON_UNCERTAIN;                break;
-  case Pecos::BINOMIAL:          return BINOMIAL_UNCERTAIN;               break;
-  case Pecos::NEGATIVE_BINOMIAL: return NEGATIVE_BINOMIAL_UNCERTAIN;      break;
-  case Pecos::GEOMETRIC:         return GEOMETRIC_UNCERTAIN;              break;
-  case Pecos::HYPERGEOMETRIC:    return HYPERGEOMETRIC_UNCERTAIN;         break;
-  case Pecos::HISTOGRAM_PT_INT:  return HISTOGRAM_POINT_UNCERTAIN_INT;    break;
-  case Pecos::HISTOGRAM_PT_STRING:
-    return HISTOGRAM_POINT_UNCERTAIN_STRING; break;
-  case Pecos::HISTOGRAM_PT_REAL:   return HISTOGRAM_POINT_UNCERTAIN_REAL; break;
-  case Pecos::CONTINUOUS_INTERVAL: return CONTINUOUS_INTERVAL_UNCERTAIN;  break;
-  case Pecos::CONTINUOUS_STATE:    return CONTINUOUS_STATE;               break;
-  default:
-    Cerr << "Error: unsupported Pecos distribution type in "
-	 << "pecos_to_dakota_variable_type()." << std::endl;
-    abort_handler(-1);
-    return 0; break;
+    // uncertain bounds not currently used, since ACTIVE, not ACTIVE_UNIFORM
+    u_model.continuous_lower_bounds(c_l_bnds);
+    u_model.continuous_upper_bounds(c_u_bnds);
   }
 }
 
 
 void NonD::
 construct_lhs(Iterator& u_space_sampler, Model& u_model,
-	      unsigned short sample_type, int num_samples, int seed,
+	      const String& sample_type, int num_samples, int seed,
 	      const String& rng, bool vary_pattern, short sampling_vars_mode)
 {
   // sanity checks
@@ -1052,6 +849,22 @@ construct_lhs(Iterator& u_space_sampler, Model& u_model,
   // construct NonDLHSSampling with default sampling_vars_mode (ACTIVE)
   u_space_sampler.assign_rep(new NonDLHSSampling(u_model, sample_type,
     num_samples, seed, rng, vary_pattern, sampling_vars_mode), false);
+}
+
+
+/** Map the variables from iterator space (u) to simulation space (x). */
+void NonD::vars_u_to_x_mapping(const Variables& u_vars, Variables& x_vars)
+{
+  RealVector x = x_vars.continuous_variables_view();
+  nondInstance->natafTransform.trans_U_to_X(u_vars.continuous_variables(), x);
+}
+
+
+/** Map the variables from simulation space (x) to iterator space (u). */
+void NonD::vars_x_to_u_mapping(const Variables& x_vars, Variables& u_vars)
+{
+  RealVector u = u_vars.continuous_variables_view();
+  nondInstance->natafTransform.trans_X_to_U(x_vars.continuous_variables(), u);
 }
 
 
@@ -1138,25 +951,24 @@ resp_x_to_u_mapping(const Variables& x_vars,     const Variables& u_vars,
 
   bool map_derivs = ( (u_grad_flag || u_hess_flag) &&
 		      u_dvv != u_vars.inactive_continuous_variable_ids() );
-  const std::vector<Pecos::RandomVariable>& x_ran_vars
-    = nondInstance->natafTransform.x_random_variables();
+  const Pecos::ShortArray& x_types = nondInstance->natafTransform.x_types();
   const Pecos::ShortArray& u_types = nondInstance->natafTransform.u_types();
-  size_t num_types = u_types.size();
-  bool nonlinear_vars_map = false; short x_type, u_type;
-  for (i=0; i<num_types; ++i) {
-    x_type = x_ran_vars[i].type(); u_type = u_types[i];
-    if ( x_type != u_type &&
-	 !( x_type == Pecos::NORMAL && u_type == Pecos::STD_NORMAL ) &&
-	 !( ( x_type == Pecos::UNIFORM || x_type == Pecos::HISTOGRAM_BIN ||
-	      x_type == Pecos::CONTINUOUS_DESIGN   ||
-	      x_type == Pecos::CONTINUOUS_INTERVAL ||
-	      x_type == Pecos::CONTINUOUS_STATE ) &&
-	    u_type == Pecos::STD_UNIFORM ) &&
-	 !( x_type == Pecos::EXPONENTIAL && u_type == Pecos::STD_EXPONENTIAL) &&
-	 !( x_type == Pecos::BETA        && u_type == Pecos::STD_BETA ) &&
-	 !( x_type == Pecos::GAMMA       && u_type == Pecos::STD_GAMMA ) )
+  size_t num_types = x_types.size();
+  bool nonlinear_vars_map = false;
+  for (i=0; i<num_types; ++i)
+    if ( x_types[i] != u_types[i] &&
+	 !( x_types[i] == Pecos::NORMAL && u_types[i] == Pecos::STD_NORMAL ) &&
+	 !( ( x_types[i] == Pecos::CONTINUOUS_DESIGN ||
+	      x_types[i] == Pecos::UNIFORM ||
+	      x_types[i] == Pecos::HISTOGRAM_BIN ||
+	      x_types[i] == Pecos::CONTINUOUS_INTERVAL ||
+	      x_types[i] == Pecos::CONTINUOUS_STATE ) &&
+	    u_types[i] == Pecos::STD_UNIFORM ) &&
+	 !( x_types[i] == Pecos::EXPONENTIAL &&
+	    u_types[i] == Pecos::STD_EXPONENTIAL ) &&
+	 !( x_types[i] == Pecos::BETA   && u_types[i] == Pecos::STD_BETA ) &&
+	 !( x_types[i] == Pecos::GAMMA  && u_types[i] == Pecos::STD_GAMMA ) )
       { nonlinear_vars_map = true; break; }
-  }
 
   RealVector   fn_grad_x,  fn_grad_us; RealSymMatrix      fn_hess_us;
   RealMatrix jacobian_xu, jacobian_xs; RealSymMatrixArray hessian_xu;
@@ -1262,11 +1074,12 @@ resp_x_to_u_mapping(const Variables& x_vars,     const Variables& u_vars,
     variables are in x-space. */
 void NonD::initialize_random_variables(short u_space_type)
 {
-  initialize_random_variable_transformation();
+  if (natafTransform.is_null())
+    initialize_random_variable_transformation();
   initialize_random_variable_types(u_space_type);
   initialize_random_variable_parameters();
   initialize_random_variable_correlations();
-  verify_correlation_support(u_space_type);
+  verify_correlation_support();
 }
 
 
@@ -1276,39 +1089,25 @@ void NonD::initialize_random_variables(short u_space_type)
     directly.  This allows for the use of inverse transformations to
     return the transformed space variables to their original states. */
 void NonD::
-initialize_random_variables(const Pecos::ProbabilityTransformation& transform,
-			    bool deep_copy)
+initialize_random_variables(const Pecos::ProbabilityTransformation& transform)
 {
-  if (deep_copy) {
+  if (natafTransform.is_null())
     initialize_random_variable_transformation();
-    natafTransform.copy(transform);
-    // TO DO: deep copy of randomVarsX not yet implemented in
-    // Pecos::ProbabilityTransformation::copy()
-  }
-  else
-    natafTransform = transform; // shared rep
 
-  // infer numCont{Des,Interval,State}Vars, but don't update continuous
-  // aleatory uncertain counts (these may be u-space counts).
-  const std::vector<Pecos::RandomVariable>& x_ran_vars
-    = natafTransform.x_random_variables();
-  numContDesVars = numContIntervalVars = numContStateVars = 0;
-  size_t i, num_v = x_ran_vars.size(); short x_type;
-  for (i=0; i<num_v; ++i) {
-    x_type = x_ran_vars[i].type();
-    if      (x_type == Pecos::CONTINUOUS_DESIGN)   ++numContDesVars;
-    else if (x_type == Pecos::CONTINUOUS_INTERVAL) ++numContIntervalVars;
-    else if (x_type == Pecos::CONTINUOUS_STATE)    ++numContStateVars;
-  }
-  numContEpistUncVars = numContIntervalVars;
+  natafTransform.initialize_random_variables(transform); // or could use copy()
+
+  // infer numContDesVars and numContStateVars, but don't update continuous
+  // aleatory/epistemic uncertain counts (these may be u-space counts).
+  const Pecos::ShortArray& x_types = transform.x_types();
+  numContDesVars = std::count(x_types.begin(), x_types.end(),
+			      (short)Pecos::CONTINUOUS_DESIGN);
+  numContStateVars = std::count(x_types.begin(), x_types.end(),
+				(short)Pecos::CONTINUOUS_STATE);
 }
 
 
 void NonD::initialize_random_variable_transformation()
-{
-  if (natafTransform.is_null())
-    natafTransform = Pecos::ProbabilityTransformation("nataf"); // for now
-}
+{ natafTransform = Pecos::ProbabilityTransformation("nataf"); /* for now */ }
 
 
 /** Build ProbabilityTransformation::ranVar arrays containing the
@@ -1327,8 +1126,7 @@ void NonD::initialize_random_variable_types(short u_space_type)
   // > if EXTENDED_U (PCE/SC with Askey plus numerically-generated polynomials),
   //   then u-space involves at most linear scaling to std distributions.
 
-  size_t i, av_cntr = 0, num_active_vars = iteratedModel.cv() + 
-    iteratedModel.div() + iteratedModel.dsv() + iteratedModel.drv();
+  size_t i, av_cntr = 0, num_active_vars = iteratedModel.cv();
   ShortArray x_types(num_active_vars), u_types(num_active_vars);
   bool err_flag = false;
 
@@ -1340,9 +1138,8 @@ void NonD::initialize_random_variable_types(short u_space_type)
     = iteratedModel.aleatory_distribution_parameters();
   const RealVector& n_l_bnds = adp.normal_lower_bounds();
   const RealVector& n_u_bnds = adp.normal_upper_bounds();
-  Real dbl_inf = std::numeric_limits<Real>::infinity();
   for (i=0; i<numNormalVars; ++i, ++av_cntr) {
-    if (n_l_bnds[i] > -dbl_inf || n_u_bnds[i] < dbl_inf) {
+    if (n_l_bnds[i] > -DBL_MAX || n_u_bnds[i] < DBL_MAX) {
       x_types[av_cntr] = Pecos::BOUNDED_NORMAL;
       switch (u_space_type) {
       case STD_NORMAL_U: case ASKEY_U:
@@ -1366,7 +1163,7 @@ void NonD::initialize_random_variable_types(short u_space_type)
   const RealVector& ln_l_bnds = adp.lognormal_lower_bounds();
   const RealVector& ln_u_bnds = adp.lognormal_upper_bounds();
   for (i=0; i<numLognormalVars; ++i, ++av_cntr) {
-    if (ln_l_bnds[i] > 0. || ln_u_bnds[i] < dbl_inf) {
+    if (ln_l_bnds[i] > 0. || ln_u_bnds[i] < DBL_MAX) {
       x_types[av_cntr] = Pecos::BOUNDED_LOGNORMAL;
       switch (u_space_type) {
       case STD_NORMAL_U: case ASKEY_U:
@@ -1497,64 +1294,20 @@ void NonD::initialize_random_variable_types(short u_space_type)
       u_types[av_cntr] = Pecos::HISTOGRAM_BIN; break;
     }
   }
-  
+
   // discrete int aleatory uncertain
-  for (i=0; i<numPoissonVars; ++i, ++av_cntr){
-    x_types[av_cntr] = Pecos::POISSON;
-    switch (u_space_type) {
-    case STD_NORMAL_U: case STD_UNIFORM_U:
-      err_flag = true; break;
-    case ASKEY_U: case EXTENDED_U:
-      u_types[av_cntr] = Pecos::POISSON; break;
-    }
-  }
-  for (i=0; i<numBinomialVars; ++i, ++av_cntr){
-    x_types[av_cntr] = Pecos::BINOMIAL;
-    switch (u_space_type) {
-    case STD_NORMAL_U: case STD_UNIFORM_U:
-      err_flag = true; break;
-    case ASKEY_U: case EXTENDED_U:
-      u_types[av_cntr] = Pecos::BINOMIAL; break;
-    }
-  }
-  for (i=0; i<numNegBinomialVars; ++i, ++av_cntr){
-    x_types[av_cntr] = Pecos::NEGATIVE_BINOMIAL;
-    switch (u_space_type) {
-    case STD_NORMAL_U: case STD_UNIFORM_U:
-      err_flag = true; break;
-    case ASKEY_U: case EXTENDED_U:
-      u_types[av_cntr] = Pecos::NEGATIVE_BINOMIAL; break;
-    }
-  }
-  for (i=0; i<numGeometricVars; ++i, ++av_cntr){
-    x_types[av_cntr] = u_types[av_cntr] = Pecos::GEOMETRIC;
-    switch (u_space_type) {
-    case STD_NORMAL_U: case STD_UNIFORM_U:
-      err_flag = true; break;
-    case ASKEY_U: case EXTENDED_U:
-      u_types[av_cntr] = Pecos::GEOMETRIC; break;
-    }
-  }
-  for (i=0; i<numHyperGeomVars; ++i, ++av_cntr){
-    x_types[av_cntr] = Pecos::HYPERGEOMETRIC;
-    switch (u_space_type) {
-    case STD_NORMAL_U: case STD_UNIFORM_U:
-      err_flag = true; break;
-    case ASKEY_U: case EXTENDED_U:
-      u_types[av_cntr] = Pecos::HYPERGEOMETRIC; break;
-    }
-  }
-  /*
-  for (i=0; i<numHistogramPtIntVars; ++i, ++av_cntr)
-    x_types[av_cntr] = u_types[av_cntr] = Pecos::HISTOGRAM_PT_INT;
-  
-  // discrete string aleatory uncertain
-  for (i=0; i<numHistogramPtStringVars; ++i, ++av_cntr)
-    x_types[av_cntr] = u_types[av_cntr] = Pecos::HISTOGRAM_PT_STRING;
 
   // discrete real aleatory uncertain
-  for (i=0; i<numHistogramPtRealVars; ++i, ++av_cntr)
-    x_types[av_cntr] = u_types[av_cntr] = Pecos::HISTOGRAM_PT_REAL;
+  /*
+  for (i=0; i<numHistogramPtVars; ++i, ++av_cntr) {
+    x_types[av_cntr] = Pecos::HISTOGRAM_POINT;
+    switch (u_space_type) {
+    case STD_NORMAL_U: case ASKEY_U: case STD_UNIFORM_U:
+      err_flag = true;                           break;
+    case EXTENDED_U:
+      u_types[av_cntr] = Pecos::HISTOGRAM_POINT; break;
+    }
+  }
   */
 
   // continuous epistemic uncertain
@@ -1564,8 +1317,6 @@ void NonD::initialize_random_variable_types(short u_space_type)
   }
 
   // discrete int epistemic uncertain
-
-  // discrete string epistemic uncertain
 
   // discrete real epistemic uncertain
 
@@ -1588,138 +1339,267 @@ void NonD::initialize_random_variable_types(short u_space_type)
     uncertain variable distribution types and their corresponding
     means/standard deviations.  This function is used when the Model
     variables are in x-space. */
-void NonD::initialize_random_variable_types()
+void NonD::initialize_random_variable_parameters()
 {
-  size_t i, av_cntr = 0, num_active_vars = iteratedModel.cv();
-  ShortArray x_types(num_active_vars);
+  size_t num_active_vars = iteratedModel.cv();
+  RealVector x_means(num_active_vars, false),
+    x_std_devs(num_active_vars, false), x_l_bnds(num_active_vars, false),
+    x_u_bnds(num_active_vars, false);
+  RealVectorArray x_addtl(num_active_vars);
+
+  const RealVector& c_l_bnds = iteratedModel.continuous_lower_bounds();
+  const RealVector& c_u_bnds = iteratedModel.continuous_upper_bounds();
+
+  size_t i, av_cntr = 0;
+  for (i=0; i<numContDesVars; ++i, ++av_cntr) {
+    const Real& lwr = x_l_bnds[av_cntr] = c_l_bnds[av_cntr];
+    const Real& upr = x_u_bnds[av_cntr] = c_u_bnds[av_cntr];
+    // unlike uniform/loguniform/beta/triangular, design bounds are optional
+    if (lwr == -DBL_MAX || upr == DBL_MAX) {
+      Cerr << "Error: bounds specification required for design variable "
+	   << "transformation to standard uniform." << std::endl;
+      abort_handler(-1);
+    }
+    else
+      Pecos::moments_from_uniform_params(lwr, upr, x_means[av_cntr],
+					 x_std_devs[av_cntr]);
+  }
   Pecos::AleatoryDistParams& adp
     = iteratedModel.aleatory_distribution_parameters();
-  Real dbl_inf = std::numeric_limits<Real>::infinity();
+  if (numNormalVars) {
+    const Pecos::RealVector& n_means    = adp.normal_means();
+    const Pecos::RealVector& n_std_devs = adp.normal_std_deviations();
+    const Pecos::RealVector& n_l_bnds   = adp.normal_lower_bounds();
+    const Pecos::RealVector& n_u_bnds   = adp.normal_upper_bounds();
+    for (i=0; i<numNormalVars; ++i, ++av_cntr) {
+      x_means[av_cntr]    = n_means[i];
+      x_std_devs[av_cntr] = n_std_devs[i];
+      x_l_bnds[av_cntr]   = n_l_bnds[i];
+      x_u_bnds[av_cntr]   = n_u_bnds[i];
+    }
+  }
+  if (numLognormalVars) {
+    const Pecos::RealVector& ln_means     = adp.lognormal_means();
+    const Pecos::RealVector& ln_std_devs  = adp.lognormal_std_deviations();
+    const Pecos::RealVector& ln_lambdas   = adp.lognormal_lambdas();
+    const Pecos::RealVector& ln_zetas     = adp.lognormal_zetas();
+    const Pecos::RealVector& ln_err_facts = adp.lognormal_error_factors();
+    const Pecos::RealVector& ln_l_bnds    = adp.lognormal_lower_bounds();
+    const Pecos::RealVector& ln_u_bnds    = adp.lognormal_upper_bounds();
+    // DAKOTA/UQ uses the mean/std dev or mean/error factor of the actual
+    // lognormal distribution or the mean/std dev (lambda/zeta) of the
+    // corresponding normal distribution
+    bool ln_l_z = !ln_lambdas.empty(), ln_m_s = !ln_std_devs.empty();
+    Real mean, stdev, lambda, zeta, err_fact;
+    for (i=0; i<numLognormalVars; ++i, ++av_cntr) {
+      Pecos::all_from_lognormal_spec(ln_means, ln_std_devs, ln_lambdas,
+				     ln_zetas, ln_err_facts, i, mean, stdev,
+				     lambda, zeta, err_fact);
+      if (!ln_err_facts.empty()) {
+	x_addtl[av_cntr].sizeUninitialized(3);
+	x_addtl[av_cntr][2] = err_fact;
+      }
+      else
+	x_addtl[av_cntr].sizeUninitialized(2);
+      x_means[av_cntr]    = mean;
+      x_std_devs[av_cntr] = stdev;
+      x_l_bnds[av_cntr]   = ln_l_bnds[i];
+      x_u_bnds[av_cntr]   = ln_u_bnds[i];
+      x_addtl[av_cntr][0] = lambda;
+      x_addtl[av_cntr][1] = zeta;
+    }
+  }
+  if (numUniformVars) {
+    const Pecos::RealVector& u_l_bnds = adp.uniform_lower_bounds();
+    const Pecos::RealVector& u_u_bnds = adp.uniform_upper_bounds();
+    for (i=0; i<numUniformVars; ++i, ++av_cntr) {
+      const Real& lwr = x_l_bnds[av_cntr] = u_l_bnds[i];
+      const Real& upr = x_u_bnds[av_cntr] = u_u_bnds[i];
+      Pecos::moments_from_uniform_params(lwr, upr, x_means[av_cntr],
+					 x_std_devs[av_cntr]);
+    }
+  }
+  if (numLoguniformVars) {
+    // see SAND98-0210 LHS manual, pp. 43-44
+    const Pecos::RealVector& lu_l_bnds = adp.loguniform_lower_bounds();
+    const Pecos::RealVector& lu_u_bnds = adp.loguniform_upper_bounds();
+    for (i=0; i<numLoguniformVars; ++i, ++av_cntr) {
+      const Real& lwr = x_l_bnds[av_cntr] = lu_l_bnds[i];
+      const Real& upr = x_u_bnds[av_cntr] = lu_u_bnds[i];
+      Pecos::moments_from_loguniform_params(lwr, upr, x_means[av_cntr],
+					    x_std_devs[av_cntr]);
+    }
+  }
+  if (numTriangularVars) {
+    // See Haldar and Mahadevan, p. 99
+    const Pecos::RealVector& t_modes  = adp.triangular_modes();
+    const Pecos::RealVector& t_l_bnds = adp.triangular_lower_bounds();
+    const Pecos::RealVector& t_u_bnds = adp.triangular_upper_bounds();
+    for (i=0; i<numTriangularVars; ++i, ++av_cntr) {
+      const Real& mode = t_modes[i];
+      const Real& lwr  = x_l_bnds[av_cntr] = t_l_bnds[i];
+      const Real& upr  = x_u_bnds[av_cntr] = t_u_bnds[i];
+      Pecos::moments_from_triangular_params(lwr, upr, mode, x_means[av_cntr],
+					    x_std_devs[av_cntr]);
+      x_addtl[av_cntr].sizeUninitialized(1);
+      x_addtl[av_cntr][0] = mode;
+    }
+  }
+  if (numExponentialVars) {
+    // DAKOTA employs the 1/beta exp(-x/beta) definition, which differs from
+    // the lambda exp(-lambda x) LHS definition (lambda_LHS = 1/beta_DAKOTA).
+    const Pecos::RealVector& e_betas = adp.exponential_betas();
+    for (i=0; i<numExponentialVars; ++i, ++av_cntr) {
+      const Real& beta = e_betas[i];
+      Pecos::moments_from_exponential_params(beta, x_means[av_cntr],
+					     x_std_devs[av_cntr]);
+      // use default distribution bounds, not default global DACE bounds
+      x_l_bnds[av_cntr] = 0.;
+      x_u_bnds[av_cntr] = DBL_MAX;
+      x_addtl[av_cntr].sizeUninitialized(1);
+      x_addtl[av_cntr][0] = beta;
+    }
+  }
+  if (numBetaVars) {
+    // See Haldar and Mahadevan, p. 72
+    const Pecos::RealVector& b_alphas = adp.beta_alphas();
+    const Pecos::RealVector& b_betas  = adp.beta_betas();
+    const Pecos::RealVector& b_l_bnds = adp.beta_lower_bounds();
+    const Pecos::RealVector& b_u_bnds = adp.beta_upper_bounds();
+    for (i=0; i<numBetaVars; ++i, ++av_cntr) {
+      const Real& alpha = b_alphas[i];
+      const Real& beta  = b_betas[i];
+      const Real& lwr   = x_l_bnds[av_cntr] = b_l_bnds[i];
+      const Real& upr   = x_u_bnds[av_cntr] = b_u_bnds[i];
+      Pecos::moments_from_beta_params(lwr, upr, alpha, beta, x_means[av_cntr],
+				      x_std_devs[av_cntr]);
+      x_addtl[av_cntr].sizeUninitialized(2);
+      x_addtl[av_cntr][0] = alpha;
+      x_addtl[av_cntr][1] = beta;
+    }
+  }
+  if (numGammaVars) {
+    // This follows the Gamma(alpha,beta) definition in Law & Kelton, which
+    // differs from the LHS definition (beta_LK = 1/beta_LHS).
+    const Pecos::RealVector& ga_alphas = adp.gamma_alphas();
+    const Pecos::RealVector& ga_betas  = adp.gamma_betas();
+    for (i=0; i<numGammaVars; ++i, ++av_cntr) {
+      const Real& alpha = ga_alphas[i]; const Real& beta = ga_betas[i];
+      Pecos::moments_from_gamma_params(alpha, beta, x_means[av_cntr],
+				       x_std_devs[av_cntr]);
+      // use default distribution bounds, not default global DACE bounds
+      x_l_bnds[av_cntr] = 0.;
+      x_u_bnds[av_cntr] = DBL_MAX;
+      x_addtl[av_cntr].sizeUninitialized(2);
+      x_addtl[av_cntr][0] = alpha;
+      x_addtl[av_cntr][1] = beta;
+    }
+  }
+  if (numGumbelVars) {
+    // See Haldar and Mahadevan, p. 90
+    const Pecos::RealVector& gu_alphas = adp.gumbel_alphas();
+    const Pecos::RealVector& gu_betas  = adp.gumbel_betas();
+    for (i=0; i<numGumbelVars; ++i, ++av_cntr) {
+      const Real& alpha = gu_alphas[i]; const Real& beta = gu_betas[i];
+      Pecos::moments_from_gumbel_params(alpha, beta, x_means[av_cntr],
+					x_std_devs[av_cntr]);
+      // use default distribution bounds, not default global DACE bounds
+      x_l_bnds[av_cntr] = -DBL_MAX;
+      x_u_bnds[av_cntr] =  DBL_MAX;
+      x_addtl[av_cntr].sizeUninitialized(2);
+      x_addtl[av_cntr][0] = alpha;
+      x_addtl[av_cntr][1] = beta;
+    }
+  }
+  if (numFrechetVars) {
+    const Pecos::RealVector& f_alphas = adp.frechet_alphas();
+    const Pecos::RealVector& f_betas  = adp.frechet_betas();
+    for (i=0; i<numFrechetVars; ++i, ++av_cntr) {
+      const Real& alpha = f_alphas[i]; const Real& beta = f_betas[i];
+      Pecos::moments_from_frechet_params(alpha, beta, x_means[av_cntr],
+					 x_std_devs[av_cntr]);
+      // use default distribution bounds, not default global DACE bounds
+      x_l_bnds[av_cntr] = 0.;
+      x_u_bnds[av_cntr] = DBL_MAX;
+      x_addtl[av_cntr].sizeUninitialized(2);
+      x_addtl[av_cntr][0] = alpha;
+      x_addtl[av_cntr][1] = beta;
+    }
+  }
+  if (numWeibullVars) {
+    const Pecos::RealVector& w_alphas = adp.weibull_alphas();
+    const Pecos::RealVector& w_betas  = adp.weibull_betas();
+    for (i=0; i<numWeibullVars; ++i, ++av_cntr) {
+      const Real& alpha = w_alphas[i]; const Real& beta = w_betas[i];
+      Pecos::moments_from_weibull_params(alpha, beta, x_means[av_cntr],
+					 x_std_devs[av_cntr]);
+      // use default distribution bounds, not default global DACE bounds
+      x_l_bnds[av_cntr] = 0.;
+      x_u_bnds[av_cntr] = DBL_MAX;
+      x_addtl[av_cntr].sizeUninitialized(2);
+      x_addtl[av_cntr][0] = alpha;
+      x_addtl[av_cntr][1] = beta;
+    }
+  }
+  if (numHistogramBinVars) {
+    const Pecos::RealVectorArray& hist_bin_prs = adp.histogram_bin_pairs();
+    for (i=0; i<numHistogramBinVars; ++i, ++av_cntr) {
+      // histogram bnds already processed for global bnds in NIDRProblemDescDB
+      x_l_bnds[av_cntr] = c_l_bnds[av_cntr];
+      x_u_bnds[av_cntr] = c_u_bnds[av_cntr];
+      Pecos::moments_from_histogram_bin_params(hist_bin_prs[i],
+					       x_means[av_cntr],
+					       x_std_devs[av_cntr]);
+      x_addtl[av_cntr] = hist_bin_prs[i];
+    }
+  }
 
-  for (i=0; i<numContDesVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::CONTINUOUS_DESIGN;
-
-  const RealVector& n_l_bnds = adp.normal_lower_bounds();
-  const RealVector& n_u_bnds = adp.normal_upper_bounds();
-  for (i=0; i<numNormalVars; ++i, ++av_cntr)
-    x_types[av_cntr] = (n_l_bnds[i] > -dbl_inf || n_u_bnds[i] < dbl_inf) ?
-      Pecos::BOUNDED_NORMAL : Pecos::NORMAL;
-
-  const RealVector& ln_l_bnds = adp.lognormal_lower_bounds();
-  const RealVector& ln_u_bnds = adp.lognormal_upper_bounds();
-  for (i=0; i<numLognormalVars; ++i, ++av_cntr)
-    x_types[av_cntr] = (ln_l_bnds[i] > 0. || ln_u_bnds[i] < dbl_inf) ?
-      Pecos::BOUNDED_LOGNORMAL : Pecos::LOGNORMAL;
-
-  for (i=0; i<numUniformVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::UNIFORM;
-
-  for (i=0; i<numLoguniformVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::LOGUNIFORM;
-
-  for (i=0; i<numTriangularVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::TRIANGULAR;
-
-  for (i=0; i<numExponentialVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::EXPONENTIAL;
-
-  for (i=0; i<numBetaVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::BETA;
-
-  for (i=0; i<numGammaVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::GAMMA;
-
-  for (i=0; i<numGumbelVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::GUMBEL;
-
-  for (i=0; i<numFrechetVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::FRECHET;
-
-  for (i=0; i<numWeibullVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::WEIBULL;
-
-  for (i=0; i<numHistogramBinVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::HISTOGRAM_BIN;
-
-  
   // discrete int aleatory uncertain
-  for (i=0; i<numPoissonVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::POISSON;
-  for (i=0; i<numBinomialVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::BINOMIAL;
-  for (i=0; i<numNegBinomialVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::NEGATIVE_BINOMIAL;
-  
-  for (i=0; i<numGeometricVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::GEOMETRIC;
-  
-  for (i=0; i<numHyperGeomVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::HYPERGEOMETRIC;
-  /*
-  for (i=0; i<numHistogramPtIntVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::HISTOGRAM_PT_INT;
-
-  // discrete string aleatory uncertain
-  for (i=0; i<numHistogramPtStringVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::HISTOGRAM_PT_STRING;
 
   // discrete real aleatory uncertain
-  for (i=0; i<numHistogramPtRealVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::HISTOGRAM_PT_REAL;
+  /*
+  if (numHistogramPtVars) {
+    const Pecos::RealVectorArray& hist_pt_prs = adp.histogram_point_pairs();
+    for (i=0; i<numHistogramPtVars; ++i, ++av_cntr) {
+      // histogram bnds already processed for global bnds in NIDRProblemDescDB
+      x_l_bnds[av_cntr] = c_l_bnds[av_cntr];
+      x_u_bnds[av_cntr] = c_u_bnds[av_cntr];
+      Pecos::moments_from_histogram_pt_params(hist_pt_prs[i], x_means[av_cntr],
+					      x_std_devs[av_cntr]);
+      x_addtl[av_cntr] = hist_pt_prs[i];
+    }
+  }
   */
 
   // continuous epistemic uncertain
-  for (i=0; i<numContIntervalVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::CONTINUOUS_INTERVAL;
+  for (i=0; i<numContIntervalVars; ++i, ++av_cntr) {
+    // interval bnds already processed for global bnds in NIDRProblemDescDB
+    const Real& lwr = x_l_bnds[av_cntr] = c_l_bnds[av_cntr];
+    const Real& upr = x_u_bnds[av_cntr] = c_u_bnds[av_cntr];
+    Pecos::moments_from_uniform_params(lwr, upr, x_means[av_cntr],
+				       x_std_devs[av_cntr]);
+  }
 
   // discrete int epistemic uncertain
 
-  // discrete string epistemic uncertain
-
   // discrete real epistemic uncertain
 
-  for (i=0; i<numContStateVars; ++i, ++av_cntr)
-    x_types[av_cntr] = Pecos::CONTINUOUS_STATE;
-
-  natafTransform.initialize_random_variable_types(x_types);
-}
-
-
-/** Build ProbabilityTransformation::ranVar arrays containing the
-    uncertain variable distribution types and their corresponding
-    means/standard deviations.  This function is used when the Model
-    variables are in x-space. */
-void NonD::initialize_random_variable_parameters()
-{
-  // Be consistent with NonD active view logic.  Active counts are sufficient
-  // for now, but could formalize with active view check as in NonD ctors.
-  //short active_view = iteratedModel.current_variables().view().first;
-  // Note: {Aleatory,Epistemic}DistParams handles always have reps, so
-  // default constructed objects are safe to interrogate for empty arrays.
-  const Pecos::AleatoryDistParams&  adp = (numAleatoryUncVars)  ?
-    iteratedModel.aleatory_distribution_parameters()  :
-    Pecos::AleatoryDistParams();
-  const Pecos::EpistemicDistParams& edp = (numEpistemicUncVars) ?
-    iteratedModel.epistemic_distribution_parameters() :
-    Pecos::EpistemicDistParams();
-
-  RealVector cd_l_bnds, cd_u_bnds, cs_l_bnds, cs_u_bnds;
-  const RealVector& c_l_bnds = iteratedModel.continuous_lower_bounds();
-  const RealVector& c_u_bnds = iteratedModel.continuous_upper_bounds();
-  if (numContDesVars) {
-    cd_l_bnds = RealVector(Teuchos::View, c_l_bnds.values(), numContDesVars);
-    cd_u_bnds = RealVector(Teuchos::View, c_u_bnds.values(), numContDesVars);
+  for (i=0; i<numContStateVars; ++i, ++av_cntr) {
+    const Real& lwr = x_l_bnds[av_cntr] = c_l_bnds[av_cntr];
+    const Real& upr = x_u_bnds[av_cntr] = c_u_bnds[av_cntr];
+    // unlike uniform/loguniform/beta/triangular, state bounds are optional
+    if (lwr == -DBL_MAX || upr == DBL_MAX) {
+      Cerr << "Error: bounds specification required for state variable "
+	   << "transformation to standard uniform." << std::endl;
+      abort_handler(-1);
+    }
+    else
+      Pecos::moments_from_uniform_params(lwr, upr, x_means[av_cntr],
+					 x_std_devs[av_cntr]);
   }
-  if (numContStateVars) {
-    size_t csv_start = numContinuousVars - numContStateVars;
-    cs_l_bnds	= RealVector(Teuchos::View,
-      const_cast<Real*>(&c_l_bnds[csv_start]), numContStateVars);
-    cs_u_bnds = RealVector(Teuchos::View,
-      const_cast<Real*>(&c_u_bnds[csv_start]), numContStateVars);
-  }
-  natafTransform.initialize_random_variable_parameters(cd_l_bnds, cd_u_bnds,
-						       adp, edp,
-						       cs_l_bnds, cs_u_bnds);
+
+  natafTransform.initialize_random_variable_parameters(x_means, x_std_devs,
+    x_l_bnds, x_u_bnds, x_addtl);
 }
 
 
@@ -1730,52 +1610,31 @@ void NonD::initialize_random_variable_correlations()
   if (!uncertain_corr.empty()) {
     natafTransform.initialize_random_variable_correlations(uncertain_corr);
     if (numContDesVars || numContEpistUncVars || numContStateVars)
-      // expand ProbabilityTransformation::corrMatrixX to include design,
-      // epistemic, state vars.  TO DO: propagate through model recursion?
+      // expand ProbabilityTransformation::corrMatrixX to include design + state
+      // + epistemic uncertain vars.  TO DO: propagate through model recursion?
       natafTransform.reshape_correlation_matrix(numContDesVars,
 	numContAleatUncVars, numContEpistUncVars+numContStateVars);
   }
 }
 
 
-void NonD::verify_correlation_support(short u_space_type)
+void NonD::verify_correlation_support()
 {
+  // Check for correlations among variable types (bounded normal, bounded
+  // lognormal, loguniform, triangular, beta, and histogram) that are not
+  // supported by Der Kiureghian & Liu for correlation warping estimation when
+  // transforming to std normals.
   if (natafTransform.x_correlation()) {
-    const std::vector<Pecos::RandomVariable>& x_ran_vars
-      = natafTransform.x_random_variables();
-    const Pecos::ShortArray& u_types   = natafTransform.u_types();
-    const Pecos::RealSymMatrix& x_corr = natafTransform.x_correlation_matrix();
-    size_t i, j, num_cdv_cauv = numContDesVars+numContAleatUncVars;
-
-    // We can only decorrelate in std normal space; therefore, if a variable
-    // with a u_type other than STD_NORMAL is correlated with anything, revert
-    // its u_type to STD_NORMAL.
-    if (u_space_type != STD_NORMAL_U) {
-      for (i=numContDesVars; i<num_cdv_cauv; ++i)
-	if (u_types[i] != Pecos::STD_NORMAL)
-	  // since we don't check all rows, check *all* columns despite symmetry
-	  for (j=numContDesVars; j<num_cdv_cauv; ++j)
-	    if (i != j && std::fabs(x_corr(i, j)) > Pecos::SMALL_NUMBER) {
-	      Cerr << "\nWarning: u-space type for random variable "
-		   << i-numContDesVars+1 << " changed to\n         "
-		   << "STD_NORMAL due to decorrelation requirements.\n";
-	      natafTransform.u_type(Pecos::STD_NORMAL, i);
-	      break; // out of inner loop
-	    }
-    }
-
-    // Check for correlations among variable types (bounded normal, bounded
-    // lognormal, loguniform, triangular, beta, and histogram) that are not
-    // supported by Der Kiureghian & Liu for correlation warping estimation
-    // when transforming to std normals.
     bool err_flag = false;
+    const Pecos::ShortArray&    x_types = natafTransform.x_types();
+    const Pecos::RealSymMatrix& x_corr  = natafTransform.x_correlation_matrix();
+    size_t i, j, num_cdv_cauv = numContDesVars+numContAleatUncVars;
     for (i=numContDesVars; i<num_cdv_cauv; ++i) {
       bool distribution_error = false;
-      short x_type = x_ran_vars[i].type();
-      if ( x_type == Pecos::BOUNDED_NORMAL    || x_type == Pecos::LOGUNIFORM ||
-	   x_type == Pecos::BOUNDED_LOGNORMAL || x_type == Pecos::TRIANGULAR ||
-	   x_type == Pecos::BETA || x_type == Pecos::HISTOGRAM_BIN )
-	// since we don't check all rows, check *all* columns despite symmetry
+      if ( x_types[i] == Pecos::BOUNDED_NORMAL    ||
+	   x_types[i] == Pecos::BOUNDED_LOGNORMAL ||
+	   x_types[i] == Pecos::LOGUNIFORM || x_types[i] == Pecos::TRIANGULAR ||
+	   x_types[i] == Pecos::BETA || x_types[i] == Pecos::HISTOGRAM_BIN )
 	for (j=numContDesVars; j<num_cdv_cauv; ++j)
 	  if (i != j && std::fabs(x_corr(i, j)) > Pecos::SMALL_NUMBER)
 	    { distribution_error = true; break; }
@@ -1823,7 +1682,7 @@ void NonD::initialize_final_statistics()
   // in subIterator.response_results_active_set(sub_iterator_set)
   ActiveSet stats_set(num_final_stats);//, num_active_vars);
   stats_set.derivative_vector(iteratedModel.inactive_continuous_variable_ids());
-  finalStatistics = Response(SIMULATION_RESPONSE, stats_set);
+  finalStatistics = Response(stats_set);
 
   // Assign meaningful labels to finalStatistics (appear in NestedModel output)
   char resp_tag[10];
@@ -1914,7 +1773,7 @@ void NonD::update_aleatory_final_statistics()
     }
     else
       cntr += 2;
-    // final stats from compute_level_mappings()
+    // final stats from compute_distribution_mappings()
     rl_len = requestedRespLevels[i].length();
     switch (respLevelTarget) { // individual component p/beta/beta*
     case PROBABILITIES:
@@ -1969,8 +1828,7 @@ void NonD::update_system_final_statistics()
       case PROBABILITIES:
 	finalStatistics.function_value(system_p, cntr); break;
       case RELIABILITIES: case GEN_RELIABILITIES:
-	finalStatistics.function_value(
-	  -Pecos::NormalRandomVariable::inverse_std_cdf(system_p), cntr);
+	finalStatistics.function_value(-Pecos::Phi_inverse(system_p), cntr);
 	break;
       }
     }
@@ -2002,8 +1860,7 @@ void NonD::update_system_final_statistics_gradients()
 	  else {
 	    component_grad[s] = finalStatistics.function_gradient_copy(index+l);
 	    Real component_beta = finalStatistics.function_value(index+l);
-	    component_grad[s].scale(
-	      -Pecos::NormalRandomVariable::std_pdf(-component_beta));
+	    component_grad[s].scale(-Pecos::phi(-component_beta));
 	  }
 	  index += rl_len + requestedProbLevels[s].length() +
 	    requestedRelLevels[s].length() + requestedGenRelLevels[s].length();
@@ -2040,8 +1897,7 @@ void NonD::update_system_final_statistics_gradients()
 	// define any scaling for system metric type
 	if (respLevelTarget != PROBABILITIES) {
 	  Real sys_beta = finalStatistics.function_value(cntr);
-	  factor /= -Pecos::NormalRandomVariable::std_pdf(-sys_beta);
-	  scale = true;
+	  factor *= -1./Pecos::phi(-sys_beta); scale = true;
 	}
 	if (scale) final_stat_grad.scale(factor);
 	finalStatistics.function_gradient(final_stat_grad, cntr);
@@ -2051,12 +1907,12 @@ void NonD::update_system_final_statistics_gradients()
 }
 
 
-void NonD::initialize_level_mappings()
+void NonD::initialize_distribution_mappings()
 {
-  // Default sizing assumes no distinction between requested and achieved
-  // levels for the same measure (the request is always achieved) and assumes
-  // probability (e.g., computed by binning) and reliability (e.g., computed
-  // by moment projection) are not collapsible.
+  // Default sizing assumes no distinction between requested and achieved levels
+  // for the same measure (the request is always achieved) and assumes
+  // probability (e.g., computed by binning) and reliability (e.g., computed by
+  // moment projection) are not collapsible.
   if (computedRespLevels.empty() || computedProbLevels.empty() ||
       computedRelLevels.empty()  || computedGenRelLevels.empty()) {
     computedRespLevels.resize(numFunctions);
@@ -2079,238 +1935,79 @@ void NonD::initialize_level_mappings()
   }
 }
 
-
-/** This function infers PDFs from the CDF/CCDF level mappings, in order
-    to enable PDF computation after CDF/CCDF probability level refinement
-    (e.g., from importance sampling).  
-
-    prob_refinement alerts the routine to exclude inverse mappings from
-    the PDF, since refinement only applies to z->p forward mappings and
-    mixing refined and unrefined probability mappings results in an
-    inconsistency (potentially manifesting as negative density values).
-
-    all_levels_computed is an option used by reliability methods where 
-    computed*Levels are defined across the union of all requested levels. */
-void NonD::
-compute_densities(const RealRealPairArray& min_max_fns,
-		  bool prob_refinement, bool all_levels_computed)
+/// Print distribution mappings, including to file per response
+void NonD::print_distribution_mappings(std::ostream& s) const
 {
-  if (!pdfOutput)
-    return;
-
-  computedPDFAbscissas.resize(numFunctions);
-  computedPDFOrdinates.resize(numFunctions);
-  archive_allocate_pdf();
-
-  size_t i, j, cntr, core_pdf_bins, pdf_size, offset;
-  Real z, min, max, prev_r, prev_p, new_r, new_p, last_r;
-  std::map<Real, Real> cdf_map;
-  std::map<Real, Real>::iterator it, it_last;
-  for (i=0; i<numFunctions; ++i) {
-
-    // CDF/CCDF mappings: z -> p/beta/beta* and p/beta/beta* -> z
-    const RealVector&  req_rlev_i = requestedRespLevels[i];
-    const RealVector&  req_plev_i = requestedProbLevels[i];
-    const RealVector&  req_glev_i = requestedGenRelLevels[i];
-    const RealVector& comp_rlev_i = computedRespLevels[i];
-    const RealVector& comp_plev_i = computedProbLevels[i];
-    const RealVector& comp_glev_i = computedGenRelLevels[i];
-    size_t rl_len = req_rlev_i.length(), pl_len = req_plev_i.length(),
-      bl_len = requestedRelLevels[i].length(), gl_len = req_glev_i.length();
-
-    // Define a unique sorted map of response levels -> cdf probabilities.
-    // (refer to NonD::initialize_level_mappings() for default indexing;
-    cdf_map.clear(); min = min_max_fns[i].first; max = min_max_fns[i].second;
-    if (all_levels_computed) {
-      for (j=0; j<rl_len; ++j) {
-        z = comp_rlev_i[j]; // request may be outside extreme values
-	cdf_map[z] = (cdfFlag) ? comp_plev_i[j] : 1.-comp_plev_i[j];
-      }
-      if (!prob_refinement || !rl_len) { // don't combine refined/unrefined
-	size_t total_len = rl_len + pl_len + bl_len + gl_len;
-	for (j=rl_len; j<total_len; ++j) {
-	  z = comp_rlev_i[j];
-	  //if (z >= min && z <= max) // exclude any extrapolations outside bnds
-	    cdf_map[z] = (cdfFlag) ? comp_plev_i[j] : 1.-comp_plev_i[j];
-	}
-      }
-    }
-    else {
-      switch (respLevelTarget) {
-      case PROBABILITIES:
-	for (j=0; j<rl_len; ++j) {
-	  z = req_rlev_i[j]; // request may be outside extreme values
-	  cdf_map[z] = (cdfFlag) ? comp_plev_i[j] : 1.-comp_plev_i[j];
-	}
-	break;
-    //case RELIABILITIES: // exclude reliability level mappings from cdf_map
-      case GEN_RELIABILITIES:
-	for (j=0; j<rl_len; ++j) {
-	  z = req_rlev_i[j]; // request may be outside extreme values
-	  Real g_cdf = (cdfFlag) ? comp_glev_i[j] : -comp_glev_i[j];
-	  cdf_map[z] = Pecos::NormalRandomVariable::std_cdf(-g_cdf);
-	}
-	break;
-      }
-      if (!prob_refinement || !rl_len) { // don't combine refined/unrefined
-	for (j=0; j<pl_len; ++j) {
-	  z = comp_rlev_i[j];
-	  //if (z >= min && z <= max) // exclude any extrapolations outside bnds
-	    cdf_map[z] = (cdfFlag) ? req_plev_i[j] : 1.-req_plev_i[j];
-	}
-	// exclude reliability level mappings from cdf_map
-	for (j=0, cntr=pl_len+bl_len; j<gl_len; ++j, ++cntr) {
-	  z = comp_rlev_i[cntr];
-	  //if (z >= min && z <= max) {//exclude any extrapolations outside bnds
-	    Real g_cdf = (cdfFlag) ? req_glev_i[j] : -req_glev_i[j];
-	    cdf_map[z] = Pecos::NormalRandomVariable::std_cdf(-g_cdf);
-	  //}
-	}
-      }
-    }
-
-    if (!cdf_map.empty()) {
-      it      =   cdf_map.begin(); prev_r = it->first;
-      it_last = --cdf_map.end();   last_r = it_last->first;
-      // compute computedPDF{Abscissas,Ordinates} from bin counts and widths
-      core_pdf_bins = cdf_map.size()-1; pdf_size = core_pdf_bins;
-      if (min < prev_r) ++pdf_size;
-      if (max > last_r) ++pdf_size;
-      RealVector& abs_i = computedPDFAbscissas[i]; abs_i.resize(pdf_size+1);
-      RealVector& ord_i = computedPDFOrdinates[i]; ord_i.resize(pdf_size);
-      if (min < prev_r) { // first bin accumulates p0 over [min,lev0]
-	offset   = 1;   prev_p   = it->second;
-	abs_i[0] = min;	ord_i[0] = prev_p/(prev_r - min);
-      }
-      else { // first bin accumulates p0+p1 over [lev0,lev1]
-	offset   = 0;   prev_p   = 0.;
-      }
-      for (j=0; j<core_pdf_bins; ++j) {
-	++it; new_r = it->first; new_p = it->second;
-	abs_i[j+offset] = prev_r;
-	ord_i[j+offset] = (new_p - prev_p) / (new_r - prev_r);
-	prev_r = new_r; prev_p = new_p;
-      }
-      if (max > last_r) {
-	abs_i[pdf_size-1] = last_r;
-	ord_i[pdf_size-1] = (1. - it_last->second)/(max - last_r);
-	abs_i[pdf_size]   = max;  // no ordinate for final abscissa
-      }
-      else
-	abs_i[pdf_size] = last_r; // no ordinate for final abscissa
-
-      archive_pdf(i);
-    }
-  }
-}
-
-
-/** Print distribution mappings, including to file per response. */
-void NonD::
-print_level_mappings(std::ostream& s, String qoi_type,
-		     const StringArray& qoi_labels) const
-{
-  print_densities(s, qoi_type, qoi_labels);
-
   // output CDF/CCDF probabilities resulting from binning or CDF/CCDF
   // reliabilities resulting from number of std devs separating mean & target
   s << std::scientific << std::setprecision(write_precision)
-    << "\nLevel mappings for each " << qoi_type << ":\n";
+    << "\nLevel mappings for each response function:\n";
   size_t i;
   for (i=0; i<numFunctions; ++i)
     if (!requestedRespLevels[i].empty() || !requestedProbLevels[i].empty() ||
 	!requestedRelLevels[i].empty()  || !requestedGenRelLevels[i].empty()) {
-      print_level_map(s, i, qoi_labels[i]);
+      print_distribution_map(i, s);
       // optionally write the distribution mapping to a .dist file
       if (outputLevel >= VERBOSE_OUTPUT)
-	level_mappings_file(i, qoi_labels[i]);
+	distribution_mappings_file(i);
     }
 }
-
-
-void NonD::
-print_densities(std::ostream& s, String qoi_type,
-		const StringArray& pdf_labels) const
-{
-  if (!pdfOutput)
-    return;
-
-  size_t i, j, wpp7 = write_precision+7, num_qoi = computedPDFOrdinates.size();
-  if (num_qoi)
-    s << std::scientific << std::setprecision(write_precision)
-      << "\nProbability Density Function (PDF) histograms for each "
-      << qoi_type << ":\n";
-  for (i=0; i<num_qoi; ++i) {
-    const RealVector& ord_i = computedPDFOrdinates[i];
-    const RealVector& abs_i = computedPDFAbscissas[i];
-    size_t pdf_len = ord_i.length();
-    if (pdf_len) {
-      s << "PDF for " << pdf_labels[i] << ":\n"
-	<< "          Bin Lower          Bin Upper      Density Value\n"
-	<< "          ---------          ---------      -------------\n";
-      for (j=0; j<pdf_len; ++j)
-	s << "  " << std::setw(wpp7) << abs_i[j]
-	  << "  " << std::setw(wpp7) << abs_i[j+1]
-	  << "  " << std::setw(wpp7) << ord_i[j] << '\n';
-    }
-  }
-}
-
 
 /// Write distribution mappings to a file for a single response
-void NonD::level_mappings_file(size_t fn_index, const String& qoi_label) const
+void NonD::distribution_mappings_file(size_t fn_index) const
 {
-  std::string dist_filename = qoi_label + ".dist";
+  const StringArray& resp_labels = iteratedModel.response_labels();
+  std::string dist_filename(resp_labels[fn_index]);
+  dist_filename += ".dist";
   std::ofstream dist_file;
   TabularIO::open_file(dist_file, dist_filename, "Distribution Map Output"); 
   dist_file << std::scientific << std::setprecision(write_precision);
-  print_level_map(dist_file, fn_index, qoi_label);
+  print_distribution_map(fn_index, dist_file);
 }
 
 
 /** Print the distribution mapping for a single response function to
-    the passed output stream.  This base class version maps from one
-    requested level type to one computed level type; some derived
-    class implementations (e.g., local and global reliability) output
-    multiple computed level types. */
-void NonD::
-print_level_map(std::ostream& s, size_t fn_index, const String& qoi_label) const
+    the passed output stream */
+void NonD::print_distribution_map(size_t fn_index, std::ostream& s) const
 {
-  size_t j, width = write_precision+7, w2p2 = 2*width+2, w3p4 = 3*width+4;
+  const StringArray& resp_labels = iteratedModel.response_labels();
+
+  size_t i = fn_index, j;
+  size_t width = write_precision+7, w2p2 = 2*width+2, w3p4 = 3*width+4;
 
   if (cdfFlag)
     s << "Cumulative Distribution Function (CDF) for ";
   else
     s << "Complementary Cumulative Distribution Function (CCDF) for ";
-  s << qoi_label << ":\n     Response Level  Probability Level  "
+  s << resp_labels[i] << ":\n     Response Level  Probability Level  "
     << "Reliability Index  General Rel Index\n     --------------  "
     << "-----------------  -----------------  -----------------\n";
-  size_t num_resp_levels = requestedRespLevels[fn_index].length();
-  for (j=0; j<num_resp_levels; j++) { // map from 1 requested to 1 computed
-    s << "  " << std::setw(width) << requestedRespLevels[fn_index][j] << "  ";
+  size_t num_resp_levels = requestedRespLevels[i].length();
+  for (j=0; j<num_resp_levels; j++) {
+    s << "  " << std::setw(width) << requestedRespLevels[i][j] << "  ";
     switch (respLevelTarget) {
     case PROBABILITIES:
-      s << std::setw(width) << computedProbLevels[fn_index][j]   << '\n'; break;
+      s << std::setw(width) << computedProbLevels[i][j]   << '\n'; break;
     case RELIABILITIES:
-      s << std::setw(w2p2)  << computedRelLevels[fn_index][j]    << '\n'; break;
+      s << std::setw(w2p2)  << computedRelLevels[i][j]    << '\n'; break;
     case GEN_RELIABILITIES:
-      s << std::setw(w3p4)  << computedGenRelLevels[fn_index][j] << '\n'; break;
+      s << std::setw(w3p4)  << computedGenRelLevels[i][j] << '\n'; break;
     }
   }
-  size_t num_prob_levels = requestedProbLevels[fn_index].length();
-  for (j=0; j<num_prob_levels; j++) // map from 1 requested to 1 computed
-    s << "  " << std::setw(width) << computedRespLevels[fn_index][j]
-      << "  " << std::setw(width) << requestedProbLevels[fn_index][j] << '\n';
-  size_t num_rel_levels = requestedRelLevels[fn_index].length(),
+  size_t num_prob_levels = requestedProbLevels[i].length();
+  for (j=0; j<num_prob_levels; j++)
+    s << "  " << std::setw(width) << computedRespLevels[i][j]
+      << "  " << std::setw(width) << requestedProbLevels[i][j] << '\n';
+  size_t num_rel_levels = requestedRelLevels[i].length(),
     offset = num_prob_levels;
-  for (j=0; j<num_rel_levels; j++) // map from 1 requested to 1 computed
-    s << "  " << std::setw(width) << computedRespLevels[fn_index][j+offset]
-      << "  " << std::setw(w2p2)  << requestedRelLevels[fn_index][j] << '\n';
-  size_t num_gen_rel_levels = requestedGenRelLevels[fn_index].length();
+  for (j=0; j<num_rel_levels; j++)
+    s << "  " << std::setw(width) << computedRespLevels[i][j+offset]
+      << "  " << std::setw(w2p2)  << requestedRelLevels[i][j] << '\n';
+  size_t num_gen_rel_levels = requestedGenRelLevels[i].length();
   offset += num_rel_levels;
-  for (j=0; j<num_gen_rel_levels; j++) // map from 1 requested to 1 computed
-    s << "  " << std::setw(width) << computedRespLevels[fn_index][j+offset]
-      << "  " << std::setw(w3p4)  << requestedGenRelLevels[fn_index][j] << '\n';
+  for (j=0; j<num_gen_rel_levels; j++)
+    s << "  " << std::setw(width) << computedRespLevels[i][j+offset]
+      << "  " << std::setw(w3p4)  << requestedGenRelLevels[i][j] << '\n';
 }
 
 
@@ -2334,18 +2031,15 @@ void NonD::print_system_mappings(std::ostream& s) const
     for (i=0; i<rl_len; ++i, ++cntr) {
       switch (respLevelTarget) {
       case PROBABILITIES:
-	prob    =  final_stats[cntr];
-	gen_rel = -Pecos::NormalRandomVariable::inverse_std_cdf(prob); break;
+	prob    = final_stats[cntr]; gen_rel = -Pecos::Phi_inverse(prob); break;
       default:
-	gen_rel =  final_stats[cntr];
-	prob    =  Pecos::NormalRandomVariable::std_cdf(-gen_rel);     break;
+	gen_rel = final_stats[cntr]; prob    =  Pecos::Phi(-gen_rel);     break;
       }
       s << "  " << std::setw(width) << i+1 << "  " << std::setw(width) << prob
 	<< "  " << std::setw(g_width) << gen_rel << '\n';
     }
   }
 }
-
 
 void NonD::archive_allocate_mappings()
 {
@@ -2412,7 +2106,6 @@ void NonD::archive_allocate_mappings()
       (run_identifier(), resultsNames.map_genrel_resp, numFunctions, md);
   }
 }
-
 
 // archive the mappings from response levels
 void NonD::archive_from_resp(size_t i)
@@ -2498,35 +2191,5 @@ void NonD::archive_to_resp(size_t i)
   } 
 }
 
-
-void NonD::archive_allocate_pdf() // const
-{
-  if (!resultsDB.active())  return;
-
-  // pdf per function, possibly empty
-  MetaDataType md;
-  md["Array Spans"] = make_metadatavalue("Response Functions");
-  md["Row Labels"] = 
-    make_metadatavalue("Bin Lower", "Bin Upper", "Density Value");
-  resultsDB.array_allocate<RealMatrix>
-    (run_identifier(), resultsNames.pdf_histograms, numFunctions, md);
-}
-
-
-void NonD::archive_pdf(size_t i) // const
-{
-  if (!resultsDB.active()) return;
-
-  size_t pdf_len = computedPDFOrdinates[i].length();
-  RealMatrix pdf(3, pdf_len);
-  for (size_t j=0; j<pdf_len; ++j) {
-    pdf(0, j) = computedPDFAbscissas[i][j];
-    pdf(1, j) = computedPDFAbscissas[i][j+1];
-    pdf(2, j) = computedPDFOrdinates[i][j];
-  }
-  
-  resultsDB.array_insert<RealMatrix>
-    (run_identifier(), resultsNames.pdf_histograms, i, pdf);
-}
 
 } // namespace Dakota

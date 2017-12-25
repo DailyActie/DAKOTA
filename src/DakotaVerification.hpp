@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -27,12 +27,6 @@ namespace Dakota {
 class Verification: public Analyzer
 {
 public:
-    
-  //
-  //- Heading: Virtual member function redefinitions
-  //
-
-  bool resize();
 
 protected:
 
@@ -41,9 +35,9 @@ protected:
   //
 
   /// constructor
-  Verification(ProblemDescDB& problem_db, Model& model);
+  Verification(Model& model);
   /// alternate constructor for instantiations "on the fly"
-  Verification(unsigned short method_name, Model& model);
+  Verification(NoDBBaseConstructor, Model& model);
   /// destructor
   ~Verification();
     
@@ -51,10 +45,24 @@ protected:
   //- Heading: Virtual member function redefinitions
   //
 
+  void run();
   void print_results(std::ostream& s);
 
   //
+  //- Heading: New virtual member functions
+  //
+
+  /// Redefines the run_iterator virtual function for the PStudy/DACE branch.
+  virtual void perform_verification() = 0;
+
+  //
   //- Heading: Member functions
+  //
+
+protected:
+
+  //
+  //- Heading: Data
   //
 
 private:
@@ -67,6 +75,10 @@ private:
 
 
 inline Verification::~Verification() { }
+
+
+inline void Verification::run()
+{ /* bestVarsRespMap.clear(); */ perform_verification(); }
 
 } // namespace Dakota
 

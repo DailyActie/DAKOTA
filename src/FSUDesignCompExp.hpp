@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,36 +37,27 @@ public:
   //
     
   /// primary constructor for building a standard DACE iterator
-  FSUDesignCompExp(ProblemDescDB& problem_db, Model& model);
+  FSUDesignCompExp(Model& model);
   /// alternate constructor for building a DACE iterator on-the-fly
   FSUDesignCompExp(Model& model, int samples, int seed,
-		   unsigned short sampling_method);
+		   const String& sampling_method);
   /// destructor
   ~FSUDesignCompExp();
-
-  //
-  //- Heading: Virtual function redefinitions
-  //
-  
-  bool resize();
     
-protected:
-
   //
   //- Heading: Virtual function redefinitions
   //
-  
+
+  // NOTE: these could be protected (letter-envelope)
   void pre_run();
-  void core_run();
+  void extract_trends();
   void post_input();
   void post_run(std::ostream& s);
   int num_samples() const;
   void sampling_reset(int min_samples, bool all_data_flag, bool stats_flag);
-  unsigned short sampling_scheme() const;
+  const String& sampling_scheme() const;
   void vary_pattern(bool pattern_flag);
   void get_parameter_sets(Model& model);
-  void get_parameter_sets(Model& model, const int num_samples, 
-			  RealMatrix& design_matrix);
 
 private:
 
@@ -88,7 +79,7 @@ private:
   /// flag which triggers the update of allVars/allResponses for use by
   /// Iterator::all_variables() and Iterator::all_responses()
   bool allDataFlag;
-  /// counter for number of executions for this object
+  /// counter for number of run() executions for this object
   size_t numDACERuns;
   /// flag which specifies latinization of QMC or CVT sample sets
   bool latinizeFlag;
@@ -113,7 +104,7 @@ private:
   /// current seed for the random number generator
   int randomSeed;
   /// flag for continuing the random number or QMC sequence from a previous
-  /// execution (e.g., for surrogate-based optimization) so that
+  /// run() execution (e.g., for surrogate-based optimization) so that
   /// multiple executions are repeatable but not identical.
   bool varyPattern;
   /// specifies the number of sample points taken at internal CVT iteration
@@ -140,7 +131,7 @@ sampling_reset(int min_samples, bool all_data_flag, bool stats_flag)
   // allow sample reduction relative to previous sampling_reset() calls
   // (that is, numSamples may be increased or decreased by min_samples), but
   // not relative to the original specification (samplesSpec is a hard lower
-  // bound).  maxEvalConcurrency must not be updated since parallel config
+  // bound).  maxConcurrency must not be updated since parallel config
   // management depends on having the same value at ctor/run/dtor times.
   numSamples = (min_samples > samplesSpec) ? min_samples : samplesSpec;
   // note that previous value of numSamples is irrelevant: may increase or
@@ -151,7 +142,7 @@ sampling_reset(int min_samples, bool all_data_flag, bool stats_flag)
 }
 
 
-inline unsigned short FSUDesignCompExp::sampling_scheme() const
+inline const String& FSUDesignCompExp::sampling_scheme() const
 { return methodName; }
 
 

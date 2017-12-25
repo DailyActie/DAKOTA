@@ -1,0 +1,25 @@
+Blurb::
+Reuse the same seed value for multiple sampling sets
+Description::
+The \c
+fixed_seed flag is relevant if multiple sampling sets will be
+generated during the course of a strategy (e.g., surrogate-based
+optimization, optimization under uncertainty). 
+
+Specifying this keyword
+results in the reuse of the same seed value for each of these multiple
+sampling sets, which can be important for reducing variability in the
+sampling results. 
+
+However, this behavior is not the default as the
+repetition of the same sampling pattern can result in a modeling
+weakness that an optimizer could potentially exploit (resulting in
+actual reliabilities that are lower than the estimated reliabilities).
+In either case (\c fixed_seed or not), the study is repeatable if the
+user specifies a \c seed and the study is random is the user omits a
+\c seed specification.
+Topics::	
+Examples::
+Theory::
+Faq::
+See_Also::	

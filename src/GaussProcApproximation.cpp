@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -134,9 +134,8 @@ Real getRmax(const RealMatrix& xset)
 
 GaussProcApproximation::
 GaussProcApproximation(const ProblemDescDB& problem_db,
-		       const SharedApproxData& shared_data,
-                       const String& approx_label):
-  Approximation(BaseConstructor(), problem_db, shared_data, approx_label),
+		       const SharedApproxData& shared_data):
+  Approximation(BaseConstructor(), problem_db, shared_data),
   usePointSelection(problem_db.get_bool("model.surrogate.point_selection"))
 {
   const String& trend_string
@@ -154,7 +153,7 @@ GaussProcApproximation(const ProblemDescDB& problem_db,
 #ifdef HAVE_NCSU
   Cout << "Using NCSU DIRECT to optimize correlation coefficients."<<std::endl;
 #else
-  Cerr << "Error: NCSU DIRECT Optimizer is not available to calculate " 
+  Cerr << "NCSU DIRECT Optimizer is not available to calculate " 
        << "the correlation coefficients governing the Gaussian process." 
        << "Aborting process. " << std::endl;
   abort_handler(-1);
@@ -184,7 +183,7 @@ void GaussProcApproximation::build()
   Approximation::build();
 
   size_t i, j, offset = 0, num_v = sharedDataRep->numVars;
-  numObs = approxData.points();
+  numObs = approxData.size();
   // GaussProcApproximation does not directly handle anchorPoint
   // -> treat it as another currentPoint
   if (approxData.anchor()) {
@@ -296,7 +295,7 @@ GPmodel_apply(const RealVector& approx_pt, bool variance_flag,
 {
   size_t i, num_v = sharedDataRep->numVars;
   if (approx_pt.length() != num_v) {
-    Cerr << "Error: Dimension mismatch in GPmodel_apply" << std::endl;
+    Cout << "Dimension mismatch in GPmodel_apply" << std::endl;
     abort_handler(-1);
   }
 
@@ -399,7 +398,8 @@ void GaussProcApproximation::optimize_theta_global()
   nll_optimizer.assign_rep(
     new NCSUOptimizer(theta_lbnds,theta_ubnds,max_iterations,max_fn_evals,
 		      negloglikNCSU),false);
-  nll_optimizer.run(); // no pl_iter needed for this optimization
+  // no summary output since on-the-fly constructed:
+  nll_optimizer.run_iterator(Cout);
   const Variables& vars_star = nll_optimizer.variables_results();
   const Response&  resp_star = nll_optimizer.response_results();
   copy_data(vars_star.continuous_variables(), thetaParams);
@@ -642,20 +642,24 @@ void GaussProcApproximation::predict(bool variance_flag, bool gradients_flag)
 		  betaCoeffs, 0.);
 
   approxValue = approx_val(0,0) + f_beta(0,0);
+
 #ifdef DEBUG_FULL
   Cout << "prediction " << approxValue << '\n';
 #endif //DEBUG_FULL
 
   // Gradient of prediction with respect to input
   if (gradients_flag) {
-#ifdef DEBUG_FULL
-    Cout << "\n<<<<< Entering gradient prediction in GP code\n";
-#endif //DEBUG_FULL
+    // Currently, these gradients are only valid for constant trend
+    Cout << "\n<<<<< Entering gradient prediction in GP code";
+    if (trendOrder!=0) {
+      Cout << "GP gradients currently only valid for constant trend\n";
+      abort_handler(-1);
+    }
     // Construct the global matrix of derivatives, gradCovVector
     get_grad_cov_vector();
 
     RealMatrix gradPred(num_v, 1, false), dotProd(1, 1, false),
-       gradCovVector_i(numObs, 1, false);
+      gradCovVector_i(numObs, 1, false);
     approxGradient.sizeUninitialized(num_v);
     for (i=0; i<num_v; i++) {
       // First set up gradCovVector_i to be the ith column of the matrix
@@ -664,20 +668,12 @@ void GaussProcApproximation::predict(bool variance_flag, bool gradients_flag)
     	gradCovVector_i(j,0) = gradCovVector(j,i);
         // Grad_i = dot_prod(gradCovVector_i, inv(R)*YFb)
       dotProd.multiply(Teuchos::TRANS, Teuchos::NO_TRANS, 1., Rinv_YFb,
-		       gradCovVector_i, 0.);
+	       gradCovVector_i, 0.);
       approxGradient[i] = gradPred(i,0) = dotProd(0,0);
-      // add trend derivative, accounting for scaling approxPoint(0,i) =
-      // (approx_pt(i)-trainMeans(i))/trainStdvs(i) in GPmodel_apply()
-      switch (trendOrder) {
-      //case 0: // constant trend: no contribution to derivative
-      case 1: // derivative of linear trend
-	approxGradient[i] +=   betaCoeffs(i+1,0) / trainStdvs(i);  break;
-      case 2: // derivative of trend with linear and diagonal quadratic terms
-	approxGradient[i] += ( betaCoeffs(i+1,0) + 2.*betaCoeffs(num_v+i+1,0) *
-			       approxPoint(0,i) ) / trainStdvs(i); break;
-      }
     }
   }
+  // End of gradient computations
+  
 
   if (variance_flag) {
     RealMatrix Rinv_covvec(numObs, 1, false), rT_Rinv_r(1, 1, false);
@@ -689,8 +685,9 @@ void GaussProcApproximation::predict(bool variance_flag, bool gradients_flag)
 		       Rinv_covvec, 0.);
 
     approxVariance = procVar*(1.- rT_Rinv_r(0,0));
+
 #ifdef DEBUG_FULL
-    Cout << "variance " << approxVariance << "\n\n";
+      Cout << "variance " << approxVariance << "\n\n";
 #endif //DEBUG_FULL
 
     // set this flag to true to use longer equation
@@ -837,7 +834,8 @@ void GaussProcApproximation::optimize_theta_multipoint()
 	lin_ineq_lower_bnds, lin_ineq_lower_bnds, lin_eq_coeffs,
 	lin_eq_targets, nln_ineq_lower_bnds, nln_ineq_upper_bnds,
 	nln_eq_targets, negloglik, constraint_eval), false);
-    nll_optimizer.run(); // no pl_iter needed for this optimization
+    // no summary output since on-the-fly constructed:
+    nll_optimizer.run_iterator(Cout);
     const Variables& vars_star = nll_optimizer.variables_results();
     const Response&  resp_star = nll_optimizer.response_results();
     copy_data(vars_star.continuous_variables(), thetaParams);
@@ -1108,7 +1106,8 @@ namespace idx_table
 
 
 int GaussProcApproximation::pointsel_add_sel(const RealArray& delta)
-// Uses unsorted errors in delta, finds which points to add, and adds them
+// Uses unsorted errors in delta, finds which points to add, and adds
+// them
 {
   size_t ntest, i, j, itest, nadded, num_v = sharedDataRep->numVars;
 

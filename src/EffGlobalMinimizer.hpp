@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -33,21 +33,19 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model);
+  EffGlobalMinimizer(Model& model); ///< standard constructor
+
   /// alternate constructor for instantiations "on the fly"
-  //EffGlobalMinimizer(Model& model, int max_iterations, int max_fn_evals);
+  //EffGlobalMinimizer(Model& model, const int& max_iterations,
+  //		     const int& max_fn_evals);
+
   ~EffGlobalMinimizer(); ///< destructor
 
   //
   //- Heading: Virtual function redefinitions
   //
 
-  //void derived_init_communicators(ParLevLIter pl_iter);
-  //void derived_set_communicators(ParLevLIter pl_iter);
-  //void derived_free_communicators(ParLevLIter pl_iter);
-
-  void core_run();
+  void minimize_surrogates();
 
   const Model& algorithm_space_model() const;
 

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -52,7 +52,6 @@ public:
   ActiveSet();                                      ///< default constructor
   ActiveSet(size_t num_fns, size_t num_deriv_vars); ///< standard constructor
   ActiveSet(size_t num_fns);                        ///< partial constructor
-  ActiveSet(const ShortArray& asv, const SizetArray& dvv); ///< alt constructor
   ActiveSet(const ActiveSet& set);                  ///< copy constructor
   ~ActiveSet();                                     ///< destructor
 
@@ -108,7 +107,6 @@ private:
 
   friend class boost::serialization::access;
 
-  /// implementation of Boost serialize for ActiveSet
   template<class Archive>
   void serialize(Archive& ar, const unsigned int version);
 
@@ -130,10 +128,6 @@ private:
 
 inline ActiveSet::ActiveSet()
 { }
-
-
-inline ActiveSet::ActiveSet(const ShortArray& asv, const SizetArray& dvv)
-{ requestVector = asv; derivVarsVector = dvv; }
 
 
 inline ActiveSet::ActiveSet(const ActiveSet& set)
@@ -261,18 +255,11 @@ inline bool operator!=(const ActiveSet& set1, const ActiveSet& set2)
 
 } // namespace Dakota
 
-
-// Since we may serialize this class through a temporary, force
-// serialization mode and no tracking
-BOOST_CLASS_IMPLEMENTATION(Dakota::ActiveSet, 
-			   boost::serialization::object_serializable)
-BOOST_CLASS_TRACKING(Dakota::ActiveSet, 
-		     boost::serialization::track_never)
-
 // allow static linking
 // BOOST_CLASS_EXPORT_KEY(Dakota::ActiveSet);
 
 // BOOST_CLASS_IMPLEMENTATION(Dakota::ActiveSet, 
 //  			   boost::serialization::object_serializable)
+
 
 #endif

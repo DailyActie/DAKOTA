@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,8 +37,8 @@ public:
   //- Heading: Constructor and destructor
   //
 
-  CommandShell();   ///< constructor
-  ~CommandShell();  ///< destructor
+  CommandShell(const std::string& work_dir); ///< constructor
+  ~CommandShell();                           ///< destructor
 
   //
   //- Heading: Operator overloaded functions
@@ -66,6 +66,9 @@ private:
   //- Heading: Data members
   //
 
+  /// To convey working directory when useWorkdir is true:
+  const std::string& workDir;
+
   /// The command string that is constructed through one or more <<
   /// insertions and then executed by flush
   std::string sysCommand;
@@ -79,8 +82,8 @@ private:
 
 
 /// constructor
-inline CommandShell::CommandShell() :
-  asynchFlag(false), suppressOutputFlag(false)
+inline CommandShell::CommandShell(const std::string& work_dir) :
+  workDir(work_dir), asynchFlag(false), suppressOutputFlag(false)
 { }
 
 /// destructor

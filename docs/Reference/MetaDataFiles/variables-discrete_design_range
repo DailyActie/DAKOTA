@@ -1,0 +1,11 @@
+Blurb::
+Discrete design variable - specified using a range of integers
+Description::
+The details of how to specify this discrete variable are located on the 
+\ref topic-discrete_variables page.
+
+Topics::	discrete_variables, design_variables
+Examples::
+Theory::
+Faq::
+See_Also::	

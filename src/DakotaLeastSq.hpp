@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -35,20 +35,17 @@ protected:
   //- Heading: Constructors and destructor
   //
 
-  /// default constructor
-  LeastSq();                                        
-  /// standard constructor
-  LeastSq(ProblemDescDB& problem_db, Model& model);
-  /// alternate "on the fly" constructor
-  LeastSq(unsigned short method_name, Model& model);
-  /// destructor
-  ~LeastSq();
+  LeastSq();                                   ///< default constructor
+  LeastSq(Model& model);                       ///< standard constructor
+  LeastSq(NoDBBaseConstructor, Model& model);  ///< alternate constructor
+  ~LeastSq();                                  ///< destructor
 
   //
   //- Heading: Virtual member function redefinitions
   //
 
   void initialize_run();
+  void run();
   void post_run(std::ostream& s);
   void finalize_run();
   void print_results(std::ostream& s);
@@ -57,6 +54,11 @@ protected:
   //- Heading: New virtual member functions
   //
 
+  /// Used within the least squares branch for minimizing the sum of
+  /// squares residuals.  Redefines the run virtual function
+  /// for the least squares branch.
+  virtual void minimize_residuals() = 0;
+
   /// Calculate confidence intervals on estimated parameters
   void get_confidence_intervals();
 
@@ -64,7 +66,7 @@ protected:
   //- Heading: Data
   //
 
-  size_t numLeastSqTerms; ///< number of least squares terms
+  int numLeastSqTerms; ///< number of least squares terms
 
   /// pointer to LeastSq instance used in static member functions
   static LeastSq* leastSqInstance;
@@ -105,7 +107,14 @@ inline LeastSq::LeastSq(): weightFlag(false)
 
 
 inline LeastSq::~LeastSq()
-{ }
+{ 
+  if (minimizerRecasts) 
+    iteratedModel.free_communicators(maxConcurrency);
+}
+
+
+inline void LeastSq::run()
+{ minimize_residuals(); }
 
 
 inline void LeastSq::finalize_run()

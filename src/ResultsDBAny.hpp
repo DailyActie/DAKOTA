@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -84,11 +84,11 @@ public:
 
   /// record addition with metadata map
   void 
-  insert(const StrStrSizet& iterator_id,
-	 const std::string& data_name,
-	 const boost::any& result,
-	 const MetaDataType& metadata
-	 );
+  add_data(const StrStrSizet& iterator_id,
+	   const std::string& data_name,
+	   const boost::any& result,
+	   const MetaDataType& metadata
+	   );
 
   // NOTE: removed accessors to add metadata only or record w/o metadata
 
@@ -152,8 +152,8 @@ array_allocate(const StrStrSizet& iterator_id,
 	       const MetaDataType& metadata) 
 {
   // add a vector of the StoredType, with metadata
-  insert(iterator_id, data_name, std::vector<StoredType>(array_size),
-	 metadata);
+  add_data(iterator_id, data_name, std::vector<StoredType>(array_size),
+	   metadata);
 }
 
 /** insert requires previous allocation, and does not allow metadata update */

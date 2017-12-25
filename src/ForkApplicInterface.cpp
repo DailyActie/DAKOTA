@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -120,49 +120,23 @@ size_t ForkApplicInterface::test_local_analyses_send(int analysis_id)
 pid_t ForkApplicInterface::
 create_analysis_process(bool block_flag, bool new_group)
 {
-  // Guidance: Do as little between fork/exec as possible to avoid
-  // memory issues and overhead from copy-on-write.  Guidance from
-  // various sources leads to:
-  //  * chdir, getpid, setpgid should be safe (async-signal-safe in man signal)
-  //  * setenv is likely not (allocates memory); for now do before
-  //    fork, consider execve in future
-  //  * create_command_arguments allocates memory, so do before fork
-
-  // Convert argList StringArray to an array of const char*'s.  av
-  // will point to tokens in driver_and_args, so both get passed in.
-  // Perform this operation before fork as it allocates memory
-  boost::shared_array<const char*> av;  // delete[] called when av out of scope
-  StringArray driver_and_args;
-  create_command_arguments(av, driver_and_args);
-
-  // Set PATH, environment, and change directory; perform this
-  // operation before fork as setenv allocates memory
-  prepare_process_environment();
-
-  int status = 0;
+  const char *arg_list[4], **av;
+  int status;
   pid_t pid = 0;
+  static std::string no_workdir;
 
-  // Ideally fork() should always be used since it is considered best
-  // practice on modern computers/OS's.  However, we have observed (1)
-  // unreliable fork on HPC platforms with infiniband, and (2)
-  // unreliable vfork on Mac
+  // vfork() should be used here since there is an immediate execvp(). This 
+  // conserves memory over fork().  If some platforms have problems with a
+  // hybrid fork/vfork approach, add #ifdef's but make vfork the default.
 
-  // The code below is written so that operations between vfork() and
-  // exec() should be safe (no memory allocated/manipulated and system
-  // calls are asynch-signal-safe)
-
-  // Default to vfork unless a user override to fork; fall-through to fork 
-  // if needed
-#if !defined(DAKOTA_PREFER_FORK) && defined(HAVE_WORKING_VFORK)
-  pid = vfork();  // replicate this process
+#if defined(HAVE_WORKING_VFORK)
+  pid = vfork(); // replicate this process
 #elif defined(HAVE_WORKING_FORK)
-  pid = fork();   // replicate this process
+  pid = fork(); // replicate this process
 #else
-  Cerr << "Error: fork not supported under this OS." << std::endl;
+  Cerr << "Error: fork/vfork are not supported under this OS." << std::endl;
   abort_handler(-1);
 #endif
-
-
   if (pid == -1) {
     Cerr << "\nCould not fork; error code " << errno << " (" 
 	 << std::strerror(errno) << ")" << std::endl;
@@ -174,14 +148,18 @@ create_analysis_process(bool block_flag, bool new_group)
     if (!block_flag) // only child sets group id -> avoids race with execvp
       join_analysis_process_group(new_group);
 
+    // Convert argList StringArray to an array of const char*'s.  An arg_list
+    // entry is passed as the first argument, and the entire arg_list is cast
+    // as the second argument.
+
+    av = WorkdirHelper::arg_adjust(commandLineArgs, argList, arg_list,
+                                   useWorkdir ? curWorkdir : no_workdir);
+
     // replace the child process with the fork target defined in arg_list
-    status = execvp(av[0], (char*const*)av.get());
-
+    status = execvp(av[0], (char*const*)av);
     // if execvp returns then it failed; exit gracefully. 
-    // since this is a copy of the parent, use _exit
+    _exit(status); // since this is a copy of the parent, use _exit
     // so that the parent i/o stream is not prematurely flushed and closed.
-    _exit(status); 
-
   }
   else { // parent
 
@@ -200,8 +178,6 @@ create_analysis_process(bool block_flag, bool new_group)
       //setpgid(pid, analysisProcGroupId); // race condition with execvp
     }
   }
-
-  reset_process_environment();
 
   return(pid);
 }

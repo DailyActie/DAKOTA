@@ -1,14 +1,14 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
 
 //- Class:        ProcessApplicInterface
 //- Description:  Derived class for the case when analysis code simulators use
-//-               fork\exec\wait to provide the function evaluations
+//-               vfork\exec\wait to provide the function evaluations
 //- Owner:        Mike Eldred
 //- Version: $Id: ProcessApplicInterface.hpp 6492 2009-12-19 00:04:28Z briadam $
 
@@ -20,15 +20,8 @@
 typedef intptr_t pid_t;
 #endif
 
-#include <boost/tuple/tuple.hpp>
-#include <boost/filesystem/path.hpp>
-namespace bfs = boost::filesystem;
 
 namespace Dakota {
-
-/// Triplet of filesystem paths: e.g., params, results, workdir 
-typedef boost::tuple<bfs::path, bfs::path, bfs::path> PathTriple;
-
 
 /// Derived application interface class that spawns a simulation code
 /// using a separate process and communicates with it through files.
@@ -63,23 +56,6 @@ protected:
   const StringArray& analysis_drivers() const;
 
   void file_cleanup() const;
-
-
-  /// Remove (potentially autotagged for multiple programs) parameters
-  /// and results files with passed root names
-  void remove_params_results_files(const bfs::path& params_path, 
-				   const bfs::path& results_path) const;
-
-
-  /// Utility to automatically tag parameters and results files with
-  /// passed root names (the files may already need per-program
-  /// tagging)
-  void autotag_files(const bfs::path& params_path, 
-		     const bfs::path& results_path,
-		     const String& eval_id_tag
-		     //, const bfs::path dest_dir = bfs::path()
-		     ) const;
-
 
   //
   //- Heading: New virtual functions
@@ -116,16 +92,6 @@ protected:
   void read_results_files(Response& response, const int id,
 			  const String& eval_id_tag);
 
-  /// construct a work directory name (tmp or named), with optional tag
-  bfs::path get_workdir_name();
-  
-  /// set PATH, environment variables, and change directory prior to
-  /// fork/system/spawn
-  void prepare_process_environment();
-
-  /// reset PATH and current directory after system/spawn (workdir case)
-  void reset_process_environment();
-
   //
   //- Heading: Data
   //
@@ -140,8 +106,6 @@ protected:
   /// flag indicating use of the APREPRO (the Sandia "A PRE PROcessor" utility)
   /// format for parameter files
   bool apreproFlag;
-  /// results file format
-  unsigned short resultsFileFormat;
   /// flag indicating the need for separate parameters files for multiple
   /// analysis drivers
   bool multipleParamsFiles;
@@ -156,21 +120,12 @@ protected:
   /// the name of the parameters file from user specification
   std::string specifiedParamsFileName;
   /// the parameters file name actually used (modified with tagging or
-  /// temp files); only valid from define_filenames to write_parameters_files
+  /// temp files)
   std::string paramsFileName;
-
-  /// actual, qualified name of the params file written, possibly with workdir
-  std::string paramsFileWritten;
-
   /// the name of the results file from user specification
   std::string specifiedResultsFileName;
-  /// the results file name actually used (modified with tagging or
-  /// temp files); only valid from define_filenames to write_parameters_files
+  /// the results file name actually used (modified with tagging or temp files)
   std::string resultsFileName;
-
-  /// actual, qualified name of the results file written, possibly with workdir
-  std::string resultsFileWritten;
-
   /// complete evalIdTag, possibly including hierarchical tagging and
   /// final eval id, but not program numbers, for passing to
   /// write_parameters_files
@@ -180,38 +135,39 @@ protected:
   /// exist; user may override with this flag and we'll try to gather
   /// and only fork if needed
   bool allowExistingResults;
+  /// working directory when useWorkdir is true
+  std::string curWorkdir;
 
-  /// Maps function evaluation ID to triples (parameters, results, and
-  /// workdir) paths used in spawning function evaluations.  Workdir
-  /// will be empty if not created specifically for this eval.
-  std::map<int, PathTriple> fileNameMap;
+  /// stores parameters and results file names used in spawning function
+  /// evaluations.  Map key is the function evaluation identifier.
+  std::map<int, std::pair<std::string, std::string> > fileNameMap;
 
-  // work_directory creation/removal controls
-
-  /// whether to use a work_directory
+  /// whether to use a new or specified work_directory
   bool useWorkdir;
-  /// work_directory name, if specified...
-  std::string workDirName;
+  /// its name, if specified...
+  std::string workDir;
   /// whether to tag the working directory
   bool dirTag;
   /// whether dir_save was specified
   bool dirSave;
-  /// active working directory for this evaluation; valid only from
-  /// define_filenames to create_evaluation_process
-  bfs::path curWorkdir;
-
-  /// non-empty if created for this eval; valid only from
-  /// define_filenames to write_parameters_files
-  bfs::path createdDir;
-
-  // work directory population controls
+  /// whether to delete the directory when Dakota terminates
+  bool dirDel;
+  /// for dirTag, whether we have workDir
+  bool haveWorkdir;
 
   /// template directory (if specified)
-  StringArray linkFiles;
+  std::string templateDir;
   /// template files (if specified)
-  StringArray copyFiles;
+  StringArray templateFiles;
+  /// whether to force a copy (versus link) every time
+  bool templateCopy;
   /// whether to replace existing files
   bool templateReplace;
+  /// state variable for template directory
+  bool haveTemplateDir;
+
+  /// Dakota directory (if needed)
+  std::string dakDir;
 
 private:
 
@@ -227,9 +183,6 @@ private:
 			     const std::vector<String>& an_comps,
 			     const std::string& params_fname);
 
-  /// Open and read the results file at path, properly handling errors
-  void read_results_file(Response &response, const bfs::path &path, 
-      const int id);
   //
   //- Heading: Data
   //

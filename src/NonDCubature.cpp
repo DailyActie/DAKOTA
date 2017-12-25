@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -28,8 +28,7 @@ namespace Dakota {
     and probDescDB can be queried for settings from the method
     specification.  It is not currently used, as there is not yet a
     separate nond_cubature method specification. */
-NonDCubature::NonDCubature(ProblemDescDB& problem_db, Model& model):
-  NonDIntegration(problem_db, model),
+NonDCubature::NonDCubature(Model& model): NonDIntegration(model),
   cubIntOrderRef(probDescDB.get_ushort("method.nond.cubature_integrand"))
 {
   // initialize the numerical integration driver
@@ -39,12 +38,12 @@ NonDCubature::NonDCubature(ProblemDescDB& problem_db, Model& model):
   // natafTransform available: initialize_random_variables() called in
   // NonDIntegration ctor
   const Pecos::ShortArray& u_types = natafTransform.u_types();
-  check_variables(natafTransform.x_random_variables());
+  check_variables(natafTransform.x_types());
   check_integration(u_types, iteratedModel.aleatory_distribution_parameters());
 
   // update CubatureDriver::{numVars,cubIntOrder,integrationRule}
   cubDriver->initialize_grid(u_types, cubIntOrderRef, cubIntRule);
-  maxEvalConcurrency *= cubDriver->grid_size();
+  maxConcurrency *= cubDriver->grid_size();
 }
 
 
@@ -53,7 +52,7 @@ NonDCubature::NonDCubature(ProblemDescDB& problem_db, Model& model):
 NonDCubature::
 NonDCubature(Model& model, const Pecos::ShortArray& u_types,
 	     unsigned short cub_int_order): 
-  NonDIntegration(CUBATURE_INTEGRATION, model), cubIntOrderRef(cub_int_order)
+  NonDIntegration(NoDBBaseConstructor(), model), cubIntOrderRef(cub_int_order)
 {
   // initialize the numerical integration driver
   numIntDriver = Pecos::IntegrationDriver(Pecos::CUBATURE);
@@ -62,8 +61,8 @@ NonDCubature(Model& model, const Pecos::ShortArray& u_types,
 
   // local natafTransform not yet updated: x_types would have to be passed in
   // from NonDExpansion if check_variables() needed to be called here.  Instead,
-  // it is deferred until run time in NonDIntegration::core_run().
-  //check_variables(x_ran_vars);
+  // it is deferred until run time in NonDIntegration::quantify_uncertainty().
+  //check_variables(x_types);
   check_integration(u_types, iteratedModel.aleatory_distribution_parameters());
 }
 
@@ -72,7 +71,7 @@ void NonDCubature::
 initialize_grid(const std::vector<Pecos::BasisPolynomial>& poly_basis)
 {
   cubDriver->initialize_grid(poly_basis);
-  maxEvalConcurrency *= cubDriver->grid_size();
+  maxConcurrency *= cubDriver->grid_size();
 }
 
 
@@ -182,7 +181,7 @@ sampling_reset(int min_samples, bool all_data_flag, bool stats_flag)
       cubDriver->integrand_order(++min_order);
     // leave cubDriver at min_order; do not update cubIntOrderRef
 
-    // maxEvalConcurrency must not be updated since parallel config management
+    // maxConcurrency must not be updated since parallel config management
     // depends on having the same value at ctor/run/dtor times.
   }
 

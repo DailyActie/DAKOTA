@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,9 +20,8 @@ namespace Dakota {
 
 TaylorApproximation::
 TaylorApproximation(ProblemDescDB& problem_db,
-		    const SharedApproxData& shared_data,
-                    const String& approx_label):
-  Approximation(BaseConstructor(), problem_db, shared_data, approx_label)
+		    const SharedApproxData& shared_data):
+  Approximation(BaseConstructor(), problem_db, shared_data)
 { }
 
 
@@ -47,7 +46,7 @@ void TaylorApproximation::build()
   // No computations needed.  Just do sanity checking on approxData.
 
   // Check number of data points
-  if (!approxData.anchor() || approxData.points()) {
+  if (!approxData.anchor() || approxData.size()) {
     Cerr << "Error: wrong number of data points in TaylorApproximation::"
 	 << "build()." << std::endl;
     abort_handler(-1);

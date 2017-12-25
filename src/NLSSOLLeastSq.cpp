@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,30 +41,27 @@ NLSSOLLeastSq* NLSSOLLeastSq::nlssolInstance(NULL);
 
 
 /** This is the primary constructor.  It accepts a Model reference. */
-NLSSOLLeastSq::NLSSOLLeastSq(ProblemDescDB& problem_db, Model& model):
-  LeastSq(problem_db, model), SOLBase(model)
+NLSSOLLeastSq::NLSSOLLeastSq(Model& model): LeastSq(model), SOLBase(model)
 {
   // invoke SOLBase set function (shared with NPSOLOptimizer)
   set_options(speculativeFlag, vendorNumericalGradFlag, outputLevel,
               probDescDB.get_int("method.npsol.verify_level"),
               probDescDB.get_real("method.function_precision"),
               probDescDB.get_real("method.npsol.linesearch_tolerance"),
-              maxIterations, constraintTol, convergenceTol,
-	      iteratedModel.gradient_type(),
-	      iteratedModel.fd_gradient_step_size());
+              maxIterations, constraintTol, convergenceTol, gradientType, 
+              fdGradStepSize);
 }
 
 
 /** This is an alternate constructor which accepts a Model but does
     not have a supporting method specification from the ProblemDescDB. */
-NLSSOLLeastSq::NLSSOLLeastSq(Model& model):
-  LeastSq(NLSSOL_SQP, model), SOLBase(model)
+NLSSOLLeastSq::NLSSOLLeastSq(NoDBBaseConstructor, Model& model):
+  LeastSq(NoDBBaseConstructor(), model), SOLBase(model)
 {
   // invoke SOLBase set function (shared with NPSOLOptimizer)
   set_options(speculativeFlag, vendorNumericalGradFlag, outputLevel, -1,
 	      1.e-10, 0.9, maxIterations, constraintTol, convergenceTol,
-	      iteratedModel.gradient_type(),
-	      iteratedModel.fd_gradient_step_size());
+	      gradientType, fdGradStepSize);
 }
 
 
@@ -103,12 +100,13 @@ least_sq_eval(int& mode, int& m, int& n, int& nrowfj, double* x, double* f,
 
   if (asv_request && nlssolInstance->numNonlinearConstraints == 0) {
     // constraint_eval has not been called.  Therefore, set vars/asv
-    // and perform an evaluate() prior to data recovery.
+    // and perform a compute_response prior to data recovery.
     RealVector local_des_vars(n);
     copy_data(x, n, local_des_vars);
     nlssolInstance->iteratedModel.continuous_variables(local_des_vars);
     nlssolInstance->activeSet.request_values(asv_request);
-    nlssolInstance->iteratedModel.evaluate(nlssolInstance->activeSet);
+    nlssolInstance->
+      iteratedModel.compute_response(nlssolInstance->activeSet);
     if (++nlssolInstance->fnEvalCntr == nlssolInstance->maxFunctionEvals) {
       mode = -1; // terminate NLSSOL (see mode discussion in "User-Supplied
       // Subroutines" section of NPSOL manual)
@@ -136,7 +134,7 @@ least_sq_eval(int& mode, int& m, int& n, int& nrowfj, double* x, double* f,
 }
 
 
-void NLSSOLLeastSq::core_run()
+void NLSSOLLeastSq::minimize_residuals()
 {
   //------------------------------------------------------------------
   //     Solve the problem.
@@ -155,13 +153,7 @@ void NLSSOLLeastSq::core_run()
   // Use data structures in the NLSSOL call that are NOT updated in
   // constraint_eval or least_sq_eval [Using overlapping arrays causes
   // erroneous behavior].
-
-  // casts for Fortran interface
-  int num_cv = numContinuousVars;
-  int num_least_sq_terms = numLeastSqTerms;
-  int num_linear_constraints = numLinearConstraints;
-  int num_nonlinear_constraints = numNonlinearConstraints;
-
+  int        num_cv = numContinuousVars;
   double     local_f_val = 0.;
   RealVector local_lsq_vals(numLeastSqTerms);
   RealVector local_lsq_offsets(numLeastSqTerms, true);
@@ -185,7 +177,7 @@ void NLSSOLLeastSq::core_run()
 
   // Augmentation of bounds appears here rather than in the constructor because
   // these bounds must be updated from model bounds each time an iterator is
-  // run within the B&B minimizer.
+  // run within the B&B strategy.
   RealVector augmented_l_bnds, augmented_u_bnds;
   copy_data(iteratedModel.continuous_lower_bounds(), augmented_l_bnds);
   copy_data(iteratedModel.continuous_upper_bounds(), augmented_u_bnds);
@@ -197,9 +189,9 @@ void NLSSOLLeastSq::core_run()
 		 iteratedModel.nonlinear_ineq_constraint_upper_bounds(),
 		 iteratedModel.nonlinear_eq_constraint_targets());
 
-  NLSSOL_F77( num_least_sq_terms, num_cv, num_linear_constraints,
-	      num_nonlinear_constraints, linConstraintArraySize,
-	      nlnConstraintArraySize, num_least_sq_terms, num_cv,
+  NLSSOL_F77( numLeastSqTerms, num_cv, numLinearConstraints,
+	      numNonlinearConstraints, linConstraintArraySize,
+	      nlnConstraintArraySize, numLeastSqTerms, num_cv,
 	      linConstraintMatrixF77, augmented_l_bnds.values(),
 	      augmented_u_bnds.values(), constraint_eval, least_sq_eval,
 	      informResult, numberIterations, &constraintState[0],
@@ -216,23 +208,22 @@ void NLSSOLLeastSq::core_run()
   deallocate_arrays(); // SOLBase deallocate fn (shared with NPSOLOptimizer)
   delete [] local_lsq_grads;
 
-  // Set best variables and response for use at higher levels.
+  // Set best variables and response for use by strategy level.
   // local_des_vars, local_lsq_vals, & local_c_vals contain the optimal design 
   // (not the final fn. eval) since NLSSOL performs this assignment internally 
   // prior to exiting (see "Subroutine npsol" section of NPSOL manual).
   bestVariablesArray.front().continuous_variables(local_des_vars);
-
-  // If no interpolation, numUserPrimaryFns <= numLsqTerms.  Copy the
-  // first block of inbound model fns to best.  If data transform,
-  // will be further transformed back to user space (weights, scale,
-  // data) if needed in LeastSq::post_run
-  RealVector best_fns = bestResponseArray.front().function_values_view();
-  // take care with each copy to not resize the best_fns
-  if ( !(calibrationDataFlag && expData.interpolate_flag()) )
-    copy_data_partial(local_lsq_vals, 0, (int)numUserPrimaryFns, best_fns, 0);
-  if (numNonlinearConstraints)
-    copy_data_partial(local_c_vals, 0, (int)nlnConstraintArraySize, best_fns,
-		      (int)numUserPrimaryFns);
+  RealVector best_fns(numFunctions);
+  //copy_data_partial(local_lsq_vals, best_fns, 0);
+  std::copy(local_lsq_vals.values(), local_lsq_vals.values() + numLeastSqTerms,
+            best_fns.values());
+  if (numNonlinearConstraints) {
+    //copy_data_partial(local_c_vals, best_fns, numLeastSqTerms);
+    std::copy(local_c_vals.values(),
+              local_c_vals.values() + nlnConstraintArraySize,
+              best_fns.values() + numLeastSqTerms);
+  }
+  bestResponseArray.front().function_values(best_fns);
 
   /*
   // For better post-processing, could append fort.9 to dakota.out line
@@ -249,6 +240,8 @@ void NLSSOLLeastSq::core_run()
   */
   Cout << "\nNOTE: see Fortran device 9 file (fort.9 or ftn09)"
        << "\n      for complete NLSSOL iteration history." << std::endl;
+
+  get_confidence_intervals();
 
   // restore in case of recursion
   nlssolInstance = prev_nls_instance;

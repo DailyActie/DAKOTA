@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,8 +41,7 @@ public:
   TaylorApproximation();
   /// standard constructor
   TaylorApproximation(ProblemDescDB& problem_db,
-		      const SharedApproxData& shared_data,
-                      const String& approx_label);
+		      const SharedApproxData& shared_data);
   /// alternate constructor
   TaylorApproximation(const SharedApproxData& shared_data);
   /// destructor

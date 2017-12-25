@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -119,7 +119,6 @@ make_metadatavalue(StringMultiArrayConstView labels)
 inline MetaDataValueType 
 make_metadatavalue(StringMultiArrayConstView cv_labels,
 		   StringMultiArrayConstView div_labels,
-		   StringMultiArrayConstView dsv_labels,
 		   StringMultiArrayConstView drv_labels,
 		   const StringArray& resp_labels)
 {
@@ -129,10 +128,8 @@ make_metadatavalue(StringMultiArrayConstView cv_labels,
     mdv.push_back(cv_labels[i]);
   for (size_t i=0; i<div_labels.size(); ++i)
     mdv.push_back(div_labels[i]);
-  for (size_t i=0; i<dsv_labels.size(); ++i)
-    mdv.push_back(dsv_labels[i]);
-  for (size_t i=0; i<drv_labels.size(); ++i)
-    mdv.push_back(drv_labels[i]);
+  for (size_t i=0; i<div_labels.size(); ++i)
+    mdv.push_back(div_labels[i]);
   for (size_t i=0; i<resp_labels.size(); ++i)
     mdv.push_back(resp_labels[i]);
   

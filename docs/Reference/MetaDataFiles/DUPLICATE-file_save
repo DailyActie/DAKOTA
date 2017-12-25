@@ -1,0 +1,15 @@
+Blurb::
+Keep the parameters & results files after the analysis driver completes
+Description::
+If \c file_save is used, Dakota will not delete the parameters and
+results files after the function evaluation is completed.
+
+The default behavior is NOT to save these files.
+
+File saving is most useful when debugging the
+data communication between %Dakota and the simulation.
+Topics::
+Examples::
+Theory::
+Faq::
+See_Also::	

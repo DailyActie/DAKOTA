@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,7 +14,6 @@
 
 #include "SNLLLeastSq.hpp"
 #include "DakotaModel.hpp"
-#include "ScalingModel.hpp"
 #include "ProblemDescDB.hpp"
 #include "ParamResponsePair.hpp"
 #include "PRPMultiIndex.hpp"
@@ -37,95 +36,7 @@ extern PRPCache data_pairs; // global container
 SNLLLeastSq* SNLLLeastSq::snllLSqInstance(NULL);
 
 
-SNLLLeastSq::SNLLLeastSq(ProblemDescDB& problem_db, Model& model):
-  LeastSq(problem_db, model), SNLLBase(problem_db), nlfObjective(NULL),
-  nlfConstraint(NULL), nlpConstraint(NULL), theOptimizer(NULL)
-{
-  // convenience function from SNLLBase
-  snll_pre_instantiate(boundConstraintFlag, numConstraints);
-
-  // Instantiate NLF & Optimizer objects based on method & gradient selections
-
-  // Gauss-Newton: unconstrained, bound-constrained, & nonlinear interior-point
-  if (methodName != OPTPP_G_NEWTON) {
-    Cerr << "Method name " << method_enum_to_string(methodName)
-	 << " currently unavailable within\nDAKOTA's SNLLLeastSq "
-	 << "implementation of OPT++." << std::endl;
-    abort_handler(-1);
-  }
-
-  // Gauss-Newton uses the full Newton optimizer with the addition of
-  // code which computes f, df/dx, and d^2f/dx^2 as a function of the least
-  // squares residuals and their Jacobian matrix (see nlf2_evaluator_gn).  
-  // In order to support the finer granularity of data needed to exploit the
-  // problem structure, Response is made up of numLeastSqTerms 
-  // and constraints, rather than objective function(s) and constraints.
-
-  if (vendorNumericalGradFlag) {
-    Cerr << "Gauss-Newton does not support vendor numerical gradients.\n" 
-	 << "Select dakota as method_source instead." << std::endl;
-    abort_handler(-1);
-  }
-
-  nlf2 = new OPTPP::NLF2(numContinuousVars, nlf2_evaluator_gn, init_fn);
-  nlfObjective = nlf2;
-  nlfObjective->setModeOverride(true);
-  if (numConstraints) { // nonlinear interior-point
-    // **********************************************************************
-    // NOTE: The combination of nlf2_evaluator_gn() with
-    //       constraint1_evaluator_gn() has consistent derivative levels.
-    //       OPT++ supports a mixed mode in which
-    //       the optimization Hessian uses the Gauss-Newton approximation
-    //       (full Newton optimizer) and the constraint Hessians use a 
-    //       quasi-Newton approximation (quasi-Newton optimizer).
-    // **********************************************************************
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptDHNIPS optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optdhnips = new OPTPP::OptDHNIPS(nlf2);
-    //optdhnips->setSearchStrategy(searchStrat); // not supported
-    optdhnips->setMeritFcn(meritFn);
-    optdhnips->setStepLengthToBdry(stepLenToBndry);
-    optdhnips->setCenteringParameter(centeringParam);
-    theOptimizer = optdhnips;
-
-    nlf1Con = new OPTPP::NLF1(numContinuousVars, numNonlinearConstraints,
-			      constraint1_evaluator_gn, init_fn);
-    nlfConstraint = nlf1Con;
-    nlpConstraint = new OPTPP::NLP(nlf1Con);
-  }
-  else if (boundConstraintFlag) { // bound-constrained
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptBCNewton optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optbcnewton = new OPTPP::OptBCNewton(nlf2);
-    optbcnewton->setSearchStrategy(searchStrat);
-    if (searchStrat == OPTPP::TrustRegion) optbcnewton->setTRSize(maxStep);
-    theOptimizer = optbcnewton;
-  }
-  else { // unconstrained
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptNewton optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optnewton = new OPTPP::OptNewton(nlf2);
-    optnewton->setSearchStrategy(searchStrat);
-    if (searchStrat == OPTPP::TrustRegion) optnewton->setTRSize(maxStep);
-    theOptimizer = optnewton;
-  }
-
-  // convenience function from SNLLBase
-  snll_post_instantiate(numContinuousVars, vendorNumericalGradFlag,
-			iteratedModel.interval_type(),
-			iteratedModel.fd_gradient_step_size(),
-			maxIterations, maxFunctionEvals, convergenceTol,
-			probDescDB.get_real("method.optpp.gradient_tolerance"), 
-			maxStep, boundConstraintFlag, numConstraints,
-			outputLevel, theOptimizer, nlfObjective, NULL, NULL);
-}
-
-
-SNLLLeastSq::SNLLLeastSq(const String& method_name, Model& model):
-  LeastSq(OPTPP_G_NEWTON, model), // use default SNLLBase ctor
+SNLLLeastSq::SNLLLeastSq(Model& model): LeastSq(model), SNLLBase(model),
   nlfObjective(NULL), nlfConstraint(NULL), nlpConstraint(NULL),
   theOptimizer(NULL)
 {
@@ -135,79 +46,166 @@ SNLLLeastSq::SNLLLeastSq(const String& method_name, Model& model):
   // Instantiate NLF & Optimizer objects based on method & gradient selections
 
   // Gauss-Newton: unconstrained, bound-constrained, & nonlinear interior-point
-  if (method_name != "optpp_g_newton") {
-    Cerr << "Error: Method name " << method_name << " unsupported in "
-	 << "SNLLLeastSq lightweight construction by name." << std::endl;
+  if (methodName == "optpp_g_newton") {
+    // Gauss-Newton uses the full Newton optimizer with the addition of
+    // code which computes f, df/dx, and d^2f/dx^2 as a function of the least
+    // squares residuals and their Jacobian matrix (see nlf2_evaluator_gn).  
+    // In order to support the finer granularity of data needed to exploit the
+    // problem structure, Response is made up of numLeastSqTerms 
+    // and constraints, rather than objective function(s) and constraints.
+
+    if (vendorNumericalGradFlag) {
+      Cerr << "Gauss-Newton does not support vendor numerical gradients.\n" 
+           << "Select dakota as method_source instead." << std::endl;
+      abort_handler(-1);
+    }
+
+    nlf2 = new OPTPP::NLF2(numContinuousVars, nlf2_evaluator_gn, init_fn);
+    nlfObjective = nlf2;
+    nlfObjective->setModeOverride(true);
+    if (numConstraints) { // nonlinear interior-point
+      // **********************************************************************
+      // NOTE: The combination of nlf2_evaluator_gn() with
+      //       constraint1_evaluator_gn() has consistent derivative levels.
+      //       OPT++ supports a mixed mode in which
+      //       the optimization Hessian uses the Gauss-Newton approximation
+      //       (full Newton optimizer) and the constraint Hessians use a 
+      //       quasi-Newton approximation (quasi-Newton optimizer).
+      // **********************************************************************
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptDHNIPS optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optdhnips = new OPTPP::OptDHNIPS(nlf2);
+      //optdhnips->setSearchStrategy(searchStrat);// search strat not supported
+      optdhnips->setMeritFcn(meritFn);
+      optdhnips->setStepLengthToBdry(stepLenToBndry);
+      optdhnips->setCenteringParameter(centeringParam);
+      theOptimizer = optdhnips;
+
+      nlf1Con = new OPTPP::NLF1(numContinuousVars, numNonlinearConstraints,
+				constraint1_evaluator_gn, init_fn);
+      nlfConstraint = nlf1Con;
+      nlpConstraint = new OPTPP::NLP(nlf1Con);
+    }
+    else if (boundConstraintFlag) { // bound-constrained
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptBCNewton optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optbcnewton = new OPTPP::OptBCNewton(nlf2);
+      optbcnewton->setSearchStrategy(searchStrat);
+      if (searchStrat == OPTPP::TrustRegion) optbcnewton->setTRSize(maxStep);
+      theOptimizer = optbcnewton;
+    }
+    else { // unconstrained
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptNewton optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optnewton = new OPTPP::OptNewton(nlf2);
+      optnewton->setSearchStrategy(searchStrat);
+      if (searchStrat == OPTPP::TrustRegion) optnewton->setTRSize(maxStep);
+      theOptimizer = optnewton;
+    }
+  }
+  else {
+    Cerr << "Method name " << methodName << " currently unavailable within\n"
+	 << "DAKOTA's SNLLLeastSq implementation of OPT++." << std::endl;
     abort_handler(-1);
-  }
-
-  // Gauss-Newton uses the full Newton optimizer with the addition of
-  // code which computes f, df/dx, and d^2f/dx^2 as a function of the least
-  // squares residuals and their Jacobian matrix (see nlf2_evaluator_gn).  
-  // In order to support the finer granularity of data needed to exploit the
-  // problem structure, Response is made up of numLeastSqTerms 
-  // and constraints, rather than objective function(s) and constraints.
-
-  if (vendorNumericalGradFlag) {
-    Cerr << "Gauss-Newton does not support vendor numerical gradients.\n" 
-	 << "Select dakota as method_source instead." << std::endl;
-    abort_handler(-1);
-  }
-
-  nlf2 = new OPTPP::NLF2(numContinuousVars, nlf2_evaluator_gn, init_fn);
-  nlfObjective = nlf2;
-  nlfObjective->setModeOverride(true);
-  if (numConstraints) { // nonlinear interior-point
-    // **********************************************************************
-    // NOTE: The combination of nlf2_evaluator_gn() with
-    //       constraint1_evaluator_gn() has consistent derivative levels.
-    //       OPT++ supports a mixed mode in which
-    //       the optimization Hessian uses the Gauss-Newton approximation
-    //       (full Newton optimizer) and the constraint Hessians use a 
-    //       quasi-Newton approximation (quasi-Newton optimizer).
-    // **********************************************************************
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptDHNIPS optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optdhnips = new OPTPP::OptDHNIPS(nlf2);
-    //optdhnips->setSearchStrategy(searchStrat);      // not supported
-    optdhnips->setMeritFcn(meritFn);                  // ArgaezTapia
-    optdhnips->setStepLengthToBdry(stepLenToBndry);   // 0.99995
-    optdhnips->setCenteringParameter(centeringParam); // 0.2
-    theOptimizer = optdhnips;
-
-    nlf1Con = new OPTPP::NLF1(numContinuousVars, numNonlinearConstraints,
-			      constraint1_evaluator_gn, init_fn);
-    nlfConstraint = nlf1Con;
-    nlpConstraint = new OPTPP::NLP(nlf1Con);
-  }
-  else if (boundConstraintFlag) { // bound-constrained
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptBCNewton optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optbcnewton = new OPTPP::OptBCNewton(nlf2);
-    optbcnewton->setSearchStrategy(searchStrat); // see snll_pre_instantiate
-    if (searchStrat == OPTPP::TrustRegion)
-      optbcnewton->setTRSize(maxStep); // 1000.
-    theOptimizer = optbcnewton;
-  }
-  else { // unconstrained
-    if (outputLevel == DEBUG_OUTPUT)
-      Cout << "Instantiating OptNewton optimizer with NLF2 Gauss-Newton "
-	   << "evaluator.\n";
-    optnewton = new OPTPP::OptNewton(nlf2);
-    optnewton->setSearchStrategy(searchStrat); // see snll_pre_instantiate
-    if (searchStrat == OPTPP::TrustRegion)
-      optnewton->setTRSize(maxStep); // 1000.
-    theOptimizer = optnewton;
   }
 
   // convenience function from SNLLBase
   snll_post_instantiate(numContinuousVars, vendorNumericalGradFlag,
-			iteratedModel.interval_type(),
-			iteratedModel.fd_gradient_step_size(),
-			maxIterations, maxFunctionEvals, convergenceTol, 1.e-4,
-			1000., boundConstraintFlag, numConstraints, outputLevel,
+			intervalType, fdGradStepSize, maxIterations,
+			maxFunctionEvals, convergenceTol,
+			probDescDB.get_real("method.optpp.gradient_tolerance"), 
+			maxStep, boundConstraintFlag, numConstraints,
+			outputLevel, theOptimizer, nlfObjective, NULL, NULL);
+}
+
+
+SNLLLeastSq::SNLLLeastSq(const String& method_name, Model& model):
+  LeastSq(NoDBBaseConstructor(), model), // use default SNLLBase ctor
+  nlfObjective(NULL), nlfConstraint(NULL), nlpConstraint(NULL),
+  theOptimizer(NULL)
+{
+  methodName = method_name;
+
+  // convenience function from SNLLBase
+  snll_pre_instantiate(boundConstraintFlag, numConstraints);
+
+  // Instantiate NLF & Optimizer objects based on method & gradient selections
+
+  // Gauss-Newton: unconstrained, bound-constrained, & nonlinear interior-point
+  if (methodName == "optpp_g_newton") {
+    // Gauss-Newton uses the full Newton optimizer with the addition of
+    // code which computes f, df/dx, and d^2f/dx^2 as a function of the least
+    // squares residuals and their Jacobian matrix (see nlf2_evaluator_gn).  
+    // In order to support the finer granularity of data needed to exploit the
+    // problem structure, Response is made up of numLeastSqTerms 
+    // and constraints, rather than objective function(s) and constraints.
+
+    if (vendorNumericalGradFlag) {
+      Cerr << "Gauss-Newton does not support vendor numerical gradients.\n" 
+           << "Select dakota as method_source instead." << std::endl;
+      abort_handler(-1);
+    }
+
+    nlf2 = new OPTPP::NLF2(numContinuousVars, nlf2_evaluator_gn, init_fn);
+    nlfObjective = nlf2;
+    nlfObjective->setModeOverride(true);
+    if (numConstraints) { // nonlinear interior-point
+      // **********************************************************************
+      // NOTE: The combination of nlf2_evaluator_gn() with
+      //       constraint1_evaluator_gn() has consistent derivative levels.
+      //       OPT++ supports a mixed mode in which
+      //       the optimization Hessian uses the Gauss-Newton approximation
+      //       (full Newton optimizer) and the constraint Hessians use a 
+      //       quasi-Newton approximation (quasi-Newton optimizer).
+      // **********************************************************************
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptDHNIPS optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optdhnips = new OPTPP::OptDHNIPS(nlf2);
+      //optdhnips->setSearchStrategy(searchStrat);// search strat not supported
+      optdhnips->setMeritFcn(meritFn);
+      optdhnips->setStepLengthToBdry(0.99995); // default for argaez_tapia
+      optdhnips->setCenteringParameter(0.2);   // default for argaez_tapia
+      theOptimizer = optdhnips;
+
+      nlf1Con = new OPTPP::NLF1(numContinuousVars, numNonlinearConstraints,
+				constraint1_evaluator_gn, init_fn);
+      nlfConstraint = nlf1Con;
+      nlpConstraint = new OPTPP::NLP(nlf1Con);
+    }
+    else if (boundConstraintFlag) { // bound-constrained
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptBCNewton optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optbcnewton = new OPTPP::OptBCNewton(nlf2);
+      optbcnewton->setSearchStrategy(searchStrat);
+      if (searchStrat == OPTPP::TrustRegion) optbcnewton->setTRSize(1000.);
+      theOptimizer = optbcnewton;
+    }
+    else { // unconstrained
+      if (outputLevel == DEBUG_OUTPUT)
+        Cout << "Instantiating OptNewton optimizer with NLF2 Gauss-Newton "
+             << "evaluator.\n";
+      optnewton = new OPTPP::OptNewton(nlf2);
+      optnewton->setSearchStrategy(searchStrat);
+      if (searchStrat == OPTPP::TrustRegion) optnewton->setTRSize(1000.);
+      theOptimizer = optnewton;
+    }
+  }
+  else {
+    Cerr << "Method name " << methodName << " currently unavailable within\n"
+	 << "DAKOTA's SNLLLeastSq implementation of OPT++." << std::endl;
+    abort_handler(-1);
+  }
+
+  // convenience function from SNLLBase
+  snll_post_instantiate(numContinuousVars, vendorNumericalGradFlag,
+			intervalType, fdGradStepSize, maxIterations,
+			maxFunctionEvals, convergenceTol, 1.e-4, 1000.,
+			boundConstraintFlag, numConstraints, outputLevel,
 			theOptimizer, nlfObjective, NULL, NULL);
 }
 
@@ -294,7 +292,8 @@ nlf2_evaluator_gn(int mode, int n, const RealVector& x, double& f,
       local_asv[i] = 0; //mode & 3; // nonlinear constraints (if present)
 
     snllLSqInstance->activeSet.request_vector(local_asv);
-    snllLSqInstance->iteratedModel.evaluate(snllLSqInstance->activeSet);
+    snllLSqInstance->
+      iteratedModel.compute_response(snllLSqInstance->activeSet);
     lastFnEvalLocn = NLFEvaluator;
   }
   const Response& local_response
@@ -346,7 +345,7 @@ nlf2_evaluator_gn(int mode, int n, const RealVector& x, double& f,
     }
     if (snllLSqInstance->outputLevel > NORMAL_OUTPUT) {
       Cout << "    nlf2_evaluator_gn results: objective fn. Hessian =\n";
-      write_data(Cout, hess_f);
+      write_data(Cout, hess_f, true, true, true);
     }
     result_mode |= OPTPP::NLPHessian;
   }
@@ -376,7 +375,7 @@ constraint1_evaluator_gn(int mode, int n, const RealVector& x, RealVector& g,
     abort_handler(-1);
   }
 
-  // set model variables and asv prior to evaluate()
+  // set model variables and asv prior to compute_response().
   if (snllLSqInstance->outputLevel == DEBUG_OUTPUT)
     Cout << "\nSNLLLeastSq::constraint1_evaluator_gn vars = \n"
          << x;
@@ -387,7 +386,8 @@ constraint1_evaluator_gn(int mode, int n, const RealVector& x, RealVector& g,
   for (i=snllLSqInstance->numLeastSqTerms; i<snllLSqInstance->numFunctions; i++)
     local_asv[i] = mode; // nonlinear constraints
   snllLSqInstance->activeSet.request_vector(local_asv);
-  snllLSqInstance->iteratedModel.evaluate(snllLSqInstance->activeSet);
+  snllLSqInstance->
+    iteratedModel.compute_response(snllLSqInstance->activeSet);
   lastFnEvalLocn = CONEvaluator;
   lastEvalMode   = lsq_mode;
   lastEvalVars   = x;
@@ -441,7 +441,7 @@ constraint2_evaluator_gn(int mode, int n, const RealVector& x, RealVector& g,
     abort_handler(-1);
   }
 
-  // set model variables and asv prior to evaluate()
+  // set model variables and asv prior to compute_response().
   if (snllLSqInstance->outputLevel == DEBUG_OUTPUT)
     Cout << "\nSNLLLeastSq::constraint2_evaluator_gn vars = \n"
          << x;
@@ -452,7 +452,8 @@ constraint2_evaluator_gn(int mode, int n, const RealVector& x, RealVector& g,
   for (i=snllLSqInstance->numLeastSqTerms; i<snllLSqInstance->numFunctions; i++)
     local_asv[i] = mode; // nonlinear constraints
   snllLSqInstance->activeSet.request_vector(local_asv);
-  snllLSqInstance->iteratedModel.evaluate(snllLSqInstance->activeSet);
+  snllLSqInstance->
+    iteratedModel.compute_response(snllLSqInstance->activeSet);
   lastFnEvalLocn = CONEvaluator;
   lastEvalMode   = lsq_mode;
   lastEvalVars   = x;
@@ -511,12 +512,12 @@ void SNLLLeastSq::initialize_run()
   //   data when the objective evaluator assumed that the constraint evaluator
   //   was called previously with the same mode (more checks are now in place).
   //if ( speculativeFlag || constantASVFlag || numNonlinearConstraints ||
-  //     methodName == OPTPP_G_NEWTON )
+  //     methodName == "optpp_g_newton" )
   modeOverrideFlag = true;
 }
 
 
-void SNLLLeastSq::core_run()
+void SNLLLeastSq::minimize_residuals()
 { theOptimizer->optimize(); }
 
 
@@ -538,66 +539,65 @@ void SNLLLeastSq::post_run(std::ostream& s)
   // transform variables back to user/native for lookup
   // Default unscaling does not apply in this case, so can't use
   // implementation in LeastSq::post_run
-  if (scaleFlag) {
-    ScalingModel* scale_model_rep = 
-      static_cast<ScalingModel*>(scalingModel.model_rep());
-    bestVariablesArray.front().continuous_variables
-      (scale_model_rep->
-       cv_scaled2native(bestVariablesArray.front().continuous_variables()));
-  }
+  if (varsScaleFlag)
+    bestVariablesArray.front().continuous_variables(
+      modify_s2n(bestVariablesArray.front().continuous_variables(), 
+		 cvScaleTypes, cvScaleMultipliers, cvScaleOffsets));
+
   // update best response to contain the final lsq terms.  Since OPT++ has no
   // knowledge of these terms, the OPT++ final design variables must be matched
   // to final lsq terms using data_pairs.find().
-
-  // Since we always perform DB lookup for OPT++ final results, don't
-  // need to transform by weights or calibration data.
-
-  size_t num_user_fns = numUserPrimaryFns + numNonlinearConstraints;
-  RealVector best_fns(num_user_fns);
-  ShortArray search_asv(num_user_fns, 1);
-  for (size_t i=numUserPrimaryFns; i<num_user_fns; ++i)
+  RealVector best_fns(numFunctions);
+  ShortArray search_asv(numFunctions, 1);
+  for (size_t i=numLeastSqTerms; i<numFunctions; i++)
     search_asv[i] = 0; // don't need constr from DB due to getConstraintValue()
-  // take care to not resize activeSet due to post_run
-  ActiveSet search_set(activeSet);
-  search_set.request_vector(search_asv);
+  activeSet.request_vector(search_asv);
 
   // The retrieved primary response will be unweighted and unscaled
-  PRPCacheHIter cache_it = lookup_by_val(data_pairs,
-    iteratedModel.interface_id(), bestVariablesArray.front(), search_set);
-  if (cache_it == data_pairs.get<hashed>().end()) {
+  Response desired_resp;
+  if (lookup_by_val(data_pairs, iteratedModel.interface_id(),
+		    bestVariablesArray.front(), activeSet, desired_resp))
+    copy_data_partial(desired_resp.function_values(), 0, numLeastSqTerms,
+		      best_fns, 0); // unscaled -> user/native
+  else {
     // This can occur in model calibration under uncertainty using nested
-    // models, or surrogate models so make this non-fatal.
+    // models, so make this non-fatal.
     Cerr << "Warning: failure in recovery of final least squares terms."
          << std::endl;
     //abort_handler(-1);
   }
-  else // unscaled -> user/native
-    copy_data_partial(cache_it->response().function_values(), (size_t)0,
-		      numUserPrimaryFns, best_fns, (size_t)0);
+  activeSet.request_values(1); // restore
 
   // OPT++ expects nonlinear equations followed by nonlinear inequalities.
   // Therefore, reorder the constraint values, unscale them, and store them.
   if (numNonlinearConstraints) {
-    // This is sized for the original user model, so applied scales
-    // are the right size (primary fns are ignored here anyway):
-    RealVector scaled_cons(numUserPrimaryFns + numNonlinearConstraints);
+    RealVector scaled_cons(numFunctions);
     scaled_cons = 1.;
     copy_con_vals_optpp_to_dak(nlfObjective->getConstraintValue(), scaled_cons,
-			       numUserPrimaryFns);
-    // primary functions unscaled/unweighted from lookup; unscale
-    // secondary from the OPT++ solver
-    if (scaleFlag) {
-      // ScalingModel manages which transformations are needed
-      ScalingModel* scale_model_rep = 
-        static_cast<ScalingModel*>(scalingModel.model_rep());
-      // This function will update the nonlinear constraints in best_fns
-      scale_model_rep->
-        secondary_resp_scaled2native(scaled_cons, activeSet.request_vector(), 
-                                     best_fns);
+			       numLeastSqTerms);
+    // primary functions unscaled/unweighted from lookup; unscale secondary
+    if (secondaryRespScaleFlag || 
+	need_resp_trans_byvars(activeSet.request_vector(), numLeastSqTerms, 
+			       numNonlinearConstraints)) {
+      // scale all functions, but only copy constraints
+      copy_data_partial(
+        modify_s2n(scaled_cons, responseScaleTypes, responseScaleMultipliers,
+		   responseScaleOffsets),
+	numLeastSqTerms, numNonlinearConstraints, best_fns, numLeastSqTerms);
     }
     else
-      copy_data_partial(scaled_cons, numUserPrimaryFns, numNonlinearConstraints,
-                        best_fns, numUserPrimaryFns);
+      copy_data_partial(scaled_cons, numLeastSqTerms, numNonlinearConstraints,
+			best_fns, numLeastSqTerms);
+  }
+
+  // For LeastSq methods, always report the residuals
+  // A DB lookup needs to have the data differenced off from the user response
+  if (obsDataFlag) {
+    //size_t num_experiments = obsData.numRows();
+    for (size_t i=0; i<numUserPrimaryFns; ++i)
+      for (size_t j=0; j<numExperiments; ++j)
+        for (size_t k=0; k<numReplicates(j); ++k)
+          best_fns[i] -= expData.scalar_data(i,j,k);
   }
 
   bestResponseArray.front().function_values(best_fns);
@@ -605,8 +605,8 @@ void SNLLLeastSq::post_run(std::ostream& s)
   // post-process results to compute confidence intervals on parameter estimates
   get_confidence_intervals();
 
-  // bypass duplicate post-processing in LeastSq, since we did a DB lookup
-  Minimizer::post_run(s);
+  // bypass duplicate post-processing in LeastSq
+  Iterator::post_run(s);
 }
 
 void SNLLLeastSq::finalize_run()

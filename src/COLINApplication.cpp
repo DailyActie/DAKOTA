@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -79,15 +79,15 @@ void COLINApplication::set_problem(Model& model) {
   // Get the upper and lower bounds on the discrete variables.
 
   size_t i, j, num_div = model.div(), num_drv = model.drv(),
-    num_dsv = model.dsv(), num_dv = num_div + num_drv + num_dsv;
+    num_dv = num_div + num_drv;
   _num_int_vars = num_dv;
   if (num_dv) {
-    const BitArray&       di_set_bits = model.discrete_int_sets();
-    const IntVector&      lower_bnds  = model.discrete_int_lower_bounds();
-    const IntVector&      upper_bnds  = model.discrete_int_upper_bounds();
-    const IntSetArray&    dsiv_values = model.discrete_set_int_values();
-    const RealSetArray&   dsrv_values = model.discrete_set_real_values();
-    const StringSetArray& dssv_values = model.discrete_set_string_values();
+    const BitArray&     di_set_bits = model.discrete_int_sets();
+    const IntVector&    lower_bnds  = model.discrete_int_lower_bounds();
+    const IntVector&    upper_bnds  = model.discrete_int_upper_bounds();
+    const IntSetArray&  dsiv_values = model.discrete_set_int_values();
+    const RealSetArray& dsrv_values = model.discrete_set_real_values();
+
     // Need temporary storage in which to consolidate all types of
     // discrete variables;
 
@@ -114,13 +114,6 @@ void COLINApplication::set_problem(Model& model) {
     for (i=0; i<num_drv; ++i) {
       lower[i+num_div] = 0;
       upper[i+num_div] = dsrv_values[i].size() - 1;
-    }
-
-    // For string set variables, map to integer index sequence
-    // [0,num_items-1].
-    for (i=0; i<num_dsv; ++i) {
-      lower[i+num_div+num_drv] = 0;
-      upper[i+num_div+num_drv] = dssv_values[i].size() - 1;
     }
 
     // Now assign to the COLIN vectors.
@@ -220,13 +213,13 @@ void COLINApplication::set_problem(Model& model) {
     size_t ndx = 0, ndy = 0;
     for (i=0; i<model.num_linear_ineq_constraints(); i++) {
       for (j=0; domain_size>j; j++)
-	linear_coeffs(ndx,ndy++) = linear_ineq_coeffs(i,j);
+	linear_coeffs[ndx][ndy++] = linear_ineq_coeffs[i][j];
       ndx++;
     }
 
     for (i=0; i<model.num_linear_eq_constraints(); i++) {
       for (j=0; domain_size>j; j++)
-	linear_coeffs(ndx,ndy++) = linear_eq_coeffs(i,j);
+	linear_coeffs[ndx][ndy++] = linear_eq_coeffs[i][j];
       ndx++;
     }
  
@@ -283,7 +276,7 @@ spawn_evaluation_impl(const utilib::Any &domain,
 
   colin_request_to_dakota_request(domain, requests, seed);
 
-  iteratedModel.evaluate_nowait();
+  iteratedModel.asynch_compute_response();
 
   return(iteratedModel.evaluation_id());
 }
@@ -306,7 +299,7 @@ perform_evaluation_impl(const utilib::Any &domain,
 
   colin_request_to_dakota_request(domain, requests, seed);
 
-  iteratedModel.evaluate();
+  iteratedModel.compute_response();
 
   dakota_response_to_colin_response(iteratedModel.current_response(), colin_responses);
 }
@@ -380,10 +373,9 @@ colin_request_to_dakota_request(const utilib::Any &domain,
   // One specification type for discrete variables is a set of values.
   // Get that list of values if the user provided one.
 
-  const     BitArray&   di_set_bits = iteratedModel.discrete_int_sets();
-  const IntSetArray&    dsiv_values = iteratedModel.discrete_set_int_values();
-  const RealSetArray&   dsrv_values = iteratedModel.discrete_set_real_values();
-  const StringSetArray& dssv_values = iteratedModel.discrete_set_string_values();
+  const     BitArray& di_set_bits = iteratedModel.discrete_int_sets();
+  const IntSetArray&  dsiv_values = iteratedModel.discrete_set_int_values();
+  const RealSetArray& dsrv_values = iteratedModel.discrete_set_real_values();
 
   // Assign COLIN integer variables to DAKOTA discrete integer variables.
   // Remember, COLIN is operating on the index for the set discrete
@@ -391,7 +383,7 @@ colin_request_to_dakota_request(const utilib::Any &domain,
   // assign them to DAKOTA integer variables.
 
   size_t j, dsi_cntr, num_div = iteratedModel.div(),
-    num_drv = iteratedModel.drv(), num_dsv = iteratedModel.dsv();
+    num_drv = iteratedModel.drv();
   for (j=0, dsi_cntr=0; j<num_div; ++j) {
     if (di_set_bits[j]) { // this active discrete int var is a set type
       int dakota_value = set_index_to_value(ddv[j], dsiv_values[dsi_cntr]);
@@ -407,12 +399,6 @@ colin_request_to_dakota_request(const utilib::Any &domain,
   for (size_t j=0; j<num_drv; ++j) {
     Real dakota_value = set_index_to_value(ddv[j+num_div], dsrv_values[j]);
     iteratedModel.discrete_real_variable(dakota_value, j);
-  }
-
-  // Likelikewise for the string set discrete variables
-  for (size_t j=0; j<num_dsv; ++j) {
-    String dakota_value = set_index_to_value(ddv[j+num_div+num_drv], dssv_values[j]);
-    iteratedModel.discrete_string_variable(dakota_value, j);
   }
 
   // Map COLIN info requests (pair<ResponseInfo, *>) to DAKOTA

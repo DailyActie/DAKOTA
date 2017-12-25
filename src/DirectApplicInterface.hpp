@@ -1,14 +1,14 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
 
 //- Class:        DirectApplicInterface
 //- Description:  Derived interface class managing cases where analysis code
-//-               simulators are linked into the code and may be invoked
+//-               simulators are linked into the code and may be invoked 
 //-               directly. This manages parts common to all direct simulators.
 //- Owner:        Mike Eldred, Brian Adams
 //- Version: $Id: DirectApplicInterface.hpp 7024 2010-10-16 01:24:42Z mseldre $
@@ -44,8 +44,7 @@ enum var_t { VAR_x1, VAR_x2, VAR_x3, // generic (Rosenbrock, Ishigami)
 /// enumeration of possible direct driver types (to index to names)
 enum driver_t { NO_DRIVER=0, CANTILEVER_BEAM, MOD_CANTILEVER_BEAM,
 		CYLINDER_HEAD, EXTENDED_ROSENBROCK, GENERALIZED_ROSENBROCK,
-		LF_ROSENBROCK, MF_ROSENBROCK, MODIFIED_ROSENBROCK,
-		ROSENBROCK, LF_POLY_PROD, POLY_PROD,
+		LF_ROSENBROCK, MF_ROSENBROCK, ROSENBROCK,
 		GERSTNER, SCALABLE_GERSTNER, LOGNORMAL_RATIO, MULTIMODAL,
 		PLUGIN_ROSENBROCK, PLUGIN_TEXT_BOOK,
 		SHORT_COLUMN, LF_SHORT_COLUMN, MF_SHORT_COLUMN,
@@ -54,13 +53,8 @@ enum driver_t { NO_DRIVER=0, CANTILEVER_BEAM, MOD_CANTILEVER_BEAM,
 		STEEL_COLUMN_COST, STEEL_COLUMN_PERFORMANCE, TEXT_BOOK,
 		TEXT_BOOK1, TEXT_BOOK2, TEXT_BOOK3, TEXT_BOOK_OUU,
 		SCALABLE_TEXT_BOOK, SCALABLE_MONOMIALS,
-		MOGATEST1, MOGATEST2, MOGATEST3,
-		ILLUMINATION, BARNES, BARNES_LF,
 		HERBIE, SMOOTH_HERBIE, SHUBERT,
-		SALINAS, MODELCENTER, GENZ, DAMPED_OSCILLATOR,
-		ANISOTROPIC_QUADRATIC_FORM , BAYES_LINEAR,
-		STEADY_STATE_DIFFUSION_1D, TRANSIENT_DIFFUSION_1D,
-		PREDATOR_PREY};
+		SALINAS, MODELCENTER};
 
 /// enumeration for how local variables are stored (values must employ
 /// a bit representation)
@@ -98,8 +92,8 @@ public:
 
   const StringArray& analysis_drivers() const;
 
-  void init_communicators_checks(int max_eval_concurrency);
-  void  set_communicators_checks(int max_eval_concurrency);
+  void init_communicators_checks(int max_iterator_concurrency);
+  void  set_communicators_checks(int max_iterator_concurrency);
 
   //void clear_bookkeeping(); // clears threadIdMap
 
@@ -121,17 +115,14 @@ protected:
   //
 
   /// convenience function for local test simulators which sets per-evaluation
-  /// variable and active set attributes; derived classes
-  /// reimplementing this likely need to invoke the base class API
-  virtual void set_local_data(const Variables& vars, const ActiveSet& set);
+  /// variable and active set attributes
+  void set_local_data(const Variables& vars, const ActiveSet& set);
   /// convenience function for local test simulators which sets per-evaluation
-  /// response attributes; derived classes
-  /// reimplementing this likely need to invoke the base class API
-  virtual void set_local_data(const Response& response);
+  /// response attributes
+  void set_local_data(const Response& response);
   /// convenience function for local test simulators which sets per-evaluation
-  /// variable, active set, and response attributes; derived classes
-  /// reimplementing this likely need to invoke the base class API
-  virtual void set_local_data(const Variables& vars, const ActiveSet& set,
+  /// variable, active set, and response attributes
+  void set_local_data(const Variables& vars, const ActiveSet& set,
 		      const Response& response);
 
   /// convenience function for local test simulators which overlays
@@ -159,7 +150,6 @@ protected:
   size_t numACV;  ///< total number of continuous variables
   size_t numADIV;  ///< total number of discete integer variables
   size_t numADRV;  ///< total number of discete real variables
-  size_t numADSV;  ///< total number of discete string variables
   size_t numDerivVars; ///< number of active derivative variables
 
   /// bit-wise record of which local data views are active;
@@ -174,18 +164,15 @@ protected:
   RealVector xC;  ///< continuous variables used within direct simulator fns
   IntVector  xDI; ///< discrete int variables used within direct simulator fns
   RealVector xDR; ///< discrete real variables used within direct simulator fns
-  StringMultiArray xDS; ///< discrete string variables used within direct simulator fns
   StringMultiArray xCLabels;  ///< continuous variable labels
   StringMultiArray xDILabels; ///< discrete integer variable labels
   StringMultiArray xDRLabels; ///< discrete real variable labels
-  StringMultiArray xDSLabels; ///< discrete string variable labels
 
   std::map<String, var_t>    varTypeMap;    ///< map from variable label to enum
   std::map<String, driver_t> driverTypeMap; ///< map from driver name to enum
   std::map<var_t, Real> xCM;  ///< map from var_t enum to continuous value
   std::map<var_t, int>  xDIM; ///< map from var_t enum to discrete int value
   std::map<var_t, Real> xDRM; ///< map from var_t enum to discrete real value
-  std::map<var_t, String> xDSM; ///< map from var_t enum to discrete string value
 
   /// var_t enumerations corresponding to DVV components
   std::vector<var_t> varTypeDVV;
@@ -195,8 +182,6 @@ protected:
   std::vector<var_t> xDIMLabels;
   /// var_t enumerations corresponding to discrete real variable labels
   std::vector<var_t> xDRMLabels;
-  /// var_t enumerations corresponding to discrete string variable labels
-  std::vector<var_t> xDSMLabels;
 
   //ActiveSet directFnActSet; // class scope ActiveSet object
   ShortArray directFnASV; ///< class scope active set vector
@@ -219,17 +204,13 @@ protected:
   /// (from the analysis_components interface specification)
   String2DArray analysisComponents;
 
-private:
-  /// map labels in src to var_t in dest
-  void map_labels_to_enum(StringMultiArrayConstView &src,
-      std::vector<var_t> &dest);
 };
 
 
-/** This code provides the derived function used by
+/** This code provides the derived function used by 
     ApplicationInterface::serve_analyses_synch(). */
 inline int DirectApplicInterface::synchronous_local_analysis(int analysis_id)
-{
+{ 
   analysisDriverIndex = analysis_id-1;
   return derived_map_ac(analysisDrivers[analysisDriverIndex]);
 }
@@ -243,20 +224,20 @@ inline const StringArray& DirectApplicInterface::analysis_drivers() const
     HierarchSurrModel) initialize more configurations than will be
     used and DirectApplicInterface allows override by derived plug-ins. */
 inline void DirectApplicInterface::
-init_communicators_checks(int max_eval_concurrency)
+init_communicators_checks(int max_iterator_concurrency)
 {
   bool warn = true;
-  check_asynchronous(warn, max_eval_concurrency);
-  check_multiprocessor_asynchronous(warn, max_eval_concurrency);
+  check_asynchronous(warn, max_iterator_concurrency);
+  check_multiprocessor_asynchronous(warn, max_iterator_concurrency);
 }
 
 
 /** Process run-time issues as hard errors. */
 inline void DirectApplicInterface::
-set_communicators_checks(int max_eval_concurrency)
+set_communicators_checks(int max_iterator_concurrency)
 {
-  bool warn = false,  mp1 = check_asynchronous(warn, max_eval_concurrency),
-       mp2 = check_multiprocessor_asynchronous(warn, max_eval_concurrency);
+  bool warn = false,  mp1 = check_asynchronous(warn, max_iterator_concurrency),
+       mp2 = check_multiprocessor_asynchronous(warn, max_iterator_concurrency);
   if (mp1 || mp2)
     abort_handler(-1);
 }

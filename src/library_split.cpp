@@ -4,16 +4,17 @@
 
 #include <boost/lexical_cast.hpp>
 #include "mpi.h"
-#include "LibraryEnvironment.hpp"
 #include "ParallelLibrary.hpp"
 #include "ProblemDescDB.hpp" 
+#include "DakotaStrategy.hpp" 
 #include "DakotaModel.hpp"
 #include "DakotaInterface.hpp"
 #include "PluginParallelDirectApplicInterface.hpp"
 
 // for Sleep or sleep
 #ifdef _WIN32
-#include "dakota_windows.h"
+#define NOMINMAX
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -30,6 +31,9 @@ void run_dakota(const MPI_Comm& comm, const std::string& input,
 
 /// Wait for and collect results from DAKOTA runs
 void collect_results();
+
+/// Set input to NIDR via string argument instead of input file
+extern "C" void nidr_set_input_string(const char *);
 
 
 /// Driver routine for testing library mode with partitioned
@@ -195,42 +199,46 @@ void run_dakota(const MPI_Comm& my_comm, const std::string& input,
 {
   std::cout << "*** Starting DAKOTA run " << color << std::endl;
   
-  // BMA TODO: get right behavior across ranks here:
+  // construct DAKOTA instances on the communicator
+  Dakota::ParallelLibrary parallel_lib(my_comm);
+  Dakota::ProblemDescDB problem_db(parallel_lib);
 
   // override output, error, and write restart files, but not read restart
   std::string ofile("dakota.o." + boost::lexical_cast<std::string>(color));
   std::string efile("dakota.e." + boost::lexical_cast<std::string>(color));
   std::string wfile("dakota.rst." + boost::lexical_cast<std::string>(color));
+  const char* const rfile = NULL;
+  parallel_lib.specify_outputs_restart(ofile.c_str(), efile.c_str(),
+  				       rfile, wfile.c_str());
 
-  Dakota::ProgramOptions prog_opts;
-  prog_opts.input_string(input);
-  prog_opts.output_file(ofile);
-  prog_opts.error_file(efile);
-  prog_opts.write_restart_file(wfile);
+  nidr_set_input_string(input.c_str());
 
-  // Create LibraryEnvironment
-  Dakota::LibraryEnvironment env(my_comm, prog_opts);
-  Dakota::ProblemDescDB& problem_db = env.problem_description_db();
+  // use manage_inputs since no late updates to data
+  const char* const input_filename = NULL;
+  problem_db.manage_inputs(input_filename);
+
+  // Create strategy from the problem_db
+  Dakota::Strategy selected_strategy(problem_db);
 
   // Perform interface plug-ins.
   // retrieve the currently active analysisComm from the Model.  In the most
   // general case, need an array of Comms to cover all Model configurations.
-
-  // Get only the models that match our plugin criteria
-  Dakota::ModelList models = 
-    env.filtered_model_list("simulation", "direct", "plugin_text_book");
-  Dakota::ModelLIter ml_iter = models.begin(), ml_end = models.end();
+  Dakota::ModelList& models = problem_db.model_list();
+  Dakota::ModelLIter ml_iter = models.begin();
+  Dakota::ModelLIter ml_end = models.end();
   for ( ; ml_iter != ml_end; ++ml_iter) {
-    Dakota::Interface& model_iface = ml_iter->derived_interface();
+    Dakota::Interface& model_iface = ml_iter->interface();
     const Dakota::ParallelLevel& ea_level
       = ml_iter->parallel_configuration_iterator()->ea_parallel_level();
     const MPI_Comm& analysis_comm = ea_level.server_intra_communicator();
-    model_iface.assign_rep(new
-      SIM::ParallelDirectApplicInterface(problem_db, analysis_comm), false);
+    model_iface.assign_rep(new SIM::ParallelDirectApplicInterface(problem_db, 
+								  analysis_comm), 
+			   false);
   }
 
-  // Execute the Environment
-  env.execute();
+  // Execute the strategy
+  problem_db.lock(); // prevent run-time DB queries
+  selected_strategy.run_strategy();
 
   std::cout << "*** Finished DAKOTA run " << color << std::endl;
 }

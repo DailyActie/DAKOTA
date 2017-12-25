@@ -6,7 +6,7 @@ Chapters~\ref{ps} through~\ref{nls} presented the different
 ``iterators'' (or methods) available in Dakota.  An iterator iterates
 on a model in order to map a set of variables into a set of responses.
 This model may involve a simple mapping involving a single interface,
-or it may involve recursions using sub-iterators and sub-models.  These
+or it may involve recursions using sub-iterator and sub-models.  These
 recursion capabilities were developed in order to provide mechanisms
 for ``nesting,'' ``layering,'' and ``recasting'' of software
 components, which allows the use of these components as building
@@ -60,8 +60,8 @@ transformations of uncertain variables and associated response
 derivatives to employ standardized random variables (see
 Sections~\ref{uq:reliability} and~\ref{uq:expansion}), multiobjective
 optimization (see Section~\ref{opt:additional:multiobjective}), merit
-functions (see Section~\ref{adv_meth:sbm:sblm}), and expected
-improvement/feasibility (see Sections~\ref{opt:methods:gradientfree:global}
+functions (see Section~\ref{sbm:sblm}), and expected
+improvement/feasibility (see Sections~\ref{sbm:egm}
 and~\ref{uq:reliability:global}).  Refer to the Dakota Developers
 Manual~\cite{DevMan} for additional details on the mechanics of
 recasting problem formulations.
@@ -73,8 +73,8 @@ to capture the salient features of an expensive high-fidelity model.
 They can be used to explore the variations in response quantities over
 regions of the parameter space, or they can serve as inexpensive
 stand-ins for optimization or uncertainty quantification studies (see,
-for example, the surrogate-based optimization methods in
-Section~\ref{adv_meth:sbm}).  Surrogate models supported in Dakota can be
+for example, the surrogate-based optimization strategy in
+Section~\ref{sbm}).  Surrogate models supported in Dakota can be
 categorized into three types: data fits, multifidelity, and
 reduced-order model surrogates.  An overview and discussion of
 surrogate correction is provided here, with details following.
@@ -163,8 +163,6 @@ MLS is a weighted least squares approach where the weighting is
 ``moved'' or recalculated for every new point where 
 a prediction is desired.~\cite{Nea04} 
 
-\textbf{Piecewise Decomposition Option for Global Surrogates}: Typically, the previous regression techniques use all available sample points to approximate the underlying function anywhere in the domain. An alternative option is to use piecewise decomposition to locally approximate the function at some point using a few sample points from its neighborhood. This option currently supports Polynomial Regression, Gaussian Process (GP) Interpolation, and Radial Basis Functions (RBF) Regression. It requires a decomposition cell type (currently set to be Voronoi cells), an optional number of support layers of neighbors, and optional discontinuity detection parameters (jump/gradient).   
-
 %\textbf{Orthogonal Polynomials}: This technique involves the use of
 %multivariate orthogonal polynomials as a global basis for surrogate
 %modeling.  These multivariate polynomials are constructed as a product
@@ -220,7 +218,7 @@ correction~\cite{Cha93}) and the first-order additive
 correction~\cite{Lew00} also enforce consistency in the gradients and
 provide a much more substantial correction capability that is
 sufficient for ensuring provable convergence in SBO algorithms (see
-Section~\ref{adv_meth:sbm:sblm}).  SBO convergence rates can be further
+Section~\ref{sbm:sblm}).  SBO convergence rates can be further
 accelerated through the use of second-order corrections which also
 enforce consistency in the Hessians~\cite{Eld04}, where the
 second-order information may involve analytic, finite-difference, or
@@ -514,23 +512,21 @@ a small portion of the parameter space, a low-order polynomial model
 is often an accurate approximation to the true data trends, and (2)
 the least-squares procedure provides a surface fit that smooths out
 noise in the data. For this reason, the surrogate-based optimization
-approach often is successful when using polynomial models,
+strategy often is successful when using polynomial models,
 particularly quadratic models. However, a polynomial surface fit may
 not be the best choice for modeling data trends over the entire
 parameter space, unless it is known a priori that the true data trends
 are close to linear, quadratic, or cubic. See~\cite{Mye95} for more
 information on polynomial models.
 
-This surrogate model supports the domain decomposition option, further explained in~\ref{models:surf:piecewise_decomp}.
-
 \subsubsection{Kriging/Gaussian-Process Spatial Interpolation Models}
 \label{models:surf:kriging}
-In the current release of Dakota, we have two versions of spatial interpolation 
-models. One is located in Dakota itself and the other in the Surfpack subpackage 
+In Dakota 5.2, we have 2 versions of spatial interpolation models.
+One is located in Dakota itself and the other in the Surfpack subpackage 
 of Dakota which can be compiled in a stand alone mode.  These models
 are denoted as \texttt{kriging dakota} and \texttt{kriging surfpack} or 
 as \texttt{gaussian\_process dakota} and 
-\texttt{gaussian\_process surfpack}.  In Dakota releases prior to 5.2, the 
+\texttt{gaussian\_process surfpack}.  In prior Dakota releases, the 
 \texttt{dakota} version was referred to as the \texttt{gaussian\_process} 
 model while the \texttt{surfpack} version was referred to as the 
 \texttt{kriging} model.  As of DAKTOA 5.2, specifying only 
@@ -573,7 +569,7 @@ Dakota determines the value of $\underline{\theta}$ using a Maximum
 Likelihood Estimation (MLE) procedure.  However, the user can also opt 
 to manually set them in the \texttt{gaussian\_process surfpack}
 model by specifying a vector of correlation lengths, 
-$\underline{l}=\{l_{1},\ldots,l_{n}\}^T$ where 
+$\underline{l}=\{\l_{1},\ldots,\l_{n}\}^T$ where 
 $\theta_i=1/(2 l_i^2)$. This definition of correlation lengths makes 
 their effect on the GP model's behavior directly analogous to the 
 role played by the standard deviation in a normal (a.k.a. Gaussian) 
@@ -608,7 +604,7 @@ is far from any of the data points from which the GP model was
 constructed (i.e., when the model is used for extrapolation). 
 
 As mentioned above, there are two \texttt{gaussian\_process} models 
-in Dakota, the \texttt{surfpack} version and the \texttt{dakota}
+in Dakota 5.2, the \texttt{surfpack} version and the \texttt{dakota}
 version.  More details on the \texttt{gaussian\_process dakota}
 model can be found in~\cite{McF08}. The differences between these 
 models are as follows: 
@@ -646,7 +642,7 @@ models are as follows:
       \end{itemize} 
       The \texttt{'none'} option, and the starting location of the 
       \texttt{'local'} optimization, default to the center, in 
-      log(correlation length) scale, of the small feasible region.  
+      log(correlation length) scale, of the of small feasible region.  
       However, these can also be user specified with the 
       \texttt{correlation\_lengths} keyword followed by a list of $n$ real 
       numbers.  The total number of evaluations of the 
@@ -756,8 +752,6 @@ models are as follows:
       correlation matrix.
 \end{itemize}
 
-This surrogate model supports the domain decomposition option, further explained in~\ref{models:surf:piecewise_decomp}.
-
 \subsubsection{Artificial Neural Network (ANN) Models}\label{models:surf:ann}
 
 The ANN surface fitting method in Dakota employs a stochastic layered
@@ -798,7 +792,7 @@ data points when possible.
 \subsubsection{Multivariate Adaptive Regression Spline (MARS) Models}\label{models:surf:mars}
 
 This surface fitting method uses multivariate adaptive regression
-splines from the MARS3.6 package~\cite{Fri91} developed at Stanford
+splines from the MARS3.5 package~\cite{Fri91} developed at Stanford
 University. 
 
 The form of the MARS model is based on the following expression:
@@ -849,7 +843,6 @@ function or splines are used.
 Our implementation uses a Gaussian radial basis function. 
 The weights are determined via a linear least squares solution approach.
 See~\cite{Orr96} for more details.
-This surrogate model supports the domain decomposition option, further explained in~\ref{models:surf:piecewise_decomp}.
 
 \subsubsection{Moving Least Squares}\label{models:surf:mls}
 
@@ -877,19 +870,6 @@ in trust region methods where the surrogate model is constructed in
 a constrained region over a few points.  It does not appear to be working 
 as well globally, at least at this point in time.
 
-\subsubsection{Piecewise Decomposition Option for Global Surrogate Models}\label{models:surf:piecewise_decomp}
-Regression techniques typically use all available sample points to approximate the underlying function anywhere in the domain. An alternative option is to use piecewise dcomposition to locally approximate the function at some point using a few sample points from its neighborhood. This option currently supports Polynomial Regression, Gaussian Process (GP) Interpolation, and Radial Basis Functions (RBF) Regression. This option requires a decomposition cell type. A valid cell type is one where any point in the domain is assigned to some cell(s), and each cell identifies its neighbor cells. Currently, only Voronoi cells are supported. Each cell constructs its own piece of the global surrogate, using the function information at its seed and a few layers of its neighbors, parametrized by \texttt{support\_layers}. It also supports an optional discontinuity detection capability \texttt{discontinuity\_detection}, specified by either a jump threshold value \texttt{jump\_threshold} or a gradient threshold one \texttt{gradient\_threshold}. 
-
-The surrogate construction uses all available data, including derivatives, not only function evaluations. The user should list the keyword \texttt{use\_derivatives} to indicate the availability of derivative information for the surrogate to use. If listed, the user can replace the default response parameters \texttt{no\_gradients} and \texttt{no\_hessians} with other response options, e.g., \texttt{numerical\_gradients} or \texttt{analytic\_hessians}. More details on using gradients and Hessians, if available, can be found in chapter~\ref{responses}. 
-
-The features of the current (Voronoi) piecewise decomposition choice are further explained below: 
-
-\begin{itemize}
-	\item In the Voronoi piecewise decomposition option, we decompose the high-dimensional parameter space using the implicit Voronoi tessellation around the known function evaluations as seeds. Using this approach, any point in the domain is assigned to a Voronoi cell using a simple nearest neighbor search, and the neighbor cells are then identified using Spoke Darts without constructing an explicit mesh. 
-	\item The one-to-one mapping between the number of function evaluations and the number of Voronoi cells, regardless of the number of dimensions, eliminates the curse of dimensionality associated with standard domain decompositions. This Voronoi decomposition enables low-order piecewise polynomial approximation of the underlying function (and the associated error estimate) in the neighborhood of each function evaluation, independently. Moreover, the tessellation is naturally updated with the addition of new function evaluations.  
-\end{itemize}
-
-Extending the piecewise decomposition option to other global surrogate models is under development. 
 
 \subsubsection{Surrogate Diagnostic Metrics}\label{models:surf:diagnostics}
 
@@ -1092,11 +1072,11 @@ results to define the outer level response set.  These nested data
 results may be combined with non-nested data through use of the 
 ``optional interface'' component within nested models.
 
-The nested model is used within a wide variety of multi-iterator,
+The nested model constructs admit a wide variety of multi-iterator,
 multi-model solution approaches.  For example, optimization within
 optimization (for hierarchical multidisciplinary optimization),
 uncertainty quantification within uncertainty quantification (for
-mixed aleatory-epistemic UQ), uncertainty quantification within
+second-order probability), uncertainty quantification within
 optimization (for optimization under uncertainty), and optimization
 within uncertainty quantification (for uncertainty of optima) are all
 supported, with and without surrogate model indirection.  Several
@@ -1105,118 +1085,3 @@ Chapter~\ref{adv_models}, most notably mixed epistemic-aleatory UQ in
 Section~\ref{adv_models:mixed_uq}, optimization under uncertainty
 (OUU) in Section~\ref{adv_models:ouu}, and surrogate-based UQ in
 Section~\ref{adv_models:sbuq}.
-
-\section{Random Field Models} \label{models:randomfield}
-As of Dakota 6.4, we have a preliminary capability to generate random fields. 
-This is an experimental capability that is undergoing active development, 
-so the following description and the associated syntax may change.  
-
-Our goal with a random field model is to have a fairly general capability, where 
-we can generate a random field representation in one of three ways: 
-from data, from simulation runs (e.g. running an ensemble of simulations where 
-each one produces a field response), or from a covariance matrix defined over 
-a mesh. Then, a random field model (such as a Karhunen-Loeve expansion) will be 
-built based on the data.  A final step is to draw realizations from the random 
-field model to propagate to another simulation model.  For example, the random 
-field may represent a pressure or temperature boundary condition for a simulation. 
-
-The random field model is currently specified with a model type of 
-\texttt{random\_field}.  The first 
-section of the random field specification tells Dakota what data to use to 
-build the random field.
-This is specified with \texttt{build\_source}.  The source of data to build the
-random field may be a file with data (where the N rows of data correspond to
-N samples of the random field and the M columns correspond to field values),
-or it may be a simulation that generates field data, or it may be specified
-given a mesh and a covariance matrix governing how the field varies over the mesh.
-In the case of using a simulation to generate field data, the simulation is
-defined with \texttt{dace\_method\_pointer}.  In the case of using a mesh and a
-covariance, the form of the covariance is defined with \texttt{analytic\_covariance}.
-
-The next section of the random field model specifies the form of the expansion,
-\texttt{expansion\_form}.  This can be either a Karhunen-Loeve expansion or a
-Principal components analysis.  These are very similar:  both involve the eigenvalues
-of the covariance matrix of the field data.  The only difference is in the treatment
-of the estimation of the coefficients of the eigenvector basis functions.  In the
-PCA case, we have developed an approach which makes the coefficients explicit
-functions of the uncertain variables used to generate the random field.
-The specification of the random field can also include the number of bases
-to retain or a truncation tolerance, which defines the percent variance
-that the expansion should capture.
-
-The final section of the random field model allows the user to specify
-a pointer to a model over which the random field will be propagated, 
-\texttt{propagation\_model\_pointer},
-meaning the model which will be driven with the random field input.
-
-
-\section{Active Subspace Models} \label{models:subspace}
-An initial active subspace capability has been implemented beginning with Dakota
-6.4 as model type \texttt{subspace}. The active subspace technique~\cite{constantine2015active}
-seeks directions in the input space for which the response function(s) show little
-variation. After a rotation to align with these directions, significant dimension
-reduction may be possible. This model is under active development so the following
-information may change.
-
-In Dakota 6.4, the active subspace model can be used in conjunction with the following
-uncertainty quantification methods:
-\begin{itemize}
-\item \texttt{polynomial\_chaos}
-\item \texttt{sampling}
-\item \texttt{local\_reliability}
-\end{itemize}
-An error message similar to:
-\begin{quote}
-\texttt{Error: Resizing is not yet supported in method <method name>.}
-\end{quote}
-will be written and Dakota will exit if the active subspace model is used with a
-non-compatible method. The list of compatible methods will be expanded in future
-releases.
-
-The active subspace implementation in Dakota 6.4 first transforms uncertain variables
-to standard normal distributions using a Nataf transformm before forming the subspace.
-This is a nonlinear transformation for non-normally distributed uncertain variables
-and may potentially decrease sparse structure in a fullspace model. Future Dakota
-releases will not use this transformation and should perform better in the general case.
-
-The only required keyword when using a subspace model is the
-\texttt{actual\_model\_pointer} which points to the underlying model (specified
-by its \texttt{id\_model}) on which to build the subspace. The \texttt{subspace}
-model requires either analytical (preferred) or numerical gradients of the response
-functions. The active subspace model first samples the gradient
-of the fullspace model. The number of gradient samples can be specified with 
-\texttt{initial\_samples}. The gradient samples are compiled into the columns of
-a matrix. A singular value decomposition is performed of the derivative matrix and
-the resulting singular values and vectors are used to determine the basis vectors
-and size of the active subspace.
-
-Constantine~\cite{constantine2015active} recommends choosing \texttt{initial\_samples}
-such that:
-$$\text{\texttt{initial\_samples}} = \alpha k \log(m),$$
-where $\alpha$ is an oversampling factor between 2 and 10, $k$ is the number of
-singular values to approximate, and $m$ is the number of fullspace variables. To
-ensure accurate results, $k$ should be greater than the estimated subspace size
-determined by one of the truncation methods described below.
-
-There are three methods implemented in Dakota to estimate the size of an active subspace:
-\begin{itemize}
-\item \texttt{constantine} (default)
-\item \texttt{bing\_li}
-\item \texttt{energy}
-\end{itemize}
-Additionally, if the desired subspace size is known it can be enforced using the
-input parameter \texttt{dimension}. The \texttt{constantine} and \texttt{bing\_li}
-truncation methods both use bootstrap sampling of the compiled derivative matrix
-to estimate an active subspace size. The number of bootstrap samples used with
-these methods can be specified with the keyword \texttt{bootstrap\_samples}, but
-typically the default value works well. The \texttt{energy} method computes the number of
-bases so that the subspace representation accounts for all but a maximum percentage
-(specified as a decimal) of the total eigenvalue energy. This value is specified
-using the \texttt{truncation\_tolerance} keyword.
-
-For more information on active subspaces please consult the Theory
-Manual~\cite{TheoMan} and/or references~\cite{Constantine-preprint-active,constantine2014active,constantine2015active}.
-
-
-
-

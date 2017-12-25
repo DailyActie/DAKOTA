@@ -86,9 +86,6 @@ Includes
 #include <GeneticAlgorithmInitializer.hpp>
 #include <OperatorGroups/AllOperators.hpp>
 
-// SOGA-specific API
-#include <../SOGA/include/SOGA.hpp>
-
 // JEGA front end includes.
 #include <../FrontEnd/Core/include/Driver.hpp>
 #include <../FrontEnd/Core/include/ProblemConfig.hpp>
@@ -261,8 +258,7 @@ class JEGAOptimizer::Evaluator :
             const Design& from,
             RealVector& intoCont,
             IntVector&  intoDiscInt,
-            RealVector& intoDiscReal,
-	    StringMultiArray& intoDiscString
+            RealVector& intoDiscReal
             ) const;
 
         /**
@@ -583,7 +579,7 @@ class JEGAOptimizer::EvaluatorCreator :
  * This is necessary because DAKOTA requires that all problem
  * information be extracted from the problem description DB at the
  * time of Optimizer construction and the front end does it all in
- * the execute algorithm method which must be called in core_run.
+ * the execute algorithm method which must be called in find_optimum.
  */
 class JEGAOptimizer::Driver :
     public JEGA::FrontEnd::Driver
@@ -706,6 +702,8 @@ class JEGAOptimizer::Driver :
 Static Member Data Definitions
 ===============================================================================
 */
+const string JEGAOptimizer::SOGA_METHOD_TXT("soga");
+const string JEGAOptimizer::MOGA_METHOD_TXT("moga");
 
 
 
@@ -740,7 +738,7 @@ Public Methods
 ===============================================================================
 */
 void
-JEGAOptimizer::core_run(
+JEGAOptimizer::find_optimum(
     )
 {
     EDDY_FUNC_DEBUGSCOPE
@@ -845,7 +843,7 @@ JEGAOptimizer::core_run(
     // map) key is pair<constraintViolation, fitness>, where fitness
     // is either utopia distance (MOGA) or objective value (SOGA)
     std::multimap<RealRealPair, Design*> designSortMap;
-    this->GetBestSolutions(bests, *theGA, designSortMap);
+    this->GetBestSolutions(bests, designSortMap);
 
     JEGAIFLOG_II_G(designSortMap.size() == 0, lquiet(), this,
         text_entry(lquiet(), name + ": was unable to identify at least one "
@@ -939,45 +937,30 @@ JEGAOptimizer::LoadDakotaResponses(
     // The next set of variables represent the discrete integer variables.
     for(size_t i=0; i<this->numDiscreteIntVars; ++i)
         di_vars[i] = static_cast<int>(
-            des.GetVariableValue(i + this->numContinuousVars));
+            des.GetVariableValue(i + this->numContinuousVars)
+            );
 
     // The next set of variables represent the discrete real variables.
     for(size_t i=0; i<this->numDiscreteRealVars; ++i)
         dr_vars[i] = des.GetVariableValue(
-            i + this->numContinuousVars + this->numDiscreteIntVars);
+            i + this->numContinuousVars + this->numDiscreteIntVars
+            );
 
-    // Finally, set the discrete string vars. These are mapped to discrete
-    // integers in JEGA, so they must be unmapped. Here, they also are set in
-    // vars using the single value setter to avoid creating a 
-    // StringMultiArrayConstView
-    const StringSetArray& dssv_values = 
-      iteratedModel.discrete_design_set_string_values();
-    for(size_t i=0; i<this->numDiscreteStringVars; ++i) {
-      const int &element_index = static_cast<int>(des.GetVariableValue(i +
-	    this->numContinuousVars + this->numDiscreteIntVars +
-	    this->numDiscreteRealVars));
-      const String &ds_var = set_index_to_value(element_index, dssv_values[i]);
-      vars.discrete_string_variable(ds_var, i);
-    }
     vars.continuous_variables(c_vars);
     vars.discrete_int_variables(di_vars);
     vars.discrete_real_variables(dr_vars);
 
-    // BMA TODO: Could always populate constraints and just get
-    // primary responses from the DB, as in SNLL
-    if (!localObjectiveRecast) {  // else local_recast_retrieve
-      RealVector fn_vals(this->numFunctions);
-      for(size_t i=0; i<this->numObjectiveFns; i++)
-	fn_vals[i]= des.GetObjective(i);
+    RealVector fn_vals(this->numFunctions);
+    for(size_t i=0; i<this->numObjectiveFns; i++)
+      fn_vals[i]= des.GetObjective(i);
 
-      // JEGA constraint ordering is nonlinear inequality, nonlinear equality,
-      // linear inequality, linear equality
-      // (see JEGAOptimizer::LoadTheConstraints()).
-      for(size_t i=0; i<static_cast<size_t>(this->numNonlinearConstraints); ++i)
+    // JEGA constraint ordering is nonlinear inequality, nonlinear equality,
+    // linear inequality, linear equality
+    // (see JEGAOptimizer::LoadTheConstraints()).
+    for(size_t i=0; i<static_cast<size_t>(this->numNonlinearConstraints); ++i)
         fn_vals[i+this->numObjectiveFns] = des.GetConstraint(i);
 
-      resp.function_values(fn_vals);
-    }
+    resp.function_values(fn_vals);
 }
 
 void
@@ -1135,10 +1118,10 @@ JEGAOptimizer::LoadTheParameterDatabase(
     if (selector != "")
       this->_theParamDB->AddStringParam(
 	  "method.replacement_type", selector);
-    else if (this->methodName == SOGA)
+    else if (this->methodName == SOGA_METHOD_TXT)
       this->_theParamDB->AddStringParam(
 	  "method.replacement_type", "elitist");
-    else if (this->methodName == MOGA)
+    else if (this->methodName == MOGA_METHOD_TXT)
       this->_theParamDB->AddStringParam(
 	  "method.replacement_type", "below_limit");
     
@@ -1161,9 +1144,9 @@ JEGAOptimizer::LoadTheParameterDatabase(
     {
       if (fitness != "")
         this->_theParamDB->AddStringParam("method.fitness_type", fitness);
-      else if (this->methodName == SOGA)
+      else if (this->methodName == SOGA_METHOD_TXT)
         this->_theParamDB->AddStringParam("method.fitness_type", "merit_function");
-      else if (this->methodName == MOGA)
+      else if (this->methodName == MOGA_METHOD_TXT)
         this->_theParamDB->AddStringParam("method.fitness_type", "domination_count");
     }
 
@@ -1231,10 +1214,10 @@ JEGAOptimizer::LoadTheParameterDatabase(
     if (convergence_operator != "")
       this->_theParamDB->AddStringParam(
 	  "method.jega.convergence_type", convergence_operator);
-    else if (this->methodName == SOGA)
+    else if (this->methodName == SOGA_METHOD_TXT)
       this->_theParamDB->AddStringParam(
 	  "method.jega.convergence_type", "average_fitness_tracker");
-    else if (this->methodName == MOGA)
+    else if (this->methodName == MOGA_METHOD_TXT)
       this->_theParamDB->AddStringParam(
 	  "method.jega.convergence_type", "metric_tracker");
 
@@ -1277,17 +1260,21 @@ JEGAOptimizer::LoadTheParameterDatabase(
         distance_vector
         );
  
-    // when recasting is active, the weights may be transformed; get off Model
-    dak_rv = &iteratedModel.primary_response_fn_weights();
-    JEGA::DoubleVector mow_vector(
-        dak_rv->values(),
-        dak_rv->values() + dak_rv->length()
-        );
+    dak_rv = 
+        &this->probDescDB.get_rv("responses.primary_response_fn_weights");
+    // BMA  why needed; discuss with JE; otherwise get seg fault in GetBestSO
+    if(!dak_rv->empty())
+    {
+        JEGA::DoubleVector mow_vector(
+            dak_rv->values(),
+            dak_rv->values() + dak_rv->length()
+            );
 
-    this->_theParamDB->AddDoubleVectorParam(
-        "responses.multi_objective_weights",
-        mow_vector
-        );
+        this->_theParamDB->AddDoubleVectorParam(
+            "responses.multi_objective_weights",
+            mow_vector
+            );
+    }
 
     // Dakota does not expose a capability to enter multiple flat file names
     // as a vector (can delimit them in the single string and JEGA will parse
@@ -1327,17 +1314,16 @@ JEGAOptimizer::LoadAlgorithmConfig(
     // based on the methodName base class variable.
     AlgorithmConfig::AlgType algType;
 
-    if(this->methodName == MOGA)
+    if(this->methodName == MOGA_METHOD_TXT)
         algType = AlgorithmConfig::MOGA;
 
-    else if(this->methodName == SOGA)
+    else if(this->methodName == SOGA_METHOD_TXT)
         algType = AlgorithmConfig::SOGA;
 
     else
         JEGALOG_II_G_F(this,
-            text_entry(lfatal(), "JEGA Error: \"" +
-		       method_enum_to_string(this->methodName) +
-		       "\" is an invalid method specification.")
+            text_entry(lfatal(), "JEGA Error: \"" + this->methodName +
+                "\" is an invalid method specification.")
             )
 
     aConfig.SetAlgorithmType(algType);
@@ -1345,8 +1331,7 @@ JEGAOptimizer::LoadAlgorithmConfig(
     // We will use the method id as the algorithm name if it is non-empty and
     // we will otherwise use the method name.
     aConfig.SetAlgorithmName(
-        this->method_id().empty() ?
-	  method_enum_to_string(this->methodName) : this->method_id()
+        this->method_id().empty() ? this->methodName : this->method_id()
         );
 }
 
@@ -1376,7 +1361,7 @@ JEGAOptimizer::LoadTheDesignVariables(
     // In particular, the Model (iteratedModel) has most of the
     // info.  We will create a shorthand for it here to ease syntax.
     Model& m = this->iteratedModel;
-    size_t i, j, dsi_cntr;
+    size_t i, dsi_cntr;
 
     // Loop over all continuous variables and add an info object.  Don't worry
     // about the precision so much.  It is only considered by the operators
@@ -1410,7 +1395,7 @@ JEGAOptimizer::LoadTheDesignVariables(
         pConfig.AddContinuumIntegerVariable(dilabels[i], dilbs[i], diubs[i]);
     }
 
-    // Next, load in the "discrete set of real" variables.
+    // Finally, load in the "discrete set of real" variables.
     const RealSetArray& dsrv = m.discrete_set_real_values();
     StringMultiArrayConstView drlabels = m.discrete_real_variable_labels();
     for(i=0; i<this->numDiscreteRealVars; ++i)
@@ -1420,24 +1405,9 @@ JEGAOptimizer::LoadTheDesignVariables(
 	JEGA::DoubleVector(dak_set.begin(), dak_set.end()) );
     }
 
-    // Finally, load in the "discrete set of string" variables. These must
-    // be mapped to discrete integer variables.
-    StringMultiArrayConstView dslabels = m.discrete_string_variable_labels();
-    const StringSetArray& dssv_values = m.discrete_set_string_values();
-    for (i=0; i<this->numDiscreteStringVars; ++i) {
-      const size_t &num_elements = dssv_values[i].size(); //assume > 0
-      IntArray element_index(num_elements);
-      for (j=0; j<num_elements; ++j)
-	element_index[j] = j;
-      pConfig.AddDiscreteIntegerVariable(dslabels[i],
-	            JEGA::IntVector(element_index.begin(), 
-		      element_index.end()) );
-    }
-
     // Now make sure that an info was created for each variable.
     EDDY_ASSERT(pConfig.GetDesignTarget().GetNDV() == (this->numContinuousVars +
-		this->numDiscreteIntVars + this->numDiscreteRealVars + 
-		this->numDiscreteStringVars));
+		this->numDiscreteIntVars + this->numDiscreteRealVars));
 }
 
 void
@@ -1569,24 +1539,22 @@ JEGAOptimizer::LoadTheConstraints(
 void
 JEGAOptimizer::GetBestSolutions(
     const JEGA::Utilities::DesignOFSortSet& from,
-    const JEGA::Algorithms::GeneticAlgorithm& theGA,
     std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
     )
 {
     EDDY_FUNC_DEBUGSCOPE
 
-    if(this->methodName == MOGA)
-        this->GetBestMOSolutions(from, theGA, designSortMap);
+    if(this->methodName == MOGA_METHOD_TXT)
+        this->GetBestMOSolutions(from, designSortMap);
 
-    else if(this->methodName == SOGA)
-        this->GetBestSOSolutions(from, theGA, designSortMap);
+    else if(this->methodName == SOGA_METHOD_TXT)
+        this->GetBestSOSolutions(from, designSortMap);
 
     else
     {
         JEGALOG_II_G_F(this,
-            text_entry(lfatal(), "JEGA Error: \"" +
-		       method_enum_to_string(this->methodName) +
-		       "\" is an invalid method specification.")
+            text_entry(lfatal(), "JEGA Error: \"" + this->methodName +
+                "\" is an invalid method specification.")
             )
     }
 }
@@ -1595,7 +1563,6 @@ JEGAOptimizer::GetBestSolutions(
 void
 JEGAOptimizer::GetBestMOSolutions(
     const JEGA::Utilities::DesignOFSortSet& from,
-    const JEGA::Algorithms::GeneticAlgorithm& theGA,
     std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
     )
 {
@@ -1676,7 +1643,6 @@ JEGAOptimizer::GetBestMOSolutions(
 void
 JEGAOptimizer::GetBestSOSolutions(
     const JEGA::Utilities::DesignOFSortSet& from,
-    const JEGA::Algorithms::GeneticAlgorithm& theGA,
     std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
     )
 {
@@ -1693,20 +1659,23 @@ JEGAOptimizer::GetBestSOSolutions(
     // get total number of constraints (nonlinear and linear)
     const eddy::utilities::uint64_t noc = target.GetNCN();
 
-    // in order to order the points, need the weights; get them from
-    // the GA to ensure solver/final results consistency
+    // in order to order the points, need the weights.
     JEGA::DoubleVector weights;
-    try 
+
+    bool success = ParameterExtractor::GetDoubleVectorFromDB(
+        *this->_theParamDB,
+        "responses.multi_objective_weights",
+        weights
+        );
+
+    // if we could not get them and there are multiple objectives, then we have
+    // to abort without an answer.
+    // Otherwise if we did not succeed and there is a single objective,
+    // then we will assume a single weight of value 1.
+    if(!success)
     {
-        const JEGA::Algorithms::SOGA& 
-	    the_ga = dynamic_cast<const JEGA::Algorithms::SOGA&>(theGA);
-	weights = the_ga.GetWeights();
-    }
-    catch(const std::bad_cast& bc_except) 
-    {
-      Cerr << "\nError: could not cast GeneticAlgorithm to SOGA; exception:\n" 
-	   << bc_except.what() << std::endl;
-      abort_handler(-1);
+        if(nof > 1) return;
+        weights.assign(1, 1.0);
     }
 
     // iterate the designs and sort first by constraint violation,
@@ -1810,9 +1779,9 @@ Structors
 ===============================================================================
 */
 JEGAOptimizer::JEGAOptimizer(
-    ProblemDescDB& problem_db, Model& model
+    Model& model
     ) :
-        Optimizer(problem_db, model),
+        Optimizer(model),
         _theParamDB(0x0),
         _theEvalCreator(0x0)
 {
@@ -1875,15 +1844,21 @@ JEGAOptimizer::JEGAOptimizer(
     // that the JEGA population size may grow or shrink during its
     // iterations, so this is only an initial estimate.
     int pop_size = this->probDescDB.get_int("method.population_size");
-    this->maxEvalConcurrency *= pop_size;
+    this->maxConcurrency *= pop_size;
 
     // Assign iterator-specific default for numFinalSolutions
-    if (methodName == MOGA && !this->numFinalSolutions)
+    if (methodName == MOGA_METHOD_TXT && !this->numFinalSolutions)
       this->numFinalSolutions
 	= std::numeric_limits<std::size_t>::max(); // moga returns all Pareto
 
     // We only ever need one EvaluatorCreator so we can create it now.
     this->_theEvalCreator = new EvaluatorCreator(iteratedModel);
+
+    // The following is not performed in the Optimizer constructor since
+    // maxConcurrency is updated above. The matching free_communicators()
+    // appears in the Optimizer destructor.
+    if(this->minimizerRecasts)
+      this->iteratedModel.init_communicators(this->maxConcurrency);
 }
 
 JEGAOptimizer::~JEGAOptimizer(
@@ -1906,26 +1881,20 @@ JEGAOptimizer::Evaluator::SeparateVariables(
     const Design& from,
     RealVector& intoCont,
     IntVector&  intoDiscInt,
-    RealVector& intoDiscReal,
-    StringMultiArray& intoDiscString
+    RealVector& intoDiscReal
     ) const
 {
     EDDY_FUNC_DEBUGSCOPE
 
     size_t num_cv  = this->_model.cv(), num_div = this->_model.div(),
-           num_drv = this->_model.drv(), num_dsv = this->_model.dsv();
+           num_drv = this->_model.drv();
 
-    // "into" containers may not yet be sized. If not, size them.  If they are,
+    // "into" vectors may not yet be sized. If not, size them.  If they are,
     // don't size them b/c it will be a lot of wasted effort.
     if(intoCont.length()     != num_cv)  intoCont.size(num_cv);
     if(intoDiscInt.length()  != num_div) intoDiscInt.size(num_div);
     if(intoDiscReal.length() != num_drv) intoDiscReal.size(num_drv);
-    // Strings are multi_arrays, not vectors
-    if(intoDiscString.num_elements() != num_dsv) {
-      StringMultiArray::extent_gen extents;
-      intoDiscString.resize(extents[num_dsv]);
-    }
-    
+
     // Because we cannot easily distinguish real from integral variables
     // (true of both continuum and discrete), we will rely on the fact that
     // the infos are stored in the order in which we added them which is the
@@ -1957,22 +1926,12 @@ JEGAOptimizer::Evaluator::SeparateVariables(
       intoDiscInt[i] = static_cast<int>(dvis[dvi_cntr]->WhichValue(from));
     }
 
-    // Next process the "discrete set of real" variables.
+    // Finally, process the "discrete set of real" variables.
     // These will also be discrete nature in JEGA.
     for(i=0; i<num_drv; ++i, ++dvi_cntr)
     {
       EDDY_ASSERT(dvis[dvi_cntr]->IsDiscrete());
       intoDiscReal[i] = dvis[dvi_cntr]->WhichValue(from);
-    }
-    // Finally, process the "discrete set of string" variables.
-    // These will also be discrete in JEGA, and must be mapped
-    // back to their associated string values.
-    const StringSetArray& dssv_values = _model.discrete_set_string_values();
-    for(i=0; i<num_dsv; ++i, ++dvi_cntr)
-    {
-      EDDY_ASSERT(dvis[dvi_cntr]->IsDiscrete());
-      const int &element_index = static_cast<int>(dvis[dvi_cntr]->WhichValue(from));
-      intoDiscString[i] = set_index_to_value(element_index, dssv_values[i]);
     }
 }
 
@@ -2029,11 +1988,10 @@ JEGAOptimizer::Evaluator::Evaluate(
     // first, let's see if we can avoid any evaluations.
     ResolveClones(group);
 
-    // we'll prepare containers for repeated use without re-construction
-    RealVector       contVars;
-    IntVector        discIntVars;
-    RealVector       discRealVars;
-    StringMultiArray discStringVars;
+    // we'll prepare Vectors for repeated use without re-construction
+    RealVector contVars;
+    IntVector  discIntVars;
+    RealVector discRealVars;
 
     // prepare to iterate over the group
     DesignDVSortSet::const_iterator it(group.BeginDV());
@@ -2085,8 +2043,7 @@ JEGAOptimizer::Evaluator::Evaluate(
 
         // extract the real and continuous variables
         // from the current Design
-        this->SeparateVariables(**it, contVars, discIntVars, discRealVars,
-	    discStringVars);
+        this->SeparateVariables(**it, contVars, discIntVars, discRealVars);
 
         // send this guy out for evaluation using the _model.
 
@@ -2094,32 +2051,21 @@ JEGAOptimizer::Evaluator::Evaluate(
         this->_model.continuous_variables(contVars);
         this->_model.discrete_int_variables(discIntVars);
         this->_model.discrete_real_variables(discRealVars);
-	// Strings set by calling single value setter for each
-	for (size_t i=0; i<discStringVars.num_elements(); ++i)
-	  this->_model.discrete_string_variable(discStringVars[i],i);
-	// Could use discrete_string_varables to avoid overhead of repeated 
-	// function calls, but it takes a StringMultiArrayConstView, which
-	// must be created from discStringVars. Maybe there's a simpler way,
-	// but...
-	// const size_t &dsv_len = discStringVars.num_elements();
-	// StringMultiArrayConstView dsv_view = discStringVars[ 
-	//   boost::indices[idx_range(0,dsv_len)]];
-        // this->_model.discrete_string_variables(dsv_view);
-	
+
         // now request the evaluation in synchronous or asyncronous mode.
         if(this->_model.asynch_flag())
         {
             // The following method call will use the default
             // Active set vector which is to just compute
             // function values, no gradients or hessians.
-            this->_model.evaluate_nowait();
+            this->_model.asynch_compute_response();
         }
         else
         {
             // The following method call will use the default
             // Active set vector which is to just compute
             // function values, no gradients or hessians.
-            this->_model.evaluate();
+            this->_model.compute_response();
 
             // increment the number of performed evaluations by 1
             this->IncrementNumberEvaluations();

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -56,8 +56,8 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  COLINOptimizer(ProblemDescDB& problem_db, Model& model);
+  /// constructor
+  COLINOptimizer(Model& model);
   /// alternate constructor for on-the-fly instantiations
   COLINOptimizer(const String& method_name, Model& model, int seed,
 		 int max_iter, int max_eval);
@@ -80,7 +80,7 @@ public:
   void reset();
 
   /// iterates the COLIN solver to determine the optimal solution
-  void core_run();
+  void find_optimum();
 
   // COLIN methods cannot yet accept multiple initial points
   //bool accepts_multiple_points() const;
@@ -96,7 +96,7 @@ protected:
   
   /// convenience function for setting up the particular COLIN solver
   /// and appropriate Application
-  void solver_setup(unsigned short method_name);
+  void solver_setup(const String& method_name, Model &model);
 
   /// sets up the random number generator for stochastic methods
   void set_rng(int seed);

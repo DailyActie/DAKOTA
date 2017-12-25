@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -27,44 +27,31 @@ ApplicationInterface(const ProblemDescDB& problem_db):
   parallelLib(problem_db.parallel_library()), suppressOutput(false),
   evalCommSize(1), evalCommRank(0), evalServerId(1), eaDedMasterFlag(false),
   analysisCommSize(1), analysisCommRank(0), analysisServerId(1),
+  numAnalysisServersSpec(problem_db.get_int("interface.analysis_servers")),
   multiProcAnalysisFlag(false), asynchLocalAnalysisFlag(false),
-  asynchLocalEvalConcSpec(
-    problem_db.get_int("interface.asynch_local_evaluation_concurrency")),
   asynchLocalAnalysisConcSpec(
     problem_db.get_int("interface.asynch_local_analysis_concurrency")),
   numAnalysisDrivers(
     problem_db.get_sa("interface.application.analysis_drivers").size()),
-  failureMessage("Failure captured"),
   worldSize(parallelLib.world_size()), worldRank(parallelLib.world_rank()),
   iteratorCommSize(1), iteratorCommRank(0), ieMessagePass(false),
   numEvalServersSpec(problem_db.get_int("interface.evaluation_servers")),
-  procsPerEvalSpec(problem_db.get_int("interface.processors_per_evaluation")),
   eaMessagePass(false), 
-  numAnalysisServersSpec(problem_db.get_int("interface.analysis_servers")),
   procsPerAnalysisSpec(
     problem_db.get_int("interface.direct.processors_per_analysis")),
   lenVarsMessage(0), lenVarsActSetMessage(0), lenResponseMessage(0),
   lenPRPairMessage(0),
-  evalScheduling(problem_db.get_short("interface.evaluation_scheduling")),
-  analysisScheduling(problem_db.get_short("interface.analysis_scheduling")),
+  evalScheduling(problem_db.get_string("interface.evaluation_scheduling")),
+  analysisScheduling(problem_db.get_string("interface.analysis_scheduling")),
+  asynchLocalEvalConcSpec(
+    problem_db.get_int("interface.asynch_local_evaluation_concurrency")),
   asynchLocalEvalStatic(
-    problem_db.get_short("interface.local_evaluation_scheduling") ==
-    STATIC_SCHEDULING),
-  interfaceSynchronization(problem_db.get_short("interface.synchronization")),
-  headerFlag(true),
+    problem_db.get_string("interface.local_evaluation_scheduling") == "static"),
+  interfaceSynchronization(problem_db.get_string("interface.synchronization")),
+  //headerFlag(true),
   asvControlFlag(problem_db.get_bool("interface.active_set_vector")),
   evalCacheFlag(problem_db.get_bool("interface.evaluation_cache")),
-  nearbyDuplicateDetect(
-    problem_db.get_bool("interface.nearby_evaluation_cache")),
-  nearbyTolerance(
-    problem_db.get_real("interface.nearby_evaluation_cache_tolerance")),
   restartFileFlag(problem_db.get_bool("interface.restart_file")),
-  gradientType(problem_db.get_string("responses.gradient_type")),
-  hessianType(problem_db.get_string("responses.hessian_type")),
-  gradMixedAnalyticIds(
-    problem_db.get_is("responses.gradients.mixed.id_analytic")),
-  hessMixedAnalyticIds(
-    problem_db.get_is("responses.hessians.mixed.id_analytic")),
   failAction(problem_db.get_string("interface.failure_capture.action")),
   failRetryLimit(problem_db.get_int("interface.failure_capture.retry_limit")),
   failRecoveryFnVals(
@@ -73,10 +60,40 @@ ApplicationInterface(const ProblemDescDB& problem_db):
 {
   // set coreMappings flag based on presence of analysis_drivers specification
   coreMappings = (numAnalysisDrivers > 0);
-  if (!coreMappings && !algebraicMappings && interfaceType > DEFAULT_INTERFACE){
+  if (!coreMappings && !algebraicMappings && !interfaceType.empty()) {
     Cerr << "\nError: no parameter to response mapping defined in "
 	 << "ApplicationInterface.\n" << std::endl;
     abort_handler(-1);
+  }
+
+  // If the user has specified active_set_vector as off, then map() uses a
+  // default ASV which is constant for all function evaluations (so that the
+  // user need not check the content of the ASV on each evaluation).
+  if (!asvControlFlag) {
+    size_t num_fns = (outputLevel > NORMAL_OUTPUT) ? fnLabels.size() :
+      problem_db.get_sa("responses.labels").size();
+    short asv_value = 1;
+    const std::string& grad_type
+      = problem_db.get_string("responses.gradient_type");
+    const std::string& hess_type
+      = problem_db.get_string("responses.hessian_type");
+    if (grad_type == "analytic")
+      asv_value += 2;
+    if (hess_type == "analytic")
+      asv_value += 4;
+    defaultASV.assign(num_fns, asv_value);
+    if (grad_type == "mixed") {
+      const IntSet& id_anal_grad
+	= problem_db.get_is("responses.gradients.mixed.id_analytic");
+      for (ISCIter cit=id_anal_grad.begin(); cit!=id_anal_grad.end(); ++cit)
+        defaultASV[*cit - 1] += 2;
+    }
+    if (hess_type == "mixed") {
+      const IntSet& id_anal_hess
+	= problem_db.get_is("responses.hessians.mixed.id_analytic");
+      for (ISCIter cit=id_anal_hess.begin(); cit!=id_anal_hess.end(); ++cit)
+        defaultASV[*cit - 1] += 4;
+    }
   }
 }
 
@@ -86,52 +103,32 @@ ApplicationInterface::~ApplicationInterface()
 
 
 void ApplicationInterface::
-init_communicators(const IntArray& message_lengths, int max_eval_concurrency)
+init_communicators(const IntArray& message_lengths,
+		   int max_iterator_concurrency)
 {
   // Initialize comms for evaluations (partitions of iteratorComm).
-
-  bool direct_int         = (interfaceType & DIRECT_INTERFACE_BIT);
-  // Peer dynamic requires asynch local executions and dynamic job assignment
-  bool peer_dynamic_avail = (!direct_int && !asynchLocalEvalStatic);
-  // min_procs_per_eval captures overrides at the analysis level.  This lower
-  // bound is defined bottom up and counters the top-down allocation of
-  // resources.  max_procs_per_eval captures available concurrency and explicit
-  // user overrides at the analysis level (user overrides for the evaluation
-  // level can be managed by resolve_inputs()).
-  // > procsPerAnalysisSpec defaults to zero, which is the result when the
-  //   processors_per_analysis spec is unreachable (system/fork/spawn)
-  int min_ppa = 1, max_ppa = (direct_int) ? worldSize : 1;
-  int min_procs_per_eval = ProblemDescDB::
-    min_procs_per_level(min_ppa, procsPerAnalysisSpec, numAnalysisServersSpec);
-  int max_procs_per_eval = ProblemDescDB::
-    max_procs_per_level(max_ppa, procsPerAnalysisSpec, numAnalysisServersSpec,
-			analysisScheduling, asynchLocalAnalysisConcSpec, false,
-			std::max(1, numAnalysisDrivers));
-
+  int min_procs_per_eval = procsPerAnalysisSpec;// could add *numAnalysisDrivers
+  std::string default_config = "push_up"; // init_eval_comms&init_analysis_comms
   const ParallelLevel& ie_pl = parallelLib.init_evaluation_communicators(
-    numEvalServersSpec, procsPerEvalSpec, min_procs_per_eval,
-    max_procs_per_eval, max_eval_concurrency, asynchLocalEvalConcSpec,
-    PUSH_UP, evalScheduling, peer_dynamic_avail);
+    numEvalServersSpec, min_procs_per_eval, max_iterator_concurrency,
+    asynchLocalEvalConcSpec, default_config, evalScheduling);
 
   set_evaluation_communicators(message_lengths);
 
-  // Initialize communicators for analyses (partitions of evalComm).  This
-  // call is protected from an iterator dedicated master in the same way a
-  // meta-iterator master never calls init_eval_comms (prevents some warnings
-  // in ParallelLibrary::resolve_inputs when there is a user spec that can't
-  // be supported from a single processor).  However, a dedicated master can
-  // run a local single-processor job if the algorithm uses a synchronous eval
-  // (see derived_master_overload() usage in Model::evaluate()).
-  if (ieDedMasterFlag && iteratorCommRank == 0 && multiProcEvalFlag)
-    init_serial_analyses();
-  else {
+  // Initialize communicators for analyses (partitions of evalComm).  This call
+  // is protected from an iterator dedicated master in the same way a strategy
+  // master never calls init_eval_comms (prevents some warnings in
+  // ParallelLibrary::resolve_inputs).
+  if ( !ieDedMasterFlag || iteratorCommRank ) {
+
     const ParallelLevel& ea_pl = parallelLib.init_analysis_communicators(
-      numAnalysisServersSpec, procsPerAnalysisSpec, min_ppa, max_ppa,
-      numAnalysisDrivers, asynchLocalAnalysisConcSpec, PUSH_UP,
-      analysisScheduling, false); // peer_dynamic is not available
+      numAnalysisServersSpec, procsPerAnalysisSpec, numAnalysisDrivers,
+      asynchLocalAnalysisConcSpec, default_config, analysisScheduling);
 
     set_analysis_communicators();
   }
+  else
+    init_serial_analyses();
 
   // print parallel configuration (prior to configuration checking
   // so that error messages can be more readily debugged)
@@ -139,25 +136,26 @@ init_communicators(const IntArray& message_lengths, int max_eval_concurrency)
     parallelLib.print_configuration();
 
   // check for configuration errors
-  init_communicators_checks(max_eval_concurrency);
+  init_communicators_checks(max_iterator_concurrency);
 }
 
 
 void ApplicationInterface::
-set_communicators(const IntArray& message_lengths, int max_eval_concurrency)
+set_communicators(const IntArray& message_lengths, int max_iterator_concurrency)
 {
   set_evaluation_communicators(message_lengths);
 
   // Initialize communicators for analyses (partitions of evalComm).  This call
-  // is protected from an iterator dedicated master in cases where local
-  // evaluations are precluded (see comments in init_communicators()).
-  if (ieDedMasterFlag && iteratorCommRank == 0 && multiProcEvalFlag)
-    init_serial_analyses();
-  else
+  // is protected from an iterator dedicated master in the same way a strategy
+  // master never calls init_eval_comms (prevents some warnings in
+  // ParallelLibrary::resolve_inputs).
+  if ( !ieDedMasterFlag || iteratorCommRank )
     set_analysis_communicators();
+  else
+    init_serial_analyses();
 
   // check for configuration errors
-  set_communicators_checks(max_eval_concurrency);
+  set_communicators_checks(max_iterator_concurrency);
 }
 
 
@@ -167,7 +165,7 @@ set_evaluation_communicators(const IntArray& message_lengths)
   // Buffer sizes for function evaluation message transfers are estimated in 
   // Model::init_communicators() so that hard-coded MPIUnpackBuffer
   // lengths can be avoided.  This estimation is reperformed on every call to
-  // IteratorScheduler::run_iterator().  A Bcast is not currently needed since
+  // Strategy::run_iterator().  A Bcast is not currently needed since
   // every processor performs the estimation.
   //MPI_Bcast(message_lengths.data(), 4, MPI_INT, 0, iteratorComm);
   lenVarsMessage       = message_lengths[0];
@@ -175,26 +173,38 @@ set_evaluation_communicators(const IntArray& message_lengths)
   lenResponseMessage   = message_lengths[2];
   lenPRPairMessage     = message_lengths[3];
 
-  // Pull data from (the lowest) concurrent iterator partition.  The active
-  // parallel configuration is managed in Model::init_communicators().
   const ParallelConfiguration& pc = parallelLib.parallel_configuration();
-  const ParallelLevel& mi_pl = pc.mi_parallel_level(); // last mi level
-  iteratorCommSize = mi_pl.server_communicator_size();
-  iteratorCommRank = mi_pl.server_communicator_rank();
+  const ParallelLevel& si_pl = pc.si_parallel_level();
+  const ParallelLevel& ie_pl = pc.ie_parallel_level();
+
+  // Pull data from (the lowest) concurrent iterator partition.  The active
+  // parallel configuration is managed in Strategy::init_communicators().
+  // To do: for the lowest level, will need --siPLIters.end().
+  // > This code needs to follow init_evaluation_communicators() in case
+  //   a siPLIter copy from the previous parallel configuration is used.
+  // > Future concurrent iterator partitioning within nested models would also 
+  //   dictate that iterator comm attributes get set at init time rather than
+  //   construct time.
+  iteratorCommSize = si_pl.server_communicator_size();
+  iteratorCommRank = si_pl.server_communicator_rank();
 
   // These attributes are set by init_evaluation_communicators and are not 
   // available for use in the constructor.
-  const ParallelLevel& ie_pl = pc.ie_parallel_level();
-  ieDedMasterFlag = ie_pl.dedicated_master();
+  ieDedMasterFlag = ie_pl.dedicated_master_flag();
   ieMessagePass   = ie_pl.message_pass();
   numEvalServers  = ie_pl.num_servers(); // may differ from numEvalServersSpec
   evalCommRank    = ie_pl.server_communicator_rank();
   evalCommSize    = ie_pl.server_communicator_size();
   evalServerId    = ie_pl.server_id();
   if (ieDedMasterFlag)
+//#ifdef COMM_SPLIT_TO_SINGLE
     multiProcEvalFlag = (ie_pl.processors_per_server() > 1 ||
 			 ie_pl.processor_remainder());
-  else // peer: split flag insufficient if 1 server
+//#else
+    // want multiProcEvalFlag=true on iterator master when slave evalCommSize>1
+    //multiProcEvalFlag = ie_pl.communicator_split_flag();
+//#endif
+  else // split flag insufficient if 1 server (no split in peer case)
     multiProcEvalFlag = (evalCommSize > 1); // could vary
 
   // simplify downstream logic by resetting default asynch local concurrency
@@ -203,8 +213,9 @@ set_evaluation_communicators(const IntArray& message_lengths)
   // (default is unlimited unless user concurrency spec) from message passing
   // parallelism with synchronous local evals (default; hybrid mode requires
   // user spec > 1).
-  asynchLocalEvalConcurrency = (ieMessagePass && asynchLocalEvalConcSpec == 0)
-                             ? 1 : asynchLocalEvalConcSpec;
+  asynchLocalEvalConcurrency = (/*ieMessagePass*/worldSize > 1 &&
+				asynchLocalEvalConcSpec == 0)
+    ? 1 : asynchLocalEvalConcSpec;
 }
 
 
@@ -214,16 +225,21 @@ void ApplicationInterface::set_analysis_communicators()
   const ParallelLevel& ea_pl = pc.ea_parallel_level();
 
   // Extract attributes for analysis partitions
-  eaDedMasterFlag    = ea_pl.dedicated_master();
+  eaDedMasterFlag    = ea_pl.dedicated_master_flag();
   eaMessagePass      = ea_pl.message_pass();
   numAnalysisServers = ea_pl.num_servers();//may differ from numAnalysisSrvSpec
   analysisCommRank   = ea_pl.server_communicator_rank();
   analysisCommSize   = ea_pl.server_communicator_size();
   analysisServerId   = ea_pl.server_id();
   if (eaDedMasterFlag)
+//#ifdef COMM_SPLIT_TO_SINGLE
     multiProcAnalysisFlag = (ea_pl.processors_per_server() > 1 ||
 			     ea_pl.processor_remainder());
-  else // peer: split flag insufficient if 1 server
+//#else
+    // want multiProcAnalysisFlag=true on eval master when slave analysis size>1
+    //multiProcAnalysisFlag = ea_pl.communicator_split_flag();
+//#endif
+  else // split flag insufficient if 1 server (no split in peer case)
     multiProcAnalysisFlag = (analysisCommSize > 1); // could vary
 
   if ( iteratorCommRank // any processor other than rank 0 in iteratorComm
@@ -242,8 +258,8 @@ void ApplicationInterface::set_analysis_communicators()
   // readily distinguish unlimited concurrency for asynch local parallelism
   // (default is unlimited unless user spec) from message passing parallelism
   // with synchronous local evals (default; hybrid mode requires user spec > 1).
-  asynchLocalAnalysisConcurrency
-    = (eaMessagePass && asynchLocalAnalysisConcSpec == 0)
+  asynchLocalAnalysisConcurrency = (/*eaMessagePass*/worldSize > 1 &&
+				    asynchLocalAnalysisConcSpec == 0)
     ? 1 : asynchLocalAnalysisConcSpec;
 
   // Set flag for asynch local parallelism of analyses.  In the local asynch
@@ -251,8 +267,7 @@ void ApplicationInterface::set_analysis_communicators()
   // a limit (default is unlimited).  In the message passing case, the user
   // must explicitly specify analysis concurrency to get hybrid parallelism
   // (default is no analysis concurrency).
-  if ( numAnalysisDrivers > 1 && 
-       interfaceSynchronization == ASYNCHRONOUS_INTERFACE &&
+  if ( numAnalysisDrivers > 1 && interfaceSynchronization == "asynchronous" &&
        ( asynchLocalAnalysisConcurrency > 1 || ( !eaMessagePass &&
         !asynchLocalAnalysisConcurrency ) ) )
     asynchLocalAnalysisFlag = true;
@@ -262,14 +277,14 @@ void ApplicationInterface::set_analysis_communicators()
 /** Override DirectApplicInterface definition if plug-in to allow batch
     processing in Plugin{Serial,Parallel}DirectApplicInterface.cpp */
 void ApplicationInterface::
-init_communicators_checks(int max_eval_concurrency)
+init_communicators_checks(int max_iterator_concurrency)
 { } // default is no-op
 
 
 /** Override DirectApplicInterface definition if plug-in to allow batch
     processing in Plugin{Serial,Parallel}DirectApplicInterface.cpp */
 void ApplicationInterface::
-set_communicators_checks(int max_eval_concurrency)
+set_communicators_checks(int max_iterator_concurrency)
 { } // default is no-op
 
 
@@ -288,8 +303,8 @@ bool ApplicationInterface::check_multiprocessor_analysis(bool warn)
     if (iteratorCommRank == 0) {
       if (warn) Cerr << "Warning: ";
       else      Cerr << "Error:   ";
-      Cerr << "Multiprocessor analyses are not valid with " 
-	   << interface_enum_to_string(interfaceType) << " interfaces.";
+      Cerr << "Multiprocessor analyses are not valid with " << interfaceType
+	   << " interfaces.";
       if (warn) Cerr << "\n         This issue may be resolved at run time.";
       else
 	Cerr << "\n         Your processor allocation may exceed the "
@@ -304,11 +319,11 @@ bool ApplicationInterface::check_multiprocessor_analysis(bool warn)
 
 
 bool ApplicationInterface::
-check_asynchronous(bool warn, int max_eval_concurrency)
+check_asynchronous(bool warn, int max_iterator_concurrency)
 {
   bool issue_flag = false, asynch_local_eval_flag
-    = ( max_eval_concurrency > 1 &&
-	interfaceSynchronization == ASYNCHRONOUS_INTERFACE &&
+    = ( max_iterator_concurrency > 1 &&
+	interfaceSynchronization == "asynchronous" &&
 	( asynchLocalEvalConcurrency > 1 ||           // captures hybrid mode
 	  ( !ieMessagePass && !asynchLocalEvalConcurrency ) ) ); // unlimited
 
@@ -318,8 +333,8 @@ check_asynchronous(bool warn, int max_eval_concurrency)
     if (iteratorCommRank == 0) {
       if (warn) Cerr << "Warning: ";
       else      Cerr << "Error:   ";
-      Cerr << "asynchronous capability not supported in " 
-	   << interface_enum_to_string(interfaceType) << " interfaces.";
+      Cerr << "asynchronous capability not supported in " << interfaceType
+	   << " interfaces.";
       if (warn) Cerr << "\n         This issue may be resolved at run time.";
       Cerr << std::endl;
     }
@@ -329,11 +344,11 @@ check_asynchronous(bool warn, int max_eval_concurrency)
 
 
 bool ApplicationInterface::
-check_multiprocessor_asynchronous(bool warn, int max_eval_concurrency)
+check_multiprocessor_asynchronous(bool warn, int max_iterator_concurrency)
 {
   bool issue_flag = false, asynch_local_eval_flag
-    = ( max_eval_concurrency > 1 &&
-	interfaceSynchronization == ASYNCHRONOUS_INTERFACE &&
+    = ( max_iterator_concurrency > 1 &&
+	interfaceSynchronization == "asynchronous" &&
 	( asynchLocalEvalConcurrency > 1 ||           // captures hybrid mode
 	  ( !ieMessagePass && !asynchLocalEvalConcurrency ) ) ); // unlimited
 
@@ -357,26 +372,36 @@ check_multiprocessor_asynchronous(bool warn, int max_eval_concurrency)
 }
 
 
-//void ApplicationInterface::free_communicators()
-//{ }
+void ApplicationInterface::free_communicators()
+{
+  // This call is protected from an iterator dedicated master in the same way a
+  // strategy master never calls init_eval_comms (prevents some warnings in 
+  // ParallelLibrary::resolve_inputs).
+
+  // deallocate partitions of evalComm
+  if ( !ieDedMasterFlag || iteratorCommRank )
+    parallelLib.free_analysis_communicators();
+
+  // deallocate partitions of iteratorComm
+  parallelLib.free_evaluation_communicators();
+}
 
 
 /** The function evaluator for application interfaces.  Called from
-    derived_evaluate() and derived_evaluate_nowait() in derived Model
-    classes.  If asynch_flag is not set, perform a blocking evaluation
-    (using derived_map()).  If asynch_flag is set, add the job to the
-    beforeSynchCorePRPQueue queue for execution by one of the scheduler
-    routines in synchronize() or synchronize_nowait().  Duplicate
-    function evaluations are detected with duplication_detect(). */
+    derived_compute_response() and derived_asynch_compute_response() in
+    derived Model classes.  If asynch_flag is not set, perform a blocking
+    evaluation (using derived_map()).  If asynch_flag is set, add the job
+    to the beforeSynchCorePRPQueue queue for execution by one of the
+    scheduler routines in synch() or synch_nowait().  Duplicate function
+    evaluations are detected with duplication_detect(). */
 void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
 			       Response& response, bool asynch_flag)
 {
   ++evalIdCntr; // all calls to map for this interface instance
-  const ShortArray& asv = set.request_vector();
-  size_t num_fns = asv.size();
   if (fineGrainEvalCounters) { // detailed evaluation reporting
-    init_evaluation_counters(num_fns);
-    for (size_t i=0; i<num_fns; ++i) {
+    const ShortArray& asv = set.request_vector();
+    size_t i, num_fns = asv.size();
+    for (i=0; i<num_fns; ++i) {
       short asv_val = asv[i];
       if (asv_val & 1) ++fnValCounter[i];
       if (asv_val & 2) ++fnGradCounter[i];
@@ -417,7 +442,7 @@ void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
     // requested set and response.
     ActiveSet algebraic_set;
     asv_mapping(set, algebraic_set, core_set);
-    algebraic_resp = Response(SIMULATION_RESPONSE, algebraic_set);
+    algebraic_resp = Response(algebraic_set);
     if (asynch_flag) {
       ParamResponsePair prp(vars, interfaceId, algebraic_resp, evalIdCntr);
       beforeSynchAlgPRPQueue.insert(prp);
@@ -458,7 +483,6 @@ void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
       //    on: asv seen by user's interface may change on each eval (default)
       //   off: asv seen by user's interface is constant for all evals
       if (!asvControlFlag) { // set ASV's to defaultASV for the mapping
-	init_default_asv(num_fns);  // initialize if not already done
 	core_set.request_vector(defaultASV); // DVV assigned above
 	core_resp.active_set(core_set);
       }
@@ -467,9 +491,8 @@ void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
 	// use this constructor since deep copies of vars/response are needed
 	ParamResponsePair prp(vars, interfaceId, core_resp, evalIdCntr);
 	beforeSynchCorePRPQueue.insert(prp);
-	// jobs are not queued until call to synchronize() to allow dynamic
-	// scheduling. Response data headers and data_pair list insertion
-	// appear in synchronize().
+	// jobs are not queued until call to synch() to allow dynamic sched.
+	// Response data headers & data_pair list insertion appear in synch().
       }
       else { // local synchronous evaluation
 
@@ -482,9 +505,8 @@ void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
 	currEvalId = evalIdCntr;
 	try { derived_map(vars, core_set, core_resp, currEvalId); }
 
-	catch(const FunctionEvalFailure& fneval_except) {
-	  //Cout << "Caught FunctionEvalFailure in map; message: " 
-	  //<< fneval_except.what() << std::endl;
+	catch(int fail_code) { // value of fail_code not currently used.
+	  //Cout << "Caught int in map" << std::endl;
 	  manage_failure(vars, core_set, core_resp, currEvalId);
 	}
 
@@ -558,104 +580,33 @@ void ApplicationInterface::map(const Variables& vars, const ActiveSet& set,
 bool ApplicationInterface::
 duplication_detect(const Variables& vars, Response& response, bool asynch_flag)
 {
-  // Two flavors of cache lookup are supported: exact and tolerance-based.
-  // Note 1: incoming response's responseActiveSet was updated in map(), but
-  //   the rest of response is out-of-date (the previous fn. eval).  Due to
-  //   set_compare(), the desired response set could be a subset of the
-  //   data_pairs response -> use update().
-  // Note 2: If duplication detected with an eval from restart/file import,
-  //   promote the database eval id to current run status to enable more
-  //   meaningful lookups (e.g., eval id of final result) downstream.  There
-  //   are several possible bookkeeping update approaches; here, we choose to
-  //   delete the old record and readd it with original ASV content and updated
-  //   eval id.  This approach is efficient and doesn't discard any data, but
-  //   has the downside that the record's ASV may contain more than the current
-  //   request.  Another reasonable approach would be to keep the old record
-  //   (original ASV) and add a new one (with the current ASV subset), but
-  //   this is less efficient and complicates eval id management in downstream
-  //   lookups (multiple records can match a particular Ids/Vars/Set lookup,
-  //   requiring an additional test to prefer positive id's in some use cases).
-  PRPCacheOIter ord_it; PRPCacheHIter hash_it;
-  ParamResponsePair cache_pr; int cache_eval_id; bool cache_hit = false;
-  if (nearbyDuplicateDetect) { // slow but allows tolerance on equality
-    ord_it = lookup_by_nearby_val(data_pairs, interfaceId, vars,
-				  response.active_set(), nearbyTolerance);
-    cache_hit = (ord_it != data_pairs.end());
-    if (cache_hit) { // ordered-specific updates (shared updates below)
-      response.update(ord_it->response());
-      cache_eval_id = ord_it->eval_id();
-      if (cache_eval_id <= 0)
-	{ cache_pr = *ord_it; data_pairs.erase(ord_it); }
-    }
-  }
-  else { // fast but requires exact binary match
-    hash_it = lookup_by_val(data_pairs, interfaceId, vars,
-			    response.active_set());
-    cache_hit = (hash_it != data_pairs.get<hashed>().end());
-    if (cache_hit) { // hashed-specific updates (shared updates below)
-      response.update(hash_it->response());
-      cache_eval_id = hash_it->eval_id();
-      if (cache_eval_id <= 0)
-	{ cache_pr = *hash_it; data_pairs.get<hashed>().erase(hash_it); }
-    }
-  }
-  if (cache_hit) { // updates shared among ordered/hashed lookups
-    if (cache_eval_id <= 0) {
-      // ordered key is const; must remove (above) & change/add (below)
-      cache_pr.eval_id(evalIdCntr); // promote
-      data_pairs.insert(cache_pr);  // shallow copy of previous vars/resp
-    }
+  // check data_pairs list
+  Response desired_resp;
 
+  // The incoming response's responseActiveSet was updated in map(), but
+  // the rest of response is out-of-date (the previous fn. eval).
+  if (lookup_by_val(data_pairs, interfaceId, vars, response.active_set(),
+		    desired_resp)) {
+    // due to id_vars_set_compare, the desired response set could be a
+    // subset of the data_pairs response -> use update().
+    response.update(desired_resp);
     if (asynch_flag) // asynch case: bookkeep
       historyDuplicateMap[evalIdCntr] = response.copy();
-
-    return true; // Duplication detected
+    return true; // Duplication detected.
   }
-
-  // check beforeSynchCorePRPQueue as well (if asynchronous and no cache hit)
+  // check beforeSynchCorePRPQueue (if asynchronous)
   if (asynch_flag) {
-    // queue lookups only support one flavor for simplicity: exact lookup
-    PRPQueueHIter queue_it = lookup_by_val(beforeSynchCorePRPQueue, interfaceId,
-					   vars, response.active_set());
-    if (queue_it != beforeSynchCorePRPQueue.get<hashed>().end()) {
+    PRPQueueHIter prp_hash_iter
+      = lookup_by_val(beforeSynchCorePRPQueue, interfaceId, vars,
+		      response.active_set());
+    if ( prp_hash_iter != hashedQueueEnd(beforeSynchCorePRPQueue) ) {
       // Duplication detected: bookkeep
       beforeSynchDuplicateMap[evalIdCntr]
-	= std::make_pair(queue_it, response.copy());
-      return true; // Duplication detected
+	= std::make_pair(prp_hash_iter, response.copy());
+      return true; // Duplication detected.
     }
   }
-
-  return false; // Duplication not detected
-}
-
-/** If the user has specified active_set_vector as off, then map()
-    uses a default ASV which is constant for all function evaluations
-    (so that the user need not check the content of the ASV on each
-    evaluation).  Only initialized if needed and not already sized. */
-void ApplicationInterface::init_default_asv(size_t num_fns) {
-  if (!asvControlFlag && defaultASV.size() != num_fns) {
-    short asv_value = 1;
-    if (gradientType == "analytic")
-      asv_value |= 2;
-    if (hessianType == "analytic")
-      asv_value |= 4;
-    defaultASV.assign(num_fns, asv_value);
-    // TODO: the mixed ID sizes from the problem DB may not be
-    // commensurate with num_fns due to Recast transformations (MO
-    // reduce or experiment data); consider managing this in Model
-    if (gradientType == "mixed") {
-      ISCIter cit = gradMixedAnalyticIds.begin();
-      ISCIter cend = gradMixedAnalyticIds.end();
-      for ( ; cit != cend; ++cit)
-        defaultASV[*cit - 1] |= 2;
-    }
-    if (hessianType == "mixed") {
-      ISCIter cit = hessMixedAnalyticIds.begin();
-      ISCIter cend = hessMixedAnalyticIds.end();
-      for ( ; cit != cend; ++cit)
-        defaultASV[*cit - 1] |= 4;
-    }
-  }
+  return false; // Duplication not detected.
 }
 
 
@@ -664,90 +615,62 @@ void ApplicationInterface::init_default_asv(size_t num_fns) {
     (background system call, nonblocking fork, & multithreads), the
     message passing case, and the hybrid case.  Called from
     derived_synchronize() in derived Model classes. */
-const IntResponseMap& ApplicationInterface::synchronize()
+const IntResponseMap& ApplicationInterface::synch()
 {
-  rawResponseMap.clear();
-
-  size_t cached_eval = cachedResponseMap.size(),
-    hist_duplicates  = historyDuplicateMap.size(),
-    queue_duplicates = beforeSynchDuplicateMap.size();
-
-  // Process cached responses
-  if (cached_eval) std::swap(rawResponseMap, cachedResponseMap);
-
   // Process history duplicates (see duplication_detect) since response data 
   // has been extracted from the data_pairs list.  These duplicates are not 
   // written to data_pairs or write_restart.
-  if (hist_duplicates) {
-    if (rawResponseMap.empty()) std::swap(rawResponseMap, historyDuplicateMap);
-    else {
-      rawResponseMap.insert(historyDuplicateMap.begin(),
-			    historyDuplicateMap.end());
-      historyDuplicateMap.clear();
-    }
-  }
+  rawResponseMap.clear();
+  rawResponseMap = historyDuplicateMap;
+  historyDuplicateMap.clear();
 
-  if (coreMappings) {
-    size_t core_prp_jobs = beforeSynchCorePRPQueue.size();
-    Cout << "\nBlocking synchronize of " << core_prp_jobs << " asynchronous ";
-    if (!interfaceId.empty()) Cout << interfaceId << ' ';
-    Cout << "evaluations";
-    if (cached_eval || hist_duplicates || queue_duplicates)
-      Cout << ", " << cached_eval << " cached evaluations, and "
-	   << hist_duplicates + queue_duplicates << " duplicates";
-    Cout << std::endl;
-
-    // Process nonduplicate evaluations for either the message passing or local 
-    // asynchronous case.
-    if (core_prp_jobs) {
-      if (ieMessagePass) { // single or multi-processor servers
-	if (ieDedMasterFlag) master_dynamic_schedule_evaluations();
-	else {
-	  // utilize asynch local evals to accomplish a dynamic peer schedule
-	  // (even if hybrid mode not specified) unless precluded by direct
-	  // interface, multiProcEvalFlag (includes single proc analysis cases),
-	  // static scheduling override, or static asynch local specification.
-	  if ( asynchLocalEvalStatic || multiProcEvalFlag ||
-	       (interfaceType & DIRECT_INTERFACE_BIT) ||
-	       evalScheduling == PEER_STATIC_SCHEDULING )
-	    peer_static_schedule_evaluations();
-	  else // utilizes asynch local evals even if hybrid mode not specified
-	    peer_dynamic_schedule_evaluations();
-	}
+  // Process nonduplicate evaluations for either the message passing or local 
+  // asynchronous case.
+  size_t core_prp_entries = beforeSynchCorePRPQueue.size(), num_synch_jobs
+    = (coreMappings) ? core_prp_entries : beforeSynchAlgPRPQueue.size();
+  if (num_synch_jobs == 0) return rawResponseMap;
+  Cout << "\nBlocking synchronize of " << num_synch_jobs
+       << " asynchronous evaluations" << std::endl; // disincludes duplicates
+  if (core_prp_entries) {
+    if (ieMessagePass) { // single or multi-processor servers
+      if (ieDedMasterFlag) master_dynamic_schedule_evaluations();
+      else {
+	// utilize asynch local evals to accomplish a dynamic peer schedule
+	// (even if hybrid mode not specified) unless precluded by direct
+	// interface, multiProcEvalFlag (includes single proc analysis cases),
+	// static scheduling override, or static asynch local specification.
+	if (asynchLocalEvalStatic     || multiProcEvalFlag ||
+	    interfaceType == "direct" || evalScheduling == "peer_static")
+	  peer_static_schedule_evaluations();
+	else // utilizes asynch local evals even if hybrid mode not specified
+	  peer_dynamic_schedule_evaluations();
       }
-      else // local to processor
-	asynchronous_local_evaluations(beforeSynchCorePRPQueue);
     }
-  }
-  else if (!beforeSynchAlgPRPQueue.empty()) {
-    Cout << "\nBlocking synchronize of " << beforeSynchAlgPRPQueue.size();
-    if (!interfaceId.empty()) Cout << ' ' << interfaceId;
-    Cout << " algebraic mappings" << std::endl;
+    else // local to processor
+      asynchronous_local_evaluations(beforeSynchCorePRPQueue);
   }
 
   // Now that beforeSynchCorePRPQueue processing is complete, process duplicates
   // detected within beforeSynchCorePRPQueue (see duplication_detect).
-  if (queue_duplicates) {
-    for (std::map<int, std::pair<PRPQueueHIter, Response> >::const_iterator
-	 bsd_iter  = beforeSynchDuplicateMap.begin();
-	 bsd_iter != beforeSynchDuplicateMap.end(); bsd_iter++) {
-      // due to id_vars_set_compare, the desired response set could be a subset
-      // of the beforeSynchCorePRPQueue duplicate response -> use update().
-      rawResponseMap[bsd_iter->first] = (bsd_iter->second).second;
-      rawResponseMap[bsd_iter->first].update(
-	(bsd_iter->second).first->response());
-    }
-    beforeSynchDuplicateMap.clear();
+  for (std::map<int, std::pair<PRPQueueHIter, Response> >::const_iterator
+       bsd_iter  = beforeSynchDuplicateMap.begin();
+       bsd_iter != beforeSynchDuplicateMap.end(); bsd_iter++) {
+    // due to id_vars_set_compare, the desired response set could be a subset
+    // of the beforeSynchCorePRPQueue duplicate response -> use update().
+    rawResponseMap[bsd_iter->first] = (bsd_iter->second).second;
+    rawResponseMap[bsd_iter->first].update(
+      (bsd_iter->second).first->prp_response());
   }
+  beforeSynchDuplicateMap.clear();
   beforeSynchCorePRPQueue.clear();
 
   // Merge core mappings and algebraic mappings into rawResponseMap
   if (algebraicMappings) { // complete all algebraic jobs and overlay
     for (PRPQueueIter alg_prp_it = beforeSynchAlgPRPQueue.begin();
 	 alg_prp_it != beforeSynchAlgPRPQueue.end(); alg_prp_it++) {
-      Response alg_response = alg_prp_it->response();
-      algebraic_mappings(alg_prp_it->variables(), alg_prp_it->active_set(),
-			 alg_response);
+      Response alg_response = alg_prp_it->prp_response();
+      algebraic_mappings(alg_prp_it->prp_parameters(),
+			 alg_prp_it->active_set(), alg_response);
       if (coreMappings) {
 	Response& response = rawResponseMap[alg_prp_it->eval_id()];
 	response_mapping(alg_response, response, response);
@@ -761,13 +684,13 @@ const IntResponseMap& ApplicationInterface::synchronize()
 	// doesn't have a valid Response to update
 	ActiveSet total_set(alg_prp_it->active_set());
 	asv_mapping(alg_prp_it->active_set(), total_set);
-	Response total_response = Response(SIMULATION_RESPONSE, total_set);
+	Response total_response = Response(total_set);
 	response_mapping(alg_response, total_response, total_response);
 	rawResponseMap[alg_prp_it->eval_id()] = total_response;
       }
     }
-    beforeSynchAlgPRPQueue.clear();
   }
+  beforeSynchAlgPRPQueue.clear();
 
   if (outputLevel > QUIET_OUTPUT) // output completed responses
     for (IntRespMCIter rr_iter = rawResponseMap.begin();
@@ -785,91 +708,62 @@ const IntResponseMap& ApplicationInterface::synchronize()
 /** This function provides nonblocking synchronization for the local
     asynchronous case and selected nonblocking message passing schedulers.
     Called from derived_synchronize_nowait() in derived Model classes. */
-const IntResponseMap& ApplicationInterface::synchronize_nowait()
+const IntResponseMap& ApplicationInterface::synch_nowait()
 {
   rawResponseMap.clear();
 
-  size_t cached_eval = cachedResponseMap.size(),
-    hist_duplicates  = historyDuplicateMap.size(),
-    queue_duplicates = beforeSynchDuplicateMap.size();
-
-  if (coreMappings) {
-    size_t core_prp_jobs = beforeSynchCorePRPQueue.size();
-    // suppress repeated header output for longer jobs;
-    // don't need to check queue_duplicates since none w/o core queue
-    if ( headerFlag && (core_prp_jobs || hist_duplicates) ) {
-      Cout << "\nNonblocking synchronize of " << core_prp_jobs
-	   << " asynchronous ";
-      if (!interfaceId.empty()) Cout << interfaceId << ' ';
-      Cout << "evaluations";
-      if (cached_eval || hist_duplicates || queue_duplicates)
-	Cout << ", " << cached_eval << " cached evaluations, and "
-	     << hist_duplicates + queue_duplicates << " duplicates";
-      Cout << std::endl;
-    }
-
-    // Test nonduplicate evaluations and add completions to rawResponseMap
-    if (core_prp_jobs) {
-      if (ieMessagePass) { // single or multi-processor servers
-	if (ieDedMasterFlag)
-	  master_dynamic_schedule_evaluations_nowait();
-	else {
-	  // prefer to use peer_dynamic to avoid blocking on local jobs, as
-	  // is consistent with nowait requirement; however, a fallback to
-	  // peer_static is needed for the special cases listed below:
-	  if ( asynchLocalEvalStatic || multiProcEvalFlag ||
-	       (interfaceType & DIRECT_INTERFACE_BIT) ||
-	       evalScheduling == PEER_STATIC_SCHEDULING )
-	    peer_static_schedule_evaluations_nowait();
-	  else
-	    peer_dynamic_schedule_evaluations_nowait();
+  // Test nonduplicate evaluations and add completions to rawResponseMap
+  size_t core_prp_entries = beforeSynchCorePRPQueue.size(), num_synch_jobs
+    = (coreMappings) ? core_prp_entries : beforeSynchAlgPRPQueue.size();
+  if (num_synch_jobs == 0) return rawResponseMap;
+  //if (headerFlag) // set whenever an executed job (nonduplicate) completes
+    Cout << "\nNonblocking synchronize of " << num_synch_jobs
+         << " asynchronous evaluations" << std::endl; // disincludes duplicates
+  if (core_prp_entries) {
+    if (ieMessagePass) { // single or multi-processor servers
+      if (ieDedMasterFlag)
+	master_dynamic_schedule_evaluations_nowait();
+      else {
+	if (asynchLocalEvalStatic     || multiProcEvalFlag ||
+	    interfaceType == "direct" || evalScheduling == "peer_static") {
+	  //peer_static_schedule_evaluations_nowait(); // needed for override?
+	  Cerr << "Error: message passing requires nonblocking scheduler."
+	       << std::endl;
+	  abort_handler(-1);
 	}
+	else
+	  peer_dynamic_schedule_evaluations_nowait();
       }
-      else // local to processor
-	asynchronous_local_evaluations_nowait(beforeSynchCorePRPQueue);
     }
-    // suppress header on next pass if no new completions on this pass
-    headerFlag = !rawResponseMap.empty();
+    else // local to processor
+      asynchronous_local_evaluations_nowait(beforeSynchCorePRPQueue);
   }
-  else if (!beforeSynchAlgPRPQueue.empty()) {
-    Cout << "\nNonblocking synchronize of " << beforeSynchAlgPRPQueue.size();
-    if (!interfaceId.empty()) Cout << ' ' << interfaceId;
-    Cout << " algebraic mappings" << std::endl;
-  }
+  //headerFlag = !rawResponseMap.empty();
 
   // Since beforeSynchCorePRPQueue processing will not in general be completed, 
   // process duplicates listed in beforeSynchDuplicateMap only if the 
   // original/nonduplicate beforeSynchCorePRPQueue job is complete.
-  if (queue_duplicates && !rawResponseMap.empty())
-    for (std::map<int, std::pair<PRPQueueHIter, Response> >::iterator 
-	 bsd_iter  = beforeSynchDuplicateMap.begin();
-	 bsd_iter != beforeSynchDuplicateMap.end(); bsd_iter++) {
-      const ParamResponsePair& scheduled_pr = *(bsd_iter->second).first;
-      if (rawResponseMap.find(scheduled_pr.eval_id()) != rawResponseMap.end()) {
-	// due to id_vars_set_compare, the desired response set could be
-	// a subset of the duplicate response -> use update().
-	Response& response = (bsd_iter->second).second;
-	response.update(scheduled_pr.response());
-	rawResponseMap[bsd_iter->first] = response;
-      }
+  for (std::map<int, std::pair<PRPQueueHIter, Response> >::iterator 
+       bsd_iter  = beforeSynchDuplicateMap.begin();
+       bsd_iter != beforeSynchDuplicateMap.end(); bsd_iter++) {
+    const ParamResponsePair& scheduled_pr = *(bsd_iter->second).first;
+    if (rawResponseMap.find(scheduled_pr.eval_id()) != rawResponseMap.end()) {
+      // due to id_vars_set_compare, the desired response set could be
+      // a subset of the duplicate response -> use update().
+      Response& response = (bsd_iter->second).second;
+      response.update(scheduled_pr.prp_response());
+      rawResponseMap[bsd_iter->first] = response;
     }
+  }
 
-  // Process history duplicates (see duplication_detect) and cached evaluations.
-  // In the _nowait case, this goes after the schedulers so as to not interfere
-  // with rawResponseMap usage in the schedulers and after the
-  // beforeSynchDuplicates in order to streamline their rawResponseMap searches.
-  // Note: since data_pairs is checked first in duplication_detect(), it is not
-  // possible to have a beforeSynchDuplicateMap entry that references a
-  // historyDuplicateMap entry.
-  if (cached_eval) {
-    rawResponseMap.insert(cachedResponseMap.begin(), cachedResponseMap.end());
-    cachedResponseMap.clear(); headerFlag = true;
-  }
-  if (hist_duplicates) {
-    rawResponseMap.insert(historyDuplicateMap.begin(),
-			  historyDuplicateMap.end());
-    historyDuplicateMap.clear(); headerFlag = true;
-  }
+  // Process history duplicates (see duplication_detect).  In the _nowait case,
+  // this goes after the schedulers so as to not interfere with rawResponseMap
+  // usage in the schedulers and after the beforeSynchDuplicates in order to 
+  // streamline their rawResponseMap searches.  Note: since data_pairs is
+  // checked first in duplication_detect(), it is not possible to have a
+  // beforeSynchDuplicateMap entry that references a historyDuplicateMap entry.
+  rawResponseMap.insert(historyDuplicateMap.begin(), historyDuplicateMap.end());
+  historyDuplicateMap.clear();
 
   // Merge core mappings and algebraic mappings into rawResponseMap
   if (coreMappings && algebraicMappings) { // update completed core jobs
@@ -877,9 +771,9 @@ const IntResponseMap& ApplicationInterface::synchronize_nowait()
 	 rr_iter != rawResponseMap.end(); ++rr_iter) {
       PRPQueueIter alg_prp_it
 	= lookup_by_eval_id(beforeSynchAlgPRPQueue, rr_iter->first);
-      Response alg_response = alg_prp_it->response(); // shared rep
-      algebraic_mappings(alg_prp_it->variables(), alg_prp_it->active_set(),
-			 alg_response);               // update rep
+      Response alg_response = alg_prp_it->prp_response();         // shared rep
+      algebraic_mappings(alg_prp_it->prp_parameters(),
+			 alg_prp_it->active_set(), alg_response); // update rep
       response_mapping(alg_response, rr_iter->second, rr_iter->second);
       beforeSynchAlgPRPQueue.erase(alg_prp_it);
     }
@@ -888,9 +782,9 @@ const IntResponseMap& ApplicationInterface::synchronize_nowait()
     for (PRPQueueIter alg_prp_it = beforeSynchAlgPRPQueue.begin();
 	 alg_prp_it != beforeSynchAlgPRPQueue.end(); alg_prp_it++) {
 
-      Response algebraic_resp = alg_prp_it->response(); // shared rep
-      algebraic_mappings(alg_prp_it->variables(), alg_prp_it->active_set(),
-			 algebraic_resp);               // update rep
+      Response algebraic_resp = alg_prp_it->prp_response();        // shared rep
+      algebraic_mappings(alg_prp_it->prp_parameters(),
+			 alg_prp_it->active_set(), algebraic_resp);// update rep
       // call response_mapping even when no coreMapping, as even with
       // algebraic only, the functions may have to be reordered
 
@@ -899,7 +793,7 @@ const IntResponseMap& ApplicationInterface::synchronize_nowait()
       // valid Response to update
       ActiveSet total_set(alg_prp_it->active_set());
       asv_mapping(alg_prp_it->active_set(), total_set);
-      Response total_response = Response(SIMULATION_RESPONSE, total_set);
+      Response total_response = Response(total_set);
       response_mapping(algebraic_resp, total_response, total_response);
       rawResponseMap[alg_prp_it->eval_id()] = total_response;
     }
@@ -929,8 +823,8 @@ const IntResponseMap& ApplicationInterface::synchronize_nowait()
 }
 
 
-/** This code is called from synchronize() to provide the master portion of
-    a master-slave algorithm for the dynamic scheduling of evaluations among
+/** This code is called from synch() to provide the master portion of a
+    master-slave algorithm for the dynamic scheduling of evaluations among
     slave servers.  It performs no evaluations locally and matches either
     serve_evaluations_synch() or serve_evaluations_asynch() on the slave
     servers, depending on the value of asynchLocalEvalConcurrency.  Dynamic 
@@ -1011,9 +905,9 @@ void ApplicationInterface::master_dynamic_schedule_evaluations()
 
 
 /** This code runs on the iteratorCommRank 0 processor (the iterator) and is
-    called from synchronize() in order to manage a static schedule for cases
-    where peer 1 must block when evaluating its local job allocation (e.g.,
-    single or multiprocessor direct interface evaluations).  It matches
+    called from synch() in order to manage a static schedule for cases where
+    peer 1 must block when evaluating its local job allocation (e.g., single
+    or multiprocessor direct interface evaluations).  It matches
     serve_evaluations_peer() for any other processors within the first
     evaluation partition and serve_evaluations_{synch,asynch}() for all other
     evaluation partitions (depending on asynchLocalEvalConcurrency).  It
@@ -1085,11 +979,11 @@ void ApplicationInterface::peer_static_schedule_evaluations()
     synchronous_local_evaluations(local_prp_queue);
   }
   // reassign used to be required for beforeSynchDuplicates to work properly in
-  // synchronize(), but is now unnecessary due to response representation
+  // synch(), but is now unnecessary due to handle-body response representation
   // sharing between local_prp_queue and beforeSynchCorePRPQueue.
   //for (i=0; i<num_peer1_jobs; ++i)
-  //  beforeSynchCorePRPQueue[core_index].response(
-  //    local_prp_queue[i].response());
+  //  beforeSynchCorePRPQueue[core_index].prp_response(
+  //    local_prp_queue[i].prp_response());
 
   if (num_sends) { // Retrieve results from peers
     if (outputLevel > SILENT_OUTPUT)
@@ -1121,10 +1015,10 @@ void ApplicationInterface::peer_static_schedule_evaluations()
 
 
 /** This code runs on the iteratorCommRank 0 processor (the iterator) and is
-    called from synchronize() in order to manage a dynamic schedule, as
-    enabled by nonblocking management of local asynchronous jobs.  It
-    matches serve_evaluations_{synch,asynch}() for other evaluation
-    partitions, depending on asynchLocalEvalConcurrency; it does not match
+    called from synch() in order to manage a dynamic schedule, as enabled by
+    nonblocking management of local asynchronous jobs.  It matches
+    serve_evaluations_{synch,asynch}() for other evaluation partitions,
+    depending on asynchLocalEvalConcurrency; it does not match
     serve_evaluations_peer() since, for local asynchronous jobs, the first
     evaluation partition cannot be multiprocessor.  It performs function
     evaluations locally for its portion of the job allocation using
@@ -1157,13 +1051,13 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations()
   recvRequests = new MPI_Request     [num_remote_assign];
   int i, server_id, fn_eval_id;
   PRPQueueIter assign_iter = beforeSynchCorePRPQueue.begin();
-  PRPQueue local_prp_queue; size_t buff_index = 0;
+  PRPQueue local_prp_queue; int buff_index = 0;
   for (i=1; i<=num_assign; ++i, ++assign_iter) {//shift +1 to prefer remote work
     server_id = i%numEvalServers; // 0 to numEvalServers-1
     if (server_id) { // 1 to numEvalServers-1
       send_evaluation(assign_iter, buff_index, server_id, true); // peer
       msgPassRunningMap[assign_iter->eval_id()]
-	= IntSizetPair(server_id, buff_index);
+	= IntIntPair(server_id, buff_index);
       ++buff_index;
     }
     else
@@ -1198,7 +1092,7 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations()
 
 /** This function provides blocking synchronization for the local asynch
     case (background system call, nonblocking fork, or threads).  It can
-    be called from synchronize() for a complete local scheduling of all
+    be called from synch() for a complete local scheduling of all
     asynchronous jobs or from peer_{static,dynamic}_schedule_evaluations()
     to perform a local portion of the total job set.  It uses 
     derived_map_asynch() to initiate asynchronous evaluations and 
@@ -1209,8 +1103,8 @@ void ApplicationInterface::
 asynchronous_local_evaluations(PRPQueue& local_prp_queue)
 {
   size_t i, static_servers, server_index, num_jobs = local_prp_queue.size(), 
-    num_active, /*num_launch,*/ num_sends = (asynchLocalEvalConcurrency) ?
-      std::min((size_t)asynchLocalEvalConcurrency, num_jobs) : num_jobs;
+    num_sends = (asynchLocalEvalConcurrency) ?
+    std::min((size_t)asynchLocalEvalConcurrency, num_jobs) : num_jobs;
   bool static_limited
     = (asynchLocalEvalStatic && asynchLocalEvalConcurrency > 1);
   if (static_limited)
@@ -1223,7 +1117,7 @@ asynchronous_local_evaluations(PRPQueue& local_prp_queue)
   PRPQueueIter local_prp_iter;
   assign_asynch_local_queue(local_prp_queue, local_prp_iter);
 
-  num_active = /*num_launch =*/ asynchLocalActivePRPQueue.size();
+  size_t num_active = asynchLocalActivePRPQueue.size();
   if (num_active < num_jobs) {
     Cout << "Second pass: ";
     if (static_limited) Cout << "static ";
@@ -1233,15 +1127,6 @@ asynchronous_local_evaluations(PRPQueue& local_prp_queue)
 
   size_t recv_cntr = 0, completed; bool launch;
   while (recv_cntr < num_jobs) {
-
-    /*
-    // SEND TERM ASAP
-    if (multiProcEvalFlag && num_launch == num_jobs) {
-      // stop serve_evaluation_{,a}synch_peer procs
-      int fn_eval_id = 0;
-      parallelLib.bcast_e(fn_eval_id);
-    }
-    */
 
     // Step 2: process completed jobs with wait_local_evaluations()
     if (outputLevel > SILENT_OUTPUT)
@@ -1274,7 +1159,7 @@ asynchronous_local_evaluations(PRPQueue& local_prp_queue)
       }
 
       if (launch) {
-	launch_asynch_local(local_prp_iter); ++num_active; /*++num_launch;*/
+	launch_asynch_local(local_prp_iter); ++num_active;
 	if (static_limited && num_active == asynchLocalEvalConcurrency)
 	  break;
       }
@@ -1322,7 +1207,7 @@ assign_asynch_local_queue(PRPQueue& local_prp_queue,
   //IntSet all_completed; // track all completed evals within local_prp_queue
 
   int fn_eval_id, num_jobs = local_prp_queue.size();
-  if (multiProcEvalFlag) // TO DO: deactivate this bcast
+  if (multiProcEvalFlag)
     parallelLib.bcast_e(num_jobs);
   size_t i, server_index, num_active = 0,
     num_sends = (asynchLocalEvalConcurrency) ?
@@ -1358,15 +1243,14 @@ test_receives_backfill(PRPQueueIter& assign_iter, bool peer_flag)
   if (outputLevel == DEBUG_OUTPUT)
     Cout << "Testing message receives from remote servers\n";
 
-  int mpi_test_flag, fn_eval_id, new_eval_id, server_id;
-  size_t buff_index;
+  int mpi_test_flag, buff_index, fn_eval_id, new_eval_id, server_id;
   MPI_Status status; // only 1 needed for parallelLib.test()
-  std::map<int, IntSizetPair>::iterator run_iter; PRPQueueIter return_iter;
+  std::map<int, IntIntPair>::iterator run_iter; PRPQueueIter return_iter;
   IntIntMap removals; size_t receives = 0;
 
   for (run_iter  = msgPassRunningMap.begin();
        run_iter != msgPassRunningMap.end(); ++run_iter) {
-    IntSizetPair& id_index = run_iter->second;
+    IntIntPair& id_index = run_iter->second;
     buff_index = id_index.second;
     parallelLib.test(recvRequests[buff_index], mpi_test_flag, status);
     if (mpi_test_flag) {
@@ -1472,7 +1356,7 @@ test_local_backfill(PRPQueue& assign_queue, PRPQueueIter& assign_iter)
 }
 
 
-/** This code is called from synchronize_nowait() to provide the master 
+/** This code is called from synch_nowait() to provide the master 
     portion of a nonblocking master-slave algorithm for the dynamic 
     scheduling of evaluations among slave servers.  It performs no
     evaluations locally and matches either serve_evaluations_synch() 
@@ -1487,8 +1371,8 @@ test_local_backfill(PRPQueue& assign_queue, PRPQueueIter& assign_iter)
 void ApplicationInterface::master_dynamic_schedule_evaluations_nowait()
 {
   // beforeSynchCorePRPQueue includes running evaluations plus new requests;
-  // previous completions have been removed by synchronize_nowait().  Thus,
-  // queue size could be larger or smaller than on previous nowait invocation.
+  // previous completions have been removed by synch_nowait().  Thus, the queue
+  // size could be larger or smaller than on the previous nowait invocation.
   size_t i, num_jobs = beforeSynchCorePRPQueue.size(), buff_index, server_index,
     server_job_index, num_running  = msgPassRunningMap.size(),
     num_backfill = num_jobs - num_running, capacity = numEvalServers;
@@ -1519,14 +1403,14 @@ void ApplicationInterface::master_dynamic_schedule_evaluations_nowait()
       send_evaluation(assign_iter, buff_index, server_id, false); // !peer
       // update bookkeeping
       fn_eval_id = assign_iter->eval_id();
-      msgPassRunningMap[fn_eval_id] = IntSizetPair(server_id, buff_index);
+      msgPassRunningMap[fn_eval_id] = IntIntPair(server_id, buff_index);
     }
   }
   else if (num_backfill && num_running < capacity) { // fill in any gaps
     Cout << "Master dynamic schedule: first pass backfilling jobs up to "
 	 << "available capacity\n";
     UShortSetArray server_jobs(numEvalServers);
-    for (std::map<int, IntSizetPair>::iterator r_it = msgPassRunningMap.begin();
+    for (std::map<int, IntIntPair>::iterator r_it = msgPassRunningMap.begin();
 	 r_it != msgPassRunningMap.end(); ++r_it) {
       server_index = r_it->second.first - 1; buff_index = r_it->second.second;
       server_jobs[server_index].insert(buff_index);
@@ -1570,19 +1454,17 @@ void ApplicationInterface::master_dynamic_schedule_evaluations_nowait()
 	// assign job
 	send_evaluation(assign_iter, buff_index, server_id, false); // !peer
 	// update bookkeeping
-	msgPassRunningMap[fn_eval_id] = IntSizetPair(server_id, buff_index);
+	msgPassRunningMap[fn_eval_id] = IntIntPair(server_id, buff_index);
 	server_jobs[min_index].insert(buff_index); ++num_running;
       }
     }
   }
 
   // Step 2: check status of running jobs and backfill any completions
-  if (headerFlag) {
-    Cout << "Master dynamic schedule: second pass testing for completions ("
-	 << num_running << " running)";
-    if (num_running == num_jobs) Cout << '\n';
-    else Cout << " and backfilling (" << num_jobs-num_running <<" remaining)\n";
-  }
+  Cout << "Master dynamic schedule: second pass testing for completions ("
+       << num_running << " running)";
+  if (num_running == num_jobs) Cout << '\n';
+  else Cout << " and backfilling (" << num_jobs-num_running << " remaining)\n";
   test_receives_backfill(assign_iter, false); // !peer
 
   if (msgPassRunningMap.empty()) {
@@ -1595,210 +1477,25 @@ void ApplicationInterface::master_dynamic_schedule_evaluations_nowait()
 
 
 /** This code runs on the iteratorCommRank 0 processor (the iterator)
-    and is called from synchronize_nowait() in order to manage a
-    nonblocking static schedule.  It matches serve_evaluations_synch()
-    for other evaluation partitions (asynchLocalEvalConcurrency == 1).
-    It performs blocking local function evaluations, one at a time, 
-    for its portion of the static schedule and checks for remote 
-    completions in between each local completion.  Therefore, unlike
-    peer_dynamic_schedule_evaluations_nowait(), this scheduler will 
-    always return at least one job.  Single-level and multilevel 
-    parallel use intra- and inter-communicators, respectively, for 
-    send/receive, with specific syntax as encapsulated within
+    and is called from synch_nowait() in order to manage a nonblocking
+    static schedule.  It matches serve_evaluations_{synch,asynch}()
+    for other evaluation partitions (depending on
+    asynchLocalEvalConcurrency).  It performs nonblocking local
+    function evaluations for its portion of the static schedule using
+    asynchronous_local_evaluations().  Single-level and multilevel
+    parallel use intra- and inter-communicators, respectively, for
+    send/receive.  Specific syntax is encapsulated within
     ParallelLibrary.  The iteratorCommRank 0 processor assigns the
     static schedule since it is the only processor with access to
     beforeSynchCorePRPQueue (it runs the iterator and calls
     synchronize).  The alternate design of each peer selecting its own
     jobs using the modulus operator would be applicable if execution
     of this function (and therefore the job list) were distributed. */
-void ApplicationInterface::peer_static_schedule_evaluations_nowait()
-{
-  // beforeSynchCorePRPQueue includes running evaluations plus new requests;
-  // previous completions have been removed by synchronize_nowait().  Thus,
-  // queue size could be larger or smaller than on previous nowait invocation.
-  // Rounding down num_local_jobs offloads this processor (which has additional
-  // work relative to other peers), but results in a few more passed messages.
-  int fn_eval_id, server_id;
-  size_t i, num_jobs = beforeSynchCorePRPQueue.size(), buff_index, server_index,
-    server_job_index, num_remote_running = msgPassRunningMap.size(),
-    num_local_running = asynchLocalActivePRPQueue.size(),
-    num_running  = num_remote_running + num_local_running,
-    num_backfill = num_jobs - num_running, local_capacity = 1,
-    capacity     = numEvalServers;
-  if (asynchLocalEvalConcurrency > 1) {
-    local_capacity = asynchLocalEvalConcurrency;
-    capacity      *= asynchLocalEvalConcurrency;
-  }
-  size_t remote_capacity = capacity - local_capacity;
-
-  // peer static nowait supports blocking local evals, taken one at a time,
-  // if necessary to support direct interfaces or multiproc evals.
-  bool synch_local
-    = ( multiProcEvalFlag || ( interfaceType & DIRECT_INTERFACE_BIT ) );
-  //bool static_limited
-  //  = ( asynchLocalEvalStatic || evalScheduling == PEER_STATIC_SCHEDULING );
-
-  // allocate remote_capacity entries as this avoids need for dynamic resizing
-  if (!sendBuffers) {
-    sendBuffers  = new MPIPackBuffer   [remote_capacity];
-    recvBuffers  = new MPIUnpackBuffer [remote_capacity];
-    recvRequests = new MPI_Request     [remote_capacity];
-  }
-
-  PRPQueueIter assign_iter = beforeSynchCorePRPQueue.begin(), local_prp_iter;
-  if (!num_running) { // simplest case
-
-    size_t num_local_jobs = (size_t)std::floor((Real)num_jobs/numEvalServers),
-      num_remote_jobs  = num_jobs - num_local_jobs;
-    num_local_running  = std::min(local_capacity,  num_local_jobs);
-    num_remote_running = std::min(remote_capacity, num_remote_jobs);
-    num_running = num_local_running + num_remote_running;
-
-    // this reference used to preserve static server assignment
-    //if (static_limited)
-    nowaitEvalIdRef = assign_iter->eval_id();
-
-    Cout << "Peer static schedule: first pass assigning " << num_remote_running
-	 << " jobs among " << numEvalServers-1 << " remote peers\n";
-    PRPQueue local_prp_queue; buff_index = 0;
-    for (i=1; i<=num_running; ++i, ++assign_iter) {//shift by 1 to reduce pr1 wk
-      server_id = i%numEvalServers; // 0 to numEvalServers-1
-      if (server_id) { // 1 to numEvalServers-1
-	send_evaluation(assign_iter, buff_index, server_id, true); // peer
-	// update bookkeeping
-	fn_eval_id = assign_iter->eval_id();
-	msgPassRunningMap[fn_eval_id] = IntSizetPair(server_id, buff_index);
-	++buff_index;
-      }
-      else
-	local_prp_queue.insert(*assign_iter);
-    }
-
-    // Perform computation for first num_local_jobs jobs on peer 1.  Default 
-    // behavior is synchronous evaluation of jobs on each peer.  Only if
-    // asynchLocalEvalConcurrency > 1 do we get the hybrid parallelism of
-    // asynch jobs on each peer.
-    Cout << "Peer static schedule: first pass launching " << num_local_running
-	 << " local jobs\n";
-    if (synch_local) // synch launch and complete
-      synchronous_local_evaluations(local_prp_queue);
-    else // asynch launch only w/o backfill logic
-      assign_asynch_local_queue(local_prp_queue, local_prp_iter);
-  }
-  else if (num_backfill && num_running < capacity) { // fill in any gaps
-    Cout << "Peer static schedule: first pass backfilling jobs up to "
-	 << "available capacity\n";
-
-    // server_id is 1:numEvalServ-1, server_jobs is indexed 0:numEvalServ-2
-    UShortSetArray server_jobs(numEvalServers-1); PRPQueue local_prp_queue;
-    for (std::map<int, IntSizetPair>::iterator r_it = msgPassRunningMap.begin();
-	 r_it != msgPassRunningMap.end(); ++r_it) {
-      server_index = r_it->second.first - 1; buff_index = r_it->second.second;
-      server_jobs[server_index].insert(buff_index);
-    }
-    bool running_mp, running_al, backfill_local = false;
-    for (; assign_iter != beforeSynchCorePRPQueue.end() &&
-	   ( num_local_running  < local_capacity ||
-	     num_remote_running < remote_capacity ); ++assign_iter) {
-      fn_eval_id = assign_iter->eval_id();
-      // look here first
-      running_mp = (msgPassRunningMap.find(fn_eval_id) !=
-		    msgPassRunningMap.end());
-      // look here second if not already found
-      running_al = (running_mp) ? false :
-	(lookup_by_eval_id(asynchLocalActivePRPQueue, fn_eval_id) !=
-	 asynchLocalActivePRPQueue.end());
-      if (!running_mp && !running_al) { // can launch as new job
-
-	// to enable consistent modulo arithmetic on server assignment, use
-	// the first eval id from the last complete job set (!num_running) as
-	// a reference; +1 is consistent with shift by 1 to reduce peer1 work
-	//if (static_limited)
-	server_id = (fn_eval_id-nowaitEvalIdRef+1)%numEvalServers;//0 to numES-1
-        //else could assign based on min load as in peer dynamic nowait case
-
-	// assign job
-	if (server_id == 0 && num_local_running < local_capacity) {
-	  local_prp_queue.insert(*assign_iter);
-	  ++num_local_running; backfill_local = true;
-	}
-	else if (server_id && server_jobs[server_id-1].size() < local_capacity){
-	  // find an available buff_index for this server_id.  Logic uses first
-	  // available within this server's allocation of buffer indices.
-	  size_t server_index = server_id - 1,
-	    min_buff = server_index * asynchLocalEvalConcurrency,
-	    max_buff =     min_buff + asynchLocalEvalConcurrency;
-	  UShortSet& server_jobs_mi = server_jobs[server_index];
-	  bool avail = false;
-	  for (buff_index=min_buff; buff_index<max_buff; ++buff_index)
-	    if (server_jobs_mi.find(buff_index) == server_jobs_mi.end())
-	      { avail = true; break; }
-	  if (!avail) {
-	    Cerr << "Error: no available buffer index for backfill in "
-		 << "ApplicationInterface::peer_static_schedule_evaluations_"
-		 << "nowait()." << std::endl;
-	    abort_handler(-1);
-	  }
-	  // assign job
-	  send_evaluation(assign_iter, buff_index, server_id, true);
-	  // update bookkeeping
-	  msgPassRunningMap[fn_eval_id] = IntSizetPair(server_id, buff_index);
-	  server_jobs[server_index].insert(buff_index);
-	  ++num_remote_running;
-	}
-      }
-      else if (running_al) // include in local queue for asynch processing
-	local_prp_queue.insert(*assign_iter);
-    }
-
-    if (backfill_local) {
-      if (synch_local) synchronous_local_evaluations(local_prp_queue);
-      else assign_asynch_local_queue_nowait(local_prp_queue, local_prp_iter);
-    }
-
-    num_running = num_local_running + num_remote_running; // update
-  }
-
-  // Step 2: check status of running jobs and backfill any completions
-  if (headerFlag) {
-    Cout << "Peer static schedule: second pass testing for completions ("
-	 << num_running << " running)";
-    if (num_running == num_jobs) Cout << '\n';
-    else Cout << " and backfilling (" << num_jobs-num_running <<" remaining)\n";
-  }
-  if (num_remote_running)
-    test_receives_backfill(assign_iter, true); // peer
-  if (!synch_local && num_local_running)
-    test_local_backfill(beforeSynchCorePRPQueue, assign_iter);
-
-  if (msgPassRunningMap.empty()) {
-    // deallocate MPI & buffer arrays
-    delete [] sendBuffers;   sendBuffers = NULL;
-    delete [] recvBuffers;   recvBuffers = NULL;
-    delete [] recvRequests; recvRequests = NULL;
-  }
-}
-
-
-/** This code runs on the iteratorCommRank 0 processor (the iterator) and
-    is called from synchronize_nowait() in order to manage a nonblocking
-    static schedule.  It matches serve_evaluations_{synch,asynch}() for
-    other evaluation partitions (depending on asynchLocalEvalConcurrency).
-    It performs nonblocking local function evaluations for its portion of
-    the static schedule using asynchronous_local_evaluations().
-    Single-level and multilevel parallel use intra- and inter-communicators,
-    respectively, for send/receive, with specific syntax as encapsulated
-    within ParallelLibrary.  The iteratorCommRank 0 processor assigns the
-    dynamic schedule since it is the only processor with access to
-    beforeSynchCorePRPQueue (it runs the iterator and calls synchronize).
-    The alternate design of each peer selecting its own jobs using the
-    modulus operator would be applicable if execution of this function
-    (and therefore the job list) were distributed. */
 void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
 {
   // beforeSynchCorePRPQueue includes running evaluations plus new requests;
-  // previous completions have been removed by synchronize_nowait().  Thus,
-  // queue size could be larger or smaller than on previous nowait invocation.
+  // previous completions have been removed by synch_nowait().  Thus, the queue
+  // size could be larger or smaller than on the previous nowait invocation.
   // Rounding down num_local_jobs offloads this processor (which has additional
   // work relative to other peers), but results in a few more passed messages.
   int fn_eval_id, server_id;
@@ -1843,7 +1540,7 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
       send_evaluation(assign_iter, buff_index, server_id, true); // peer
       // update bookkeeping
       fn_eval_id = assign_iter->eval_id();
-      msgPassRunningMap[fn_eval_id] = IntSizetPair(server_id, buff_index);
+      msgPassRunningMap[fn_eval_id] = IntIntPair(server_id, buff_index);
     }
 
     // Perform computation for first num_local_jobs jobs on peer 1.  Default 
@@ -1862,23 +1559,18 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
 	 << "available capacity\n";
     // server_id is 1:numEvalServ-1, server_jobs is indexed 0:numEvalServ-2
     UShortSetArray server_jobs(numEvalServers-1); PRPQueue local_prp_queue;
-    for (std::map<int, IntSizetPair>::iterator r_it = msgPassRunningMap.begin();
+    for (std::map<int, IntIntPair>::iterator r_it = msgPassRunningMap.begin();
 	 r_it != msgPassRunningMap.end(); ++r_it) {
       server_index = r_it->second.first - 1; buff_index = r_it->second.second;
       server_jobs[server_index].insert(buff_index);
     }
     bool running_mp, running_al, backfill_local = false;
-    for (; assign_iter != beforeSynchCorePRPQueue.end() &&
-	   ( num_local_running  < local_capacity ||
-	     num_remote_running < remote_capacity ); ++assign_iter) {
+    for (; assign_iter != beforeSynchCorePRPQueue.end(); ++assign_iter) {
       fn_eval_id = assign_iter->eval_id();
-      // look here first
       running_mp = (msgPassRunningMap.find(fn_eval_id) !=
 		    msgPassRunningMap.end());
-      // look here second if not already found
-      running_al = (running_mp) ? false :
-	(lookup_by_eval_id(asynchLocalActivePRPQueue, fn_eval_id) !=
-	 asynchLocalActivePRPQueue.end());
+      running_al = (lookup_by_eval_id(asynchLocalActivePRPQueue, fn_eval_id) !=
+		    asynchLocalActivePRPQueue.end());
       if (!running_mp && !running_al) { // can launch as new job
 	// determine min among local and remote loadings; tie goes to remote
 	// server_id is 1:numEvalServ-1, server_index is 0:numEvalServ-2
@@ -1918,8 +1610,7 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
 	  // assign job
 	  send_evaluation(assign_iter, buff_index, min_server_id, true); // peer
 	  // update bookkeeping
-	  msgPassRunningMap[fn_eval_id]
-	    = IntSizetPair(min_server_id, buff_index);
+	  msgPassRunningMap[fn_eval_id] = IntIntPair(min_server_id, buff_index);
 	  server_jobs[min_server_index].insert(buff_index);
 	  ++num_remote_running;
 	}
@@ -1935,12 +1626,10 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
   }
 
   // Step 2: check status of running jobs and backfill any completions
-  if (headerFlag) {
-    Cout << "Peer dynamic schedule: second pass testing for completions ("
-	 << num_running << " running)";
-    if (num_running == num_jobs) Cout << '\n';
-    else Cout << " and backfilling (" << num_jobs-num_running <<" remaining)\n";
-  }
+  Cout << "Peer dynamic schedule: second pass testing for completions ("
+       << num_running << " running)";
+  if (num_running == num_jobs) Cout << '\n';
+  else Cout << " and backfilling (" << num_jobs-num_running << " remaining)\n";
   if (num_remote_running)
     test_receives_backfill(assign_iter, true); // peer
   if (num_local_running)
@@ -1957,7 +1646,7 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
 
 /** This function provides nonblocking synchronization for the local
     asynch case (background system call, nonblocking fork, or
-    threads).  It is called from synchronize_nowait() and passed the
+    threads).  It is called from synch_nowait() and passed the
     complete set of all asynchronous jobs (beforeSynchCorePRPQueue).
     It uses derived_map_asynch() to initiate asynchronous evaluations
     and test_local_evaluations() to capture completed jobs in
@@ -1966,7 +1655,7 @@ void ApplicationInterface::peer_dynamic_schedule_evaluations_nowait()
     after MPI_Testsome()).  The result of this function is
     rawResponseMap, which uses eval_id as a key.  It is assumed that
     the incoming local_prp_queue contains only active and new jobs - 
-    i.e., all completed jobs are cleared by synchronize_nowait(). 
+    i.e., all completed jobs are cleared by synch_nowait(). 
 
     Also supports asynchronous local evaluations with static
     scheduling.  This scheduling policy specifically ensures that a
@@ -1998,11 +1687,9 @@ asynchronous_local_evaluations_nowait(PRPQueue& local_prp_queue)
 
   // Step 2: process any completed jobs and backfill if necessary
   num_active = asynchLocalActivePRPQueue.size(); // update
-  if (headerFlag) {
-    Cout << "Second pass: testing for completions (" << num_active<<" running)";
-    if (num_active == num_jobs) Cout << '\n';
-    else Cout << " and backfilling (" << num_jobs-num_active << " remaining)\n";
-  }
+  Cout << "Second pass: testing for completions (" << num_active << " running)";
+  if (num_active == num_jobs) Cout << '\n';
+  else Cout << " and backfilling (" << num_jobs - num_active << " remaining)\n";
   test_local_backfill(local_prp_queue, local_prp_iter);
 }
 
@@ -2030,7 +1717,7 @@ assign_asynch_local_queue_nowait(PRPQueue& local_prp_queue,
   int fn_eval_id, num_jobs = local_prp_queue.size();
   size_t server_index, num_active = asynchLocalActivePRPQueue.size();
   bool launch;
-  if (multiProcEvalFlag) // TO DO: deactivate this bcast
+  if (multiProcEvalFlag)
     parallelLib.bcast_e(num_jobs);
 
   // Step 1: launch any new jobs up to asynch concurrency limit (if specified)
@@ -2067,9 +1754,9 @@ synchronous_local_evaluations(PRPQueue& local_prp_queue)
   for (PRPQueueIter local_prp_iter = local_prp_queue.begin();
        local_prp_iter != local_prp_queue.end(); ++local_prp_iter) {
     currEvalId              = local_prp_iter->eval_id();
-    const Variables& vars   = local_prp_iter->variables();
+    const Variables& vars   = local_prp_iter->prp_parameters();
     const ActiveSet& set    = local_prp_iter->active_set();
-    Response local_response = local_prp_iter->response(); // shared rep
+    Response local_response = local_prp_iter->prp_response(); // shared rep
 
     // bcast the job to other processors within peer 1 (if required)
     if (multiProcEvalFlag)
@@ -2077,7 +1764,7 @@ synchronous_local_evaluations(PRPQueue& local_prp_queue)
 
     try { derived_map(vars, set, local_response, currEvalId); } // synch. local
 
-    catch(const FunctionEvalFailure& fneval_except) {
+    catch(int fail_code) {
       manage_failure(vars, set, local_response, currEvalId);
     }
 
@@ -2179,14 +1866,13 @@ void ApplicationInterface::serve_evaluations_synch()
       Cout << '}' << std::endl;
 #endif // MPI_DEBUG
 
-      Response local_response(SIMULATION_RESPONSE, set); // special constructor
+      Response local_response(set); // special constructor
 
       // slaves invoke derived_map to avoid repeating overhead of map fn.
       try { derived_map(vars, set, local_response, currEvalId); } // synch local
 
-      catch(const FunctionEvalFailure& fneval_except) {
-        //Cerr<< "Slave has caught exception from local derived_map; message: "
-	//<< fneval_except.what() << std::endl;
+      catch(int fail_code) { // value of fail_code not currently used.
+        //Cerr<< "Slave has caught exception from local derived_map"<<std::endl;
         manage_failure(vars, set, local_response, currEvalId);
       }
 
@@ -2242,14 +1928,13 @@ void ApplicationInterface::serve_evaluations_synch_peer()
       Cout << '}' << std::endl;
 #endif // MPI_DEBUG
 
-      Response local_response(SIMULATION_RESPONSE, set); // special constructor
+      Response local_response(set); // special constructor
 
       // slaves invoke derived_map to avoid repeating overhead of map fn.
       try { derived_map(vars, set, local_response, currEvalId); } //synch local
 
-      catch(const FunctionEvalFailure& fneval_except) {
-        //Cerr<< "Slave has caught exception from local derived_map; message: "
-	//<< fneval_except.what() << std::endl;
+      catch(int fail_code) { // value of fail_code not currently used.
+        //Cerr<< "Slave has caught exception from local derived_map"<<std::endl;
         manage_failure(vars, set, local_response, currEvalId);
       }
     }
@@ -2275,10 +1960,9 @@ void ApplicationInterface::serve_evaluations_asynch()
   // scheduler would not normally need to support a multiprocessor evalComm
   // (ApplicationInterface::init_communicators_checks() normally prevents this
   // in its check for multiproc evalComm and asynchLocalEvalConcurrency > 1).
-  // However, direct interface plug-ins can use derived_{synchronize,
-  // synchronize_nowait} to provide a poor man's batch processing capability,
-  // so this function has been extended to allow for multiProcEvalFlag to
-  // accommodate this case.
+  // However, direct interface plug-ins can use derived_{synch,synch_nowait} to
+  // provide a poor man's batch processing capability, so this function has been
+  // extended to allow for multiProcEvalFlag to accommodate this case.
   // ---------------------------------------------------------------------------
 
   // ----------------------------------------------------------
@@ -2323,7 +2007,7 @@ void ApplicationInterface::serve_evaluations_asynch()
           Variables vars; ActiveSet set;
           recv_buffer >> vars >> set;
 	  recv_buffer.reset();
-	  Response local_response(SIMULATION_RESPONSE, set); // special ctor
+	  Response local_response(set); // special constructor
           ParamResponsePair prp(vars, interfaceId, local_response,
 				fn_eval_id, false); // shallow copy
           asynchLocalActivePRPQueue.insert(prp);
@@ -2361,7 +2045,7 @@ void ApplicationInterface::serve_evaluations_asynch()
 	    // of sendBuffers would vary with completionSet length).  The eval
 	    // scheduler processor should have pre-posted corresponding recv's.
 	    MPIPackBuffer send_buffer(lenResponseMessage);
-	    send_buffer << q_it->response();
+	    send_buffer << q_it->prp_response();
 	    parallelLib.send_ie(send_buffer, 0, completed_eval_id);
 	  }
 	  asynchLocalActivePRPQueue.erase(q_it);
@@ -2383,29 +2067,17 @@ void ApplicationInterface::serve_evaluations_asynch_peer()
 {
   MPIUnpackBuffer recv_buffer(lenVarsActSetMessage);
   int fn_eval_id = 1, num_jobs;
-  size_t num_active = 0, num_launch = 0, num_completed;
+  size_t num_active = 0, num_completed;
 
-  // TO DO: redesign this logic for greater generality.
-  // ONE OPTION: MOVE THIS INSIDE LOOP AND SYNC #JOBS THIS PASS
-  // > num_jobs could be inefficient to determine a priori (static_limited)
-  // MORE ATTRACTIVE OPTION: ELIMINATE BCAST & HAVE PEER MASTER SEND TERM ASAP
-  // > straightforward for asynchronous_local_evaluations()
-  // > asynch_local_evaluations_nowait() presents a problem (it can be active in
-  //   the multiProcEvalFlag peer asynch context...) since the job queue can
-  //   dynamically expand/contract across multiple invocations and we want the
-  //   server to remain up --> may need a different implementation for
-  //   serve_evaluations_asynch_peer_nowait()? 
   parallelLib.bcast_e(num_jobs);
+  int num_launch = std::min(asynchLocalEvalConcurrency, num_jobs);
 
   do { // main loop
-
-    // TO DO: generalize for nowait uses where num_jobs expands/shrinks
-    // Preferred approach is to send term code more immediately...
 
     // -------------------------------------------------------------------
     // check for incoming messages & unpack/execute all jobs received
     // -------------------------------------------------------------------
-    while (num_active < asynchLocalEvalConcurrency && num_launch < num_jobs) {
+    while (fn_eval_id && num_active < num_launch) {
       parallelLib.bcast_e(fn_eval_id);
       if (fn_eval_id) {
 	parallelLib.bcast_e(recv_buffer);
@@ -2413,13 +2085,13 @@ void ApplicationInterface::serve_evaluations_asynch_peer()
 	Variables vars;	ActiveSet set;
 	recv_buffer >> vars >> set;
 	recv_buffer.reset();
-	Response local_response(SIMULATION_RESPONSE, set); // special ctor
+	Response local_response(set); // special constructor
 	ParamResponsePair prp(vars, interfaceId, local_response,
 			      fn_eval_id, false); // shallow copy
 	asynchLocalActivePRPQueue.insert(prp);
 	// execute
 	derived_map_asynch(prp);
-	++num_active; ++num_launch;
+	++num_active;
       }
     }
 
@@ -2447,8 +2119,6 @@ void ApplicationInterface::serve_evaluations_asynch_peer()
 	}
       }
     }
-    else // catch termination code (short term fix)
-      parallelLib.bcast_e(fn_eval_id);
 
   } while (fn_eval_id || num_active > 0);
 
@@ -2468,45 +2138,26 @@ void ApplicationInterface::stop_evaluation_servers()
     if (!ieDedMasterFlag) {
       if (outputLevel > NORMAL_OUTPUT)
 	Cout << "Peer 1 stopping" << std::endl;
-
-      // TO DO: deactivate this block
-      if (multiProcEvalFlag) {// stop serve_evaluation_{,a}synch_peer procs
+      if (multiProcEvalFlag) { // stop serve_peer procs
         int fn_eval_id = 0;
         parallelLib.bcast_e(fn_eval_id);
       }
-
     }
     MPIPackBuffer send_buffer(0); // empty buffer
     MPI_Request send_request;
-    int server_id, term_tag = 0; // triggers termination
-    // Peer partitions have one fewer interComm from server 1 to servers 2-n,
-    // relative to ded master partitions which have interComms from server 0
-    // to servers 1-n.
-    int end = (ieDedMasterFlag) ? numEvalServers+1 : numEvalServers;
-    for (server_id=1; server_id<end; ++server_id) {
-      // stop serve_evaluation_{synch,asynch} procs
+    int term_tag = 0; // triggers termination
+    int end = (ieDedMasterFlag) ? numEvalServers : numEvalServers-1;
+    for (int i=0; i<end; ++i) { // stop serve_evaluation_synch/asynch procs
+      int server_id = i + 1;
       if (outputLevel > NORMAL_OUTPUT) {
 	if (ieDedMasterFlag)
 	  Cout << "Master stopping server " << server_id << std::endl;
 	else
-	  Cout << "Peer " << server_id+1 << " stopping" << std::endl;
+	  Cout << "Peer " << server_id+1 << " stopping"<< std::endl;
       }
       // nonblocking sends: master posts all terminate messages without waiting
       // for completion.  Bcast cannot be used since all procs must call it and
       // slaves are using Recv/Irecv in serve_evaluation_synch/asynch.
-      parallelLib.isend_ie(send_buffer, server_id, term_tag, send_request);
-      parallelLib.free(send_request); // no test/wait on send_request
-    }
-    // if the communicator partitioning resulted in a trailing partition of 
-    // idle processors due to a partitioning remainder (caused by strictly
-    // honoring a processors_per_server override), then these are not
-    // included in numEvalServers and we quietly free them separately.
-    // We assume a single server with all idle processors and a valid
-    // inter-communicator (enforced during split).
-    // > dedicated master: server_id = #servers+1 -> interComm[#servers]
-    // > peer:             server_id = #servers   -> interComm[#servers-1]
-    if (parallelLib.parallel_configuration().ie_parallel_level().
-	idle_partition()) {
       parallelLib.isend_ie(send_buffer, server_id, term_tag, send_request);
       parallelLib.free(send_request); // no test/wait on send_request
     }
@@ -2670,16 +2321,14 @@ manage_failure(const Variables& vars, const ActiveSet& set, Response& response,
 	       int failed_eval_id)
 {
   // SysCall/Fork application interface exception handling:
-  // When a simulation failure is detected w/i
-  // Response::read(istream), a FunctionEvalFailure exception is
-  // thrown which is first caught by catch(FunctionEvalFailure) within
-  // derived_map or wait_local_evaluations, depending on whether the
-  // simulation was synch or asynch.  In the case of derived_map, it
-  // rethrows the exception to an outer catch in map or serve which
-  // then invokes manage_failure.  In the case of
-  // wait_local_evaluations, it invokes manage_failure directly.
-  // manage_failure can then catch subsequent exceptions resulting
-  // from the try blocks below.
+  // When a simulation failure is detected w/i Response::read(istream), 
+  // an int exception is thrown which is first caught by catch(int fail_code) 
+  // within derived_map or wait_local_evaluations, depending on whether the
+  // simulation was synch or asynch.  In the case of derived_map, it rethrows
+  // the exception to an outer catch in map or serve which then invokes 
+  // manage_failure.  In the case of wait_local_evaluations, it invokes
+  // manage_failure directly.  manage_failure can then catch subsequent
+  // exceptions resulting from the try blocks below.
 
   // DirectFn application interface exception handling:
   // The DirectFn case is simpler than SysCall since (1) synch case: the 
@@ -2696,24 +2345,20 @@ manage_failure(const Variables& vars, const ActiveSet& set, Response& response,
     while (fail_flag) {
       fail_flag = 0; // reset each time prior to derived_map
       ++retries;
-      Cout << failureMessage << ": retry attempt " << retries << "/" << 
-        failRetryLimit << " for evaluation " << failed_eval_id << ".\n";
+      Cout << "Failure captured: retry attempt number " << retries << ".\n";
       try { derived_map(vars, set, response, failed_eval_id); }
-      catch(const FunctionEvalFailure& fneval_except) { 
-        //Cout << "Caught FunctionEvalFailure in manage_failure; message: "
-	// fneval_except.what() << std::endl;
+      catch(int fail_code) { 
+        //Cout << "Caught int in manage_failure" << std::endl;
         fail_flag = 1;
 	if (retries >= failRetryLimit) {
-	  Cerr << "Retry limit exceeded for evaluation " << failed_eval_id << 
-            ".  Aborting..." << std::endl;
-          abort_handler(INTERFACE_ERROR);
+	  Cerr << "Retry limit exceeded.  Aborting..." << std::endl;
+          abort_handler(-1);
 	}
       }
     }
   }
   else if (failAction == "recover") {
-    Cout << failureMessage << ": recovering with specified function values " <<
-      "for evaluation " << failed_eval_id << ".\n";
+    Cout << "Failure captured: recovering with specified function values.\n";
     if (failRecoveryFnVals.length() != response.num_functions() ) {
       Cerr << "Error: length of recovery function values specification\n"
            << "       must equal the total number of functions." << std::endl;
@@ -2744,8 +2389,7 @@ manage_failure(const Variables& vars, const ActiveSet& set, Response& response,
     else
       source_pair = get_source_pair(vars); // also the serial case
 
-    Cout << '\n' << failureMessage << ": halving interval and retrying " <<
-     "evaluation " << failed_eval_id << "." << std::endl;
+    Cout << "\nFailure captured: halving interval and retrying." << std::endl;
 
     // Now that source pt. is available, call the continuation algorithm.  
     // Mimic retry case in use of failed_eval_id to manage file names.
@@ -2754,9 +2398,8 @@ manage_failure(const Variables& vars, const ActiveSet& set, Response& response,
 
   }
   else { // default is abort
-    Cerr << failureMessage << ": aborting due to failure in evaluation " << 
-      failed_eval_id << "..." << std::endl;
-    abort_handler(INTERFACE_ERROR);
+    Cerr << "Failure captured: aborting..." << std::endl;
+    abort_handler(-1);
   }
 }
 
@@ -2781,7 +2424,7 @@ ApplicationInterface::get_source_pair(const Variables& target_vars)
   for (prp_iter = data_pairs.begin(); prp_iter != prp_end_iter; ++prp_iter) {
     //if (interfaceId == prp_iter->interface_id()) {
       const RealVector& xc_source 
-	= prp_iter->variables().continuous_variables();
+	= prp_iter->prp_parameters().continuous_variables();
       Real sum_of_squares = 0.;
       for (i=0; i<num_vars; ++i)
         sum_of_squares += std::pow( xc_source[i] - xc_target[i], 2);
@@ -2810,7 +2453,7 @@ continuation(const Variables& target_vars, const ActiveSet& set,
 	     int failed_eval_id)
 {
   // TO DO: should use both continuous_variables and discrete_variables
-  const Variables& source_vars = source_pair.variables();
+  const Variables&     source_vars = source_pair.prp_parameters();
   const RealVector& source_pt = source_vars.continuous_variables();
   const RealVector& target_pt = target_vars.continuous_variables();
 
@@ -2843,18 +2486,17 @@ continuation(const Variables& target_vars, const ActiveSet& set,
 
     bool fail_flag = 0;
     try { derived_map(current_vars, set, response, failed_eval_id); }
-    catch(const FunctionEvalFailure& fneval_except) { 
+    catch(int fail_code) { 
       fail_flag = 1;
     }
 
     if (fail_flag) {
-      Cout << "\nInterval halving attempt " << failures << " for evaluation " <<
-        failed_eval_id << " failed. Halving again." << std::endl;
       ++failures;
+      Cout << "\nEvaluation failed. Interval halving." << std::endl;
       if (failures > MAX_FAILURES) {
-	Cerr << "\n\nInterval halving limit exceeded in continuation for " <<
-          "evaluation " << failed_eval_id << ": " << "aborting..." << std::endl;
-	abort_handler(INTERFACE_ERROR);
+	Cerr << "\n\nInterval halving limit exceeded in continuation: "
+	     << "aborting..." << std::endl;
+	abort_handler(-1);
       }
 
       // take a half-step back from the failed current point (and don't update
@@ -2865,8 +2507,9 @@ continuation(const Variables& target_vars, const ActiveSet& set,
       }
     }
     else {
-      Cout << "\nEvaluation succeeded.\nContinuing with current step size " <<
-        "for evaluation " << failed_eval_id << "." << std::endl;
+      Cout << "\nEvaluation succeeded.\nContinuing with current step size."
+	   << std::endl;
+
       // Possibly append new continuation evals. to data_pairs list (?)
 
       if (current_pt == target_pt) // operator== in data_types.cpp
@@ -2882,8 +2525,7 @@ continuation(const Variables& target_vars, const ActiveSet& set,
       }
     }
   }
-  Cout << "Finished with continuation for evaluation " << failed_eval_id << 
-    "." << std::endl;
+  Cout << "Finished with continuation." << std::endl;
 }
 
 
@@ -2916,7 +2558,7 @@ receive_evaluation(PRPQueueIter& prp_it, size_t buff_index, int server_id,
   recvBuffers[buff_index] >> remote_response; // lightweight response
   // share the rep among between rawResponseMap and the processing queue, but
   // don't trample raw response sizing with lightweight remote response
-  Response raw_response = rawResponseMap[fn_eval_id] = prp_it->response();
+  Response raw_response = rawResponseMap[fn_eval_id] = prp_it->prp_response();
   raw_response.update(remote_response);
 
   // insert into restart and eval cache ASAP
@@ -2941,7 +2583,7 @@ void ApplicationInterface::process_asynch_local(int fn_eval_id)
     Cout << fn_eval_id << " has completed\n";
   }
 
-  rawResponseMap[fn_eval_id] = prp_it->response();
+  rawResponseMap[fn_eval_id] = prp_it->prp_response();
   if (evalCacheFlag)   data_pairs.insert(*prp_it);
   if (restartFileFlag) parallelLib.write_restart(*prp_it);
 
@@ -2962,7 +2604,7 @@ void ApplicationInterface::process_synch_local(PRPQueueIter& prp_it)
     if (!interfaceId.empty()) Cout << interfaceId << ' ';
     Cout << "evaluation " << fn_eval_id << std::endl;
   }
-  rawResponseMap[fn_eval_id] = prp_it->response();
+  rawResponseMap[fn_eval_id] = prp_it->prp_response();
   if (evalCacheFlag)   data_pairs.insert(*prp_it);
   if (restartFileFlag) parallelLib.write_restart(*prp_it);
 }

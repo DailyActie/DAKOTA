@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -25,21 +25,34 @@ namespace Dakota {
 /** This constructor is called for a standard letter-envelope iterator 
     instantiation.  In this case, set_db_list_nodes has been called and 
     probDescDB can be queried for settings from the method specification. */
-NonDCalibration::NonDCalibration(ProblemDescDB& problem_db, Model& model):
-  NonD(problem_db, model),
-  calibrationData(probDescDB.get_bool("responses.calibration_data") ||
-    !probDescDB.get_string("responses.scalar_data_filename").empty()),
+NonDCalibration::NonDCalibration(Model& model): NonD(model),
+  expStdDeviations(probDescDB.get_rv("responses.exp_std_deviations")),
+  expDataFileName(probDescDB.get_string("responses.exp_data_filename")),
+  expDataFileAnnotated(probDescDB.get_bool("responses.exp_data_file_annotated")),
   numExperiments(probDescDB.get_sizet("responses.num_experiments")),
+  numReplicates(probDescDB.get_iv("responses.num_replicates")),
   numExpConfigVars(probDescDB.get_sizet("responses.num_config_vars")),
-  varianceTypesRead(probDescDB.get_sa("responses.variance_type")),
-  expData(problem_db, iteratedModel.current_response().shared_data(), 
-	  outputLevel),
-  numTotalCalibTerms(model.num_primary_fns()),
+  numExpStdDeviationsRead(probDescDB.get_sizet("responses.num_std_deviations")),
   continuousConfigVars(0), discreteIntConfigVars(0), discreteRealConfigVars(0),
   continuousConfigStart(0), discreteIntConfigStart(0),
   discreteRealConfigStart(0)
 { 
   bool found_error = false;
+
+  if (expStdDeviations.length() != 0 && expStdDeviations.length() != 1 && 
+      expStdDeviations.length() != numFunctions) {
+    Cerr << "\nError (NonDCalibration): vector of experimental standard "
+	 << "deviations must have length 0, 1, or " << numFunctions 
+	 << "(number of responses)." << std::endl;
+    found_error = true;
+  }
+
+  // for backward compatibility with single experiment data files
+  if (!expDataFileName.empty() && numExperiments == 0) {
+    numExperiments = 1;
+    numReplicates.resize(1);
+    numReplicates(0) = 1;
+  }
   if (numExpConfigVars > 0) {
 
     // would need to trap error if all_variables were later allowed
@@ -98,34 +111,11 @@ NonDCalibration::NonDCalibration(ProblemDescDB& problem_db, Model& model):
 
   if (found_error)
     abort_handler(-1);
-
-  // Read in all of the experimental data, including any x configuration 
-  // variables, y observations, and covariance information if available 
-  //if (outputLevel > NORMAL_OUTPUT)
-  //  Cout << "Read data from file " << calibrationData << '\n';
-  if (calibrationData) {
-    expData.load_data("NonDCalibration");
-    numTotalCalibTerms = expData.num_total_exppoints();
-  } else {
-    Cout << "No experiment data from files.\nCalibration is assuming the "
-	 << "simulation is returning the residuals" << std::endl;
-  }
 }
 
 
 NonDCalibration::~NonDCalibration()
 { }
-
-bool NonDCalibration::resize()
-{
-  bool parent_reinit_comms = NonD::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
 
 
 //void NonDCalibration::print_results(std::ostream& s)

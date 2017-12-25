@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -15,8 +15,8 @@
 #include "ProcessHandleApplicInterface.hpp"
 #include "ProblemDescDB.hpp"
 #include "ParallelLibrary.hpp"
-#include "WorkdirHelper.hpp"
 #include <algorithm>
+
 
 namespace Dakota {
 
@@ -48,37 +48,36 @@ process_local_evaluation(PRPQueue& prp_queue, const pid_t pid)
   int fn_eval_id = map_iter->second;
 
   // now populate the corresponding response by reading the results file 
-  PRPQueueIter queue_it = lookup_by_eval_id(prp_queue, fn_eval_id);
-  if (queue_it == prp_queue.end()) {
+  ParamResponsePair pr_pair;
+  bool found = lookup_by_eval_id(prp_queue, fn_eval_id, pr_pair);
+  if (!found) {
     Cerr << "Error: failure in queue lookup within ProcessHandleApplicInterface"
 	 << "::process_local_evaluation()." << std::endl;
     abort_handler(-1);
   }
-  Response response = queue_it->response(); // shallow copy
+  Response response = pr_pair.prp_response(); // shallow copy
   try { 
     read_results_files(response, fn_eval_id, final_eval_id_tag(fn_eval_id));
   }
-  catch(const FileReadException& fr_except) { 
-    // For forks, there is no potential for an file write race
-    // condition since the process has completed -> an exception
-    // involving an incomplete file/data set is a true error.
-    Cerr << fr_except.what() << std::endl;
-    abort_handler(INTERFACE_ERROR);
+  catch(std::string& err_msg) { // For forks, there is no potential for an 
+    // file write race condition since the process has completed -> an 
+    // exception involving an incomplete file/data set is a true error.
+    Cerr << err_msg << std::endl;
+    abort_handler(-1);
   }
 
-  catch(const FunctionEvalFailure& fneval_except) { 
-    // If a FunctionEvalFailure exception ("fail" detected in results 
+  catch(int fail_code) { // If an int exception ("fail" detected in results 
     // file) is caught, call manage_failure which will either (1) repair the 
     // failure and populate response, or (2) abort the run.  NOTE: this 
     // destroys load balancing but trying to load balance failure recovery 
     // would be more difficult than it is worth.
-    manage_failure(queue_it->variables(), response.active_set(), response,
+    manage_failure(pr_pair.prp_parameters(), response.active_set(), response,
 		   fn_eval_id);
   }
 
   // bookkeep the completed job
-  //queue_it->response(response);                        // not needed (shallow)
-  //replace_by_eval_id(prp_queue, fn_eval_id, *queue_it);// not needed (shallow)
+  //pr_pair.prp_response(response);                    // not needed for shallow
+  //replace_by_eval_id(prp_queue, fn_eval_id, pr_pair);// not needed for shallow
   completionSet.insert(fn_eval_id);
   evalProcessIdMap.erase(pid);
 }
@@ -222,14 +221,16 @@ pid_t ProcessHandleApplicInterface::create_evaluation_process(bool block_flag)
     // o_filter with ()'s and ;'s, but this is not supported by the exec family
     // of functions (see exec man pages).
 
-    // Since we want this intermediate process to be able to execute
-    // concurrently with the parent dakota and other asynch processes,
-    // fork() should be used here since there is no matching exec().
-    // (NOTE: vfork should NOT be used since exec doesn't immediately follow!)
+    // vfork should only be used when followed immediately by an exec since 
+    // vfork borrows the parent process and only returns control to the parent
+    // when one of the functions from the exec() or exit() family is 
+    // encountered.  Therefore, since we want this intermediate process to be 
+    // able to execute concurrently with the parent dakota and other asynch
+    // processes, fork should be used here since there is no matching exec().
     if (!block_flag) {
 #ifdef HAVE_WORKING_FORK
       // Note: working fork is necessary but not sufficient.
-      // Need a better configure-time probe for reforking of a forked process.
+      // Need a better autoconf test for reforking of a forked process.
       pid = fork();
 #else
       // Note: Windows spawn does not currently support this asynch mode.
@@ -483,7 +484,7 @@ void ProcessHandleApplicInterface::check_wait(pid_t pid, int status)
       // 3-piece interface here, based on pid's obtained from any asynch forks.
       // This would be beneficial on systems that do not perform a complete
       // cleanup when one (asynch) child process dies.
-      abort_handler(INTERFACE_ERROR);
+      abort_handler(-1);
     }
 #endif // HAVE_SYS_WAIT_H
   }
@@ -512,41 +513,5 @@ void ProcessHandleApplicInterface::analysis_process_group_id(pid_t pgid)
 
 pid_t ProcessHandleApplicInterface::analysis_process_group_id() const
 { return 0; } // dummy default
-
-
-/** This function will split the analysis command in argList[0] based
-    on whitespace, but preserve spaces within quoted strings, such
-    that quoted strings can be passed as single command arguments.
-    NOTE: This function allocates memory in av that might be
-    implicitly freed when the child exits (control never returns to
-    caller).  driver_and_args needs to be a return argument because av
-    will contain pointers into its c_str()'s when done.
-*/
-void ProcessHandleApplicInterface::
-create_command_arguments(boost::shared_array<const char*>& av, 
-			 StringArray& driver_and_args)
-{
-  driver_and_args = WorkdirHelper::tokenize_driver(argList[0]);
-
-  // if commandLineArgs, include params/results files at end
-  size_t nargs = driver_and_args.size();
-  if (commandLineArgs)
-    nargs += 2;
-  // ideally would use char *const argv[],
-  av.reset(new const char*[nargs+1]);  // need extra NULL
-
-  size_t i = 0;
-  for ( ; i<driver_and_args.size(); ++i)
-    av[i] = driver_and_args[i].c_str();
-  // put params/results filenames if needed
-  if (commandLineArgs) {
-    av[i++] = argList[1].c_str();
-    av[i++] = argList[2].c_str();
-  }
-    
-  // last entry must be null-terminated
-  av[i] = NULL;
-}
-
 
 } // namespace Dakota

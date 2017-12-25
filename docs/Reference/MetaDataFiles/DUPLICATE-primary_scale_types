@@ -1,0 +1,22 @@
+Blurb::
+Choose a scaling type for each response
+Description::
+The
+\c primary_scale_types specification includes strings specifying the
+scaling type for each response value in methods that support
+scaling, when scaling is enabled. 
+
+Each entry in \c primary_scale_types may be selected from:
+\li \c none - no scaling
+\li \c value - characteristic value
+\li \c log - logarithmic scaling
+
+Automatic
+scaling is not available for objective functions. If a single string
+is specified it will apply to all responses.
+
+Topics::	not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::

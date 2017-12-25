@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -35,20 +35,26 @@ protected:
   //- Heading: Constructor and destructor
   //
 
-  SurrBasedMinimizer(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~SurrBasedMinimizer();                                       ///< destructor
+  SurrBasedMinimizer(Model& model); ///< constructor
+  ~SurrBasedMinimizer();            ///< destructor
     
   //
   //- Heading: Virtual function redefinitions
   //
 
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
   /// initialize graphics customized for surrogate-based iteration
-  void initialize_graphics(int iterator_server_id = 1);
+  void initialize_graphics(bool graph_2d, bool tabular_data,
+			   const String& tabular_file);
+  void run();
   void print_results(std::ostream& s);
+
+  //
+  //- Heading: New virtual member functions
+  //
+
+  /// Used for computing the optimal solution using a surrogate-based
+  /// approach.  Redefines the Iterator::run() virtual function.
+  virtual void minimize_surrogates() = 0;
 
   //
   //- Heading: Utility member functions
@@ -153,10 +159,11 @@ protected:
   /// decreasing sequence of allowable constraint violation used in augmented
   /// Lagrangian updates (refer to Conn, Gould, and Toint, section 14.4)
   Real etaSequence;
-
-  /// index for the active ParallelLevel within ParallelConfiguration::miPLIters
-  size_t miPLIndex;
 };
+
+
+inline void SurrBasedMinimizer::run()
+{ minimize_surrogates(); }
 
 } // namespace Dakota
 

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -57,15 +57,12 @@ int ParallelDirectApplicInterface::derived_map_ac(const Dakota::String& ac_name)
   else  {
     Cerr << ac_name << " is not available as an analysis within "
          << "SIM::ParallelDirectApplicInterface." << std::endl;
-    Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    Dakota::abort_handler(-1);
   }
 
   // Failure capturing
-  if (fail_code) {
-    std::string err_msg("Error evaluating plugin analysis_driver ");
-    err_msg += ac_name;
-    throw Dakota::FunctionEvalFailure(err_msg);
-  }
+  if (fail_code)
+    throw fail_code;
 
   return 0;
 }
@@ -78,8 +75,8 @@ wait_local_evaluations(Dakota::PRPQueue& prp_queue)
   for (Dakota::PRPQueueIter prp_iter = prp_queue.begin();
        prp_iter != prp_queue.end(); prp_iter++) {
     // set local variable/set data, but update resp directly for efficiency
-    set_local_data(prp_iter->variables(), prp_iter->active_set());
-    Dakota::Response           resp     = prp_iter->response();// shared rep
+    set_local_data(prp_iter->prp_parameters(), prp_iter->active_set());
+    Dakota::Response           resp     = prp_iter->prp_response();// shared rep
     Dakota::RealVector         fn_vals  = resp.function_values_view();
     Dakota::RealMatrix         fn_grads = resp.function_gradients_view();
     Dakota::RealSymMatrixArray fn_hessians = resp.function_hessians_view();
@@ -93,7 +90,7 @@ wait_local_evaluations(Dakota::PRPQueue& prp_queue)
     //else {
     //  Cerr << ac_name << " is not available as an analysis within "
     //       << "SIM::SerialDirectApplicInterface." << std::endl;
-    //  Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    //  Dakota::abort_handler(-1);
     //}
 
     // indicate completion of job to ApplicationInterface schedulers
@@ -111,14 +108,14 @@ text_book(const Dakota::RealVector& c_vars, const Dakota::ShortArray& asv,
   if (num_fns > 3) {
     Cerr << "Error: Bad number of functions in plug-in parallel direct "
 	 << "interface." << std::endl;
-    Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    Dakota::abort_handler(-1);
   }
   // The presence of discrete variables can cause offsets in directFnDVV which
   // the text_book derivative logic does not currently account for.
   if (numADIV || numADRV) {
     Cerr << "Error: plug-in parallel direct interface assumes no discrete "
 	 << "variables." << std::endl;
-    Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    Dakota::abort_handler(-1);
   }
 
   // **********************************

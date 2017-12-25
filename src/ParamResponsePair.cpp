@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -10,7 +10,6 @@
 //- Description:  Class implementation
 //- Owner:        Mike Eldred
 
-#include "dakota_tabular_io.hpp"
 #include "ParamResponsePair.hpp"
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
@@ -27,57 +26,34 @@ namespace Dakota {
 
 void ParamResponsePair::read_annotated(std::istream& s)
 {
-  prpVariables.read_annotated(s);
+  prPairParameters.read_annotated(s);
   s >> evalInterfaceIds.second;
-  // (Dakota 6.1 used EMPTY for missing ID)
-  if (evalInterfaceIds.second == "NO_ID" || evalInterfaceIds.second == "EMPTY")
+  if (evalInterfaceIds.second == "NULL")
     evalInterfaceIds.second.clear();
-  prpResponse.read_annotated(s);
+  prPairResponse.read_annotated(s);
   s >> evalInterfaceIds.first;
 }
 
 
 void ParamResponsePair::write_annotated(std::ostream& s) const
 {
-  prpVariables.write_annotated(s);
+  prPairParameters.write_annotated(s);
   if (evalInterfaceIds.second.empty())
-    s << "NO_ID "; // read_annotated cannot detect an empty string
+    s << "NULL "; // read_annotated cannot detect an empty string
   else 
     s << evalInterfaceIds.second << ' ';
-  prpResponse.write_annotated(s);
+  prPairResponse.write_annotated(s);
   s << evalInterfaceIds.first << '\n';
-}
-
-
-void ParamResponsePair::write_tabular(std::ostream& s, 
-				      unsigned short tabular_format) const
-{
-  TabularIO::
-    write_leading_columns(s, evalInterfaceIds.first, evalInterfaceIds.second, 
-			  tabular_format);
-  // write variables in input spec order
-  prpVariables.write_tabular(s);
-  prpResponse.write_tabular(s);
-}
-
-
-/** When the eval id or interface isn't needed, directly appeal to
-    Variables and Response write_tabular_labels... */
-void ParamResponsePair::write_tabular_labels(std::ostream& s,
-					     unsigned short tabular_format) const
-{
-  TabularIO::
-    write_header_tabular(s, prpVariables, prpResponse, "eval_id", tabular_format);
 }
 
 
 template<class Archive>
 void ParamResponsePair::serialize(Archive& ar, const unsigned int version)
 {
-  ar & prpVariables;
+  ar & prPairParameters;
   ar & evalInterfaceIds.second;
-  ar & prpResponse;
-  ar & evalInterfaceIds.first;
+  ar & prPairResponse;
+  ar & evalInterfaceIds.first; 
 }
 
 

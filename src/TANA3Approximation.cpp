@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,9 +20,8 @@ namespace Dakota {
 
 TANA3Approximation::
 TANA3Approximation(ProblemDescDB& problem_db,
-		   const SharedApproxData& shared_data,
-                   const String& approx_label):
-  Approximation(BaseConstructor(), problem_db, shared_data, approx_label)
+		   const SharedApproxData& shared_data):
+  Approximation(BaseConstructor(), problem_db, shared_data)
 {
   // sanity checks
   if (sharedDataRep->buildDataOrder != 3) {
@@ -82,7 +81,7 @@ void TANA3Approximation::build()
     abort_handler(-1);
   }
 
-  if (approxData.points()) { // two-point approximation
+  if (approxData.size()) { // two-point approximation
     // Check gradients
     if (approxData.response_gradient(0).length() != num_v) {
       Cerr << "Error: gradients required in TANA3Approximation::build."
@@ -267,7 +266,7 @@ Real TANA3Approximation::value(const Variables& vars)
   Real approx_val;
   const RealVector& x = vars.continuous_variables();
   size_t i, num_v = sharedDataRep->numVars;
-  if (approxData.points()) { // TANA-3 approximation
+  if (approxData.size()) { // TANA-3 approximation
 
     // Check existing scaling to verify that it is sufficient for x
     RealVector s_eval;
@@ -317,7 +316,7 @@ Real TANA3Approximation::value(const Variables& vars)
 
 const RealVector& TANA3Approximation::gradient(const Variables& vars)
 {
-  if (approxData.points()) { // TANA-3 approximation
+  if (approxData.size()) { // TANA-3 approximation
 
     // Check existing scaling to verify that it is sufficient for x
     const RealVector& x = vars.continuous_variables();

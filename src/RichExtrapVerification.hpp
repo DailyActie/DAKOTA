@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -34,10 +34,8 @@ public:
   //- Heading: Constructors and destructors
   //
 
-  /// constructor
-  RichExtrapVerification(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~RichExtrapVerification();
+  RichExtrapVerification(Model& model); ///< constructor
+  ~RichExtrapVerification();            ///< destructor
     
   //
   //- Heading: Virtual member function redefinitions
@@ -45,7 +43,7 @@ public:
 
   //void initialize_run();
   //void pre_run();
-  void core_run();
+  void perform_verification(); // invoked by run()
   //void post_run(std::ostream& s);
   //void finalize_run();
   void print_results(std::ostream& s);
@@ -73,9 +71,9 @@ private:
   //- Heading: Data
   //
 
-  /// internal code for extrapolation study type:
-  /// SUBMETHOD_{CONVERGE_ORDER,CONVERGE_QOI,ESTIMATE_ORDER}
-  unsigned short studyType;
+  /// internal code for extrapolation study type: ESTIMATE_ORDER,
+  /// CONVERGE_ORDER, or CONVERGE_QOI
+  short studyType;
 
   /// number of refinement factors defined from active state variables
   size_t numFactors;

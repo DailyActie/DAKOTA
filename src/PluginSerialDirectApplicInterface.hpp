@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -32,9 +32,14 @@ namespace SIM {
 
 /** The plug-in SerialDirectApplicInterface resides in namespace SIM
     and uses a copy of rosenbrock() to perform serial parameter to
-    response mappings.  It is used to demonstrate plugging in a serial
-    direct analysis driver into Dakota in library mode.  Test input
-    files can then use an analysis_driver of "plugin_rosenbrock". */
+    response mappings. It may be activated by specifying the
+    --with-plugin configure option, which activates the DAKOTA_PLUGIN
+    macro in dakota_config.h used by main.cpp (which activates the
+    plug-in code block within that file) and activates the PLUGIN_S
+    declaration defined in Makefile.include and used in
+    Makefile.source (which add this class to the build).  Test input
+    files should then use an analysis_driver of "plugin_rosenbrock". */
+
 class SerialDirectApplicInterface: public Dakota::DirectApplicInterface
 {
 public:
@@ -73,7 +78,7 @@ protected:
   void test_local_evaluations(Dakota::PRPQueue& prp_queue);
 
   /// no-op hides default run-time error checks at DirectApplicInterface level
-  void set_communicators_checks(int max_eval_concurrency);
+  void set_communicators_checks(int max_iterator_concurrency);
 
 private:
 
@@ -114,9 +119,9 @@ derived_map_asynch(const Dakota::ParamResponsePair& pair)
 
 /** For use by ApplicationInterface::serve_evaluations_asynch(), which can
     provide a batch processing capability within message passing schedulers
-    (called using chain IteratorScheduler::run_iterator() --> Model::serve()
-    --> ApplicationInterface::serve_evaluations()
-    --> ApplicationInterface::serve_evaluations_asynch()). */
+    (called using chain Strategy::run_iterator() --> Model::serve() -->
+    ApplicationInterface::serve_evaluations() -->
+    ApplicationInterface::serve_evaluations_asynch()). */
 inline void SerialDirectApplicInterface::
 test_local_evaluations(Dakota::PRPQueue& prp_queue)
 { wait_local_evaluations(prp_queue); }
@@ -124,7 +129,7 @@ test_local_evaluations(Dakota::PRPQueue& prp_queue)
 
 // Hide default run-time error checks at DirectApplicInterface level
 inline void SerialDirectApplicInterface::
-set_communicators_checks(int max_eval_concurrency)
+set_communicators_checks(int max_iterator_concurrency)
 { }
 
 } // namespace Dakota

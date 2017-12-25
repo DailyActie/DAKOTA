@@ -202,7 +202,7 @@ class JEGAOptimizer :
          * This is necessary because DAKOTA requires that all problem
          * information be extracted from the problem description DB at the
          * time of Optimizer construction and the front end does it all in
-         * the execute algorithm method which must be called in core_run.
+         * the execute algorithm method which must be called in find_optimum.
          */
         class Driver;
 
@@ -212,6 +212,12 @@ class JEGAOptimizer :
     ===========================================================================
     */
     private:
+
+        /// The text that indicates the SOGA method
+        static const std::string SOGA_METHOD_TXT;
+
+        /// The text that indicates the MOGA method
+        static const std::string MOGA_METHOD_TXT;
 
         /**
          * \brief A pointer to an EvaluatorCreator used to create the evaluator
@@ -281,7 +287,7 @@ class JEGAOptimizer :
     protected:
 
         /**
-         * \brief Loads the JEGA-style Design class into equivalent
+         * \brief Loads the JEGA-style Design class into equivolent
          *        Dakota-style Variables and Response objects.
          *
          * This version is meant for the case where a Variables and a Response
@@ -399,10 +405,6 @@ class JEGAOptimizer :
          *
          * \param from The full set of designs returned by the solver.
          *
-         * \param theGA The GA used to generate this set; needed for
-         *              its weights in the SO case, provided to both
-         *              for consistency
-         *
 	     * \param designSortMap Map of best solutions with key
 	     *                      pair<constraintViolation, fitness>
 	     * 
@@ -411,10 +413,9 @@ class JEGAOptimizer :
          */
         void
         GetBestSolutions(
-  	    const JEGA::Utilities::DesignOFSortSet& from,
-            const JEGA::Algorithms::GeneticAlgorithm& theGA,
+  	        const JEGA::Utilities::DesignOFSortSet& from,
             std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
-            );
+	        );
 
         /**
          * \brief Retreive the best Designs from a set of solutions assuming
@@ -425,9 +426,8 @@ class JEGAOptimizer :
          */
         void
         GetBestMOSolutions(
-	    const JEGA::Utilities::DesignOFSortSet& from,
-            const JEGA::Algorithms::GeneticAlgorithm& theGA,
-	    std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
+	        const JEGA::Utilities::DesignOFSortSet& from,
+	        std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
             );
 
         /**
@@ -439,9 +439,8 @@ class JEGAOptimizer :
          */
         void
         GetBestSOSolutions(
-	    const JEGA::Utilities::DesignOFSortSet& from,
-            const JEGA::Algorithms::GeneticAlgorithm& theGA,
-	    std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
+	        const JEGA::Utilities::DesignOFSortSet& from,
+	        std::multimap<RealRealPair, JEGA::Utilities::Design*>& designSortMap
             );
 
         /**
@@ -482,7 +481,7 @@ class JEGAOptimizer :
          */
         virtual
         void
-        core_run(
+        find_optimum(
             );
 
         /**
@@ -561,14 +560,11 @@ class JEGAOptimizer :
          * This method does some of the initialization work for the algorithm.
          * In particular, it initialized the JEGA core.
          *
-	 * \param problem_db The Dakota::ProblemDescDB with information on how the 
-	 *                   algorithm controls should be set.
-	 *
          * \param model The Dakota::Model that will be used by this optimizer
          *              for problem information, etc.
          */
         JEGAOptimizer(
-            ProblemDescDB& problem_db, Model& model
+            Model& model
             );
 
         /// Destructs a JEGAOptimizer

@@ -1,26 +1,26 @@
-environment,
-	graphics
+strategy,
+	single_method graphics
 
 method,
-	sampling
+	nond_sampling
 	  seed = 1234 samples = 40
 	  sample_type lhs
 	  response_thresholds = 1001.249 2687.641
 
 variables,
 	normal_uncertain = 1
-	  means = .2
-	  std_deviations = .02
-	  descriptor = 'shell_thick'
+	  nuv_means = .2
+	  nuv_std_deviations = .02
+	  nuv_descriptor = 'shell_thick'
 
 interface,
-	 system asynch evaluation_concurrency = 4
+	application system asynch evaluation_concurrency = 4
 	  analysis_driver = 'nastran_script'
 	  parameters_file = 'params.in'
 	  results_file = 'results.out'
 	  file_tag file_save aprepro
 
 responses,
-	response_functions = 2
+	num_response_functions = 2
 	no_gradients
 	no_hessians

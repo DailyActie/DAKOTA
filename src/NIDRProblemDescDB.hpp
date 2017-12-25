@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -28,7 +28,7 @@ class ParallelLibrary;
     refer to Dakota/docs/Dev_Spec_Change.dox.  For more on the parsing
     technology, see "Specifying and Reading Program Input with NIDR"
     by David M. Gay (report SAND2008-2261P, which is available in PDF
-    form as http://dakota.sandia.gov/papers/nidr08.pdf).  Source for the
+    form as http://www.sandia.gov/~dmgay/nidr08.pdf).  Source for the
     routines declared herein is NIDRProblemDescDB.cpp, in which most
     routines are so short that a description seems unnecessary. */
 
@@ -51,7 +51,8 @@ public:
 
   /// parses the input file and populates the problem description
   /// database using NIDR.
-  void derived_parse_inputs(const ProgramOptions& prog_opts);
+  void derived_parse_inputs(const char* dakota_input_file,
+			    const char* parser_options);
   /// perform any data processing that must be coordinated with DB buffer
   /// broadcasting (performed prior to broadcasting the DB buffer on rank 0
   /// and after receiving the DB buffer on other processor ranks)
@@ -63,44 +64,24 @@ public:
   //- Heading: Data
   //
 
-  /// Pointer to the active object instance used within the static
-  /// kwhandler functions in order to avoid the need for static data.
-  /// Only initialized when parsing an input file; will be NULL for
-  /// cases of direct DB population only.
+  /// pointer to the active object instance used within the static kwhandler
+  /// functions in order to avoid the need for static data
   static NIDRProblemDescDB* pDDBInstance;
 
 private:
 
-  /// List of Var_Info pointers, one per Variables instance
   std::list<void*> VIL;
-
-  /// check a single variables node; input argument v is Var_Info*
-  static void check_variables_node(void* v);
-  
-  /// tokenize and try to validate the presence of an analysis driver,
-  /// potentially included in the linked or copied template files
-  static int check_driver(const String& an_driver,
-			  const StringArray& link_files,
-			  const StringArray& copy_files);
+  static void check_variables_node(void*);
 
 public:
 
-  /// number of parse error encountered
   static int nerr;
-  /// print and error message and immediately abort
   static void botch(const char *fmt, ...);
-  /// check each node in a list of DataVariables, first mapping
-  /// DataVariables members back to flat NIDR arrays if needed.
   static void check_variables(std::list<DataVariables>*);
   static void check_responses(std::list<DataResponses>*);
-  /// Validate user-supplied descriptors
-  static void check_descriptors(const StringArray &labels);
-  /// Bounds and initial point check and inferred bounds generation
   static void make_variable_defaults(std::list<DataVariables>*);
   static void make_response_defaults(std::list<DataResponses>*);
-  /// print an error message and increment nerr, but continue
   static void squawk(const char *fmt, ...);
-  /// print a warning
   static void warn(const char *fmt, ...);
 
   //
@@ -109,7 +90,6 @@ public:
 
 #define KWH(x) static void x(const char *keyname, Values *val, void **g, void *v)
 
-  KWH(iface_Real);
   KWH(iface_Rlit);
   KWH(iface_false);
   KWH(iface_ilit);
@@ -121,7 +101,6 @@ public:
   KWH(iface_str2D);
   KWH(iface_strL);
   KWH(iface_true);
-  KWH(iface_type);
 
   KWH(method_Ii);
   KWH(method_Real);
@@ -138,6 +117,7 @@ public:
   KWH(method_int);
   KWH(method_ivec);
   KWH(method_lit);
+  KWH(method_lit2);
   KWH(method_litc);
   KWH(method_liti);
   KWH(method_litp);
@@ -159,22 +139,17 @@ public:
   KWH(method_strL);
   KWH(method_true);
   KWH(method_tr_final);
-  KWH(method_type);
   KWH(method_usharray);
   KWH(method_ushint);
-  KWH(method_utype);
-  KWH(method_augment_utype);
-  KWH(method_utype_lit);
+  KWH(method_type);
 
   KWH(model_Real);
   KWH(model_RealDL);
-  KWH(model_ivec);
   KWH(model_false);
   KWH(model_int);
   KWH(model_intsetm1);
   KWH(model_lit);
   KWH(model_order);
-  KWH(model_pint);
   KWH(model_shint);
   KWH(model_start);
   KWH(model_stop);
@@ -182,8 +157,6 @@ public:
   KWH(model_strL);
   KWH(model_true);
   KWH(model_type);
-  KWH(model_utype);
-  KWH(model_augment_utype);
 
   KWH(resp_RealDL);
   KWH(resp_RealL);
@@ -197,31 +170,24 @@ public:
   KWH(resp_str);
   KWH(resp_strL);
   KWH(resp_true);
-  KWH(resp_utype);
-  KWH(resp_augment_utype);
 
-  //KWH(env_Real);
-  //KWH(env_RealL);
-  KWH(env_int);
-  //KWH(env_lit);
-  KWH(env_start);
-  KWH(env_str);
-  KWH(env_strL);
-  KWH(env_true);
-  KWH(env_utype);
-  KWH(env_augment_utype);
+  KWH(strategy_Real);
+  KWH(strategy_RealL);
+  KWH(strategy_int);
+  KWH(strategy_lit);
+  KWH(strategy_start);
+  KWH(strategy_str);
+  KWH(strategy_strL);
+  KWH(strategy_true);
 
   KWH(var_RealLb);
   KWH(var_RealUb);
   KWH(var_IntLb);
-  KWH(var_categorical);
   KWH(var_caulbl);
   KWH(var_dauilbl);
-  KWH(var_dauslbl);
   KWH(var_daurlbl);
   KWH(var_ceulbl);
   KWH(var_deuilbl);
-  KWH(var_deuslbl);
   KWH(var_deurlbl);
   KWH(var_pintz);
   KWH(var_start);
@@ -230,34 +196,14 @@ public:
   KWH(var_strL);
   KWH(var_true);
   KWH(var_newiarray);
-  KWH(var_newsarray);
   KWH(var_newivec);
   KWH(var_newrvec);
   KWH(var_ivec);
-  KWH(var_svec);
   KWH(var_rvec);
   KWH(var_type);
 
 #undef KWH
 };
-
-
-/// Free convenience function that flatten sizes of an array of std
-/// containers; takes an array of containers and returns an IntArray
-/// containing the sizes of each container in the input array.  Note:
-/// Did not specialize for vector<RealVector> as no current use cases.
-template <class ContainerT>
-inline void 
-flatten_num_array(const std::vector<ContainerT>& input_array, IntArray** pia)
-{
-  size_t input_len = input_array.size();
-  IntArray *ia;
-
-  *pia = ia = new IntArray(input_len);
-  for(size_t i = 0; i < input_len; ++i)
-    (*ia)[i] = input_array[i].size();
-}
-
 
 } // namespace Dakota
 

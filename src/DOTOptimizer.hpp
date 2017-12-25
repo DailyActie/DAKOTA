@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -31,7 +31,7 @@ namespace Dakota {
     The user input mappings are as follows: \c max_iterations is
     mapped into DOT's \c ITMAX parameter within its \c IPRM array, \c
     max_function_evaluations is implemented directly in the
-    core_run() loop since there is no DOT parameter equivalent, \c
+    find_optimum() loop since there is no DOT parameter equivalent, \c
     convergence_tolerance is mapped into DOT's \c DELOBJ parameter
     (the relative convergence tolerance) within its \c RPRM array, \c
     output verbosity is mapped into DOT's \c IPRINT parameter within
@@ -49,23 +49,20 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  DOTOptimizer(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor; construct without ProblemDescDB
-  DOTOptimizer(const String& method_string, Model& model);
-  /// destructor
-  ~DOTOptimizer();
+  DOTOptimizer(Model& model);                      ///< standard constructor
+  DOTOptimizer(NoDBBaseConstructor, Model& model); ///< alternate constructor
+  ~DOTOptimizer();                                 ///< destructor
     
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Virtual member function redefinitions
   //
 
-  void core_run();
+  void find_optimum();
 
 protected:
 
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Virtual member function redefinitions
   //
 
   /// performs run-time set up
@@ -74,7 +71,7 @@ protected:
 private:
 
   //
-  //- Heading: Convenience functions
+  //- Heading: Convenience member functions
   //
     
   void initialize();           ///< Shared constructor code
@@ -166,8 +163,8 @@ private:
 // Factory functions for dynamic loading of solver libraries
 // ---------------------------------------------------------
 
-DOTOptimizer* new_DOTOptimizer(ProblemDescDB& problem_db, Model& model);
 DOTOptimizer* new_DOTOptimizer(Model& model);
+DOTOptimizer* new_DOTOptimizer(NoDBBaseConstructor dummy, Model& model);
 #endif // HAVE_DYNLIB_FACTORIES
 
 } // namespace Dakota

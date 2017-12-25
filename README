@@ -16,12 +16,9 @@ William Bohnhoff                                   _/  _/_/  _/
 John P. Eddy	                               	    _/_/_/       
 Keith R. Dalbey
 Mohamed S.Ebeida
-Russell W. Hooper
 Kenneth T. Hu
 John D. Jakeman
-Ahmad Rushdi
-Laura P. Swiler
-Timothy M. Wildey		        P.O. Box 5800, Mail Stop 1318
+Laura P. Swiler			        P.O. Box 5800, Mail Stop 1318
 Dena M. Vigil				Albuquerque, NM 87185-1318   
 
 Patricia D. Hough			P.O. Box 969, MS 9217
@@ -30,7 +27,7 @@ Lara E. Bauman				Livermore, CA 94551-0969
 ------------------------------------------------------------------------------
 License
 
-Dakota is distributed under the GNU Lesser General Public License.  It
+DAKOTA is distributed under the GNU Lesser General Public License.  It
 is free software; you can redistribute it and/or modify it under the
 terms of the GNU Lesser General Public License as published by the
 Free Software Foundation; either version 2.1 of the License, or (at
@@ -47,9 +44,6 @@ licenses; see their contents for the most up to date details.  Here
 [SNL] denotes software originating at Sandia National Laboratories.
 
 dakota	      	    GNU Lesser General Public License (LGPL) [SNL]
-		    (including any source, test, unit_test, example,
-		     script, build system, or other files not
-		     specifically marked)
   acro              Revised BSD License [SNL]
     (including colin, dummy, interfaces, pebbl, scolib, utilib)
     tpl
@@ -63,15 +57,12 @@ dakota	      	    GNU Lesser General Public License (LGPL) [SNL]
   ampl		    MIT License (old style with disclaimer)
   CONMIN	    Public Domain
   DDACE		    GNU Lesser General Public License (LGPL) [SNL]
-  dfftpack	    Public Domain
   DOT		    Commercial license (optional add-on)
   dream		    GNU Lesser General Public License (LGPL)
-  fftw	    	    GNU General Public License (GPL; disabled by default)
   FSUDace	    GNU Lesser General Public License (LGPL)
   hopspack	    GNU Lesser General Public License (LGPL) [SNL]
     CDDLIB	    GNU General Public License (GPL; disabled by default)
   JEGA		    GNU Lesser General Public License (LGPL) [SNL]
-  LHS		    GNU Lesser General Public License (LGPL) [SNL]
   motif/SciPlot	    GNU Library General Public License (old LGPL)
   NCSUOpt	    MIT License
   nidr		    BSD License [SNL]
@@ -80,17 +71,19 @@ dakota	      	    GNU Lesser General Public License (LGPL) [SNL]
   NOMAD		    GNU Lesser General Public License (LGPL)
   NPSOL		    Commercial license (optional add-on)
   OPTPP		    GNU Lesser General Public License (LGPL) [SNL]
+    teuchos	    BSD License [SNL]
   pecos		    GNU Lesser General Public License (LGPL) [SNL]
+    dfftpack	    Public Domain
+    fftw	    GNU General Public License (GPL; disabled by default)
+    LHS		    GNU Lesser General Public License (LGPL) [SNL]
+    teuchos	    BSD License [SNL]
+    VPISparseGrid   GNU Lesser General Public License (LGPL)
   PSUADE	    GNU Lesser General Public License (LGPL)
   queso		    GNU Lesser General Public License (LGPL)
   surfpack	    GNU Lesser General Public License (LGPL) [SNL]
+    CONMIN	    Public Domain	      
+    NCSUOpt	    MIT License
   teuchos	    BSD License [SNL]
-  VPISparseGrid     GNU Lesser General Public License (LGPL)
-
-The commerically licensed packages are not distributed with public
-versions of Dakota.  To use one of them with Dakota, obtain the source
-code under an appropriate license and include it under the appropriate
-packages directory when compiling Dakota.
 
 Third-party system libraries: In addition to standard compiler and
 system runtime libraries, Dakota requires the following external
@@ -99,19 +92,18 @@ third-party libraries for compilation and operation:
   BLAS/LAPACK	    BSD License, or that of compiler or system-provided libs
   Boost		    Boost Software License
 
-GPL/Other: Dakota may optionally depend on GNU GPL-licensed
+GPL/Other: DAKOTA may optionally depend on GNU GPL-licensed
 components, which are disabled by default, resulting in an
-LGPL-compatible Dakota.  Optional GPL capabilities include:
+LGPL-compatible DAKOTA.  Optional GPL capabilities include:
 
  * dakota/trunk/packages/hopspack/src/src-citizens/citizen-gss/cddlib/;
    enable with CMake setting HAVE_CDDLIB.
 
- * dakota/packages/fftw or dakota/packages/pecos/packages/fftw:
-   optionally included with Dakota; enable with CMake setting
-   HAVE_FFTW
+ * dakota/packages/pecos/packages/fftw: optionally included with
+   Dakota; enable with CMake setting HAVE_FFTW
 
  * GNU Scientific Library: external third-party library; enable with
-   CMake setting Dakota_HAVE_GSL and pointer to gsl-config
+   CMake setting DAKOTA_HAVE_GSL and pointer to gsl-config
 
  * cURL/libcurl: external third-party library, MIT/modified-BSD
    license, but its dependencies have numerous licenses that make it
@@ -125,15 +117,16 @@ system runtimes, Doxygen, LaTeX, CMake, etc.
 ------------------------------------------------------------------------------
 Overview
 
-The Dakota toolkit provides a flexible, extensible interface between analysis 
-codes and iteration methods. Dakota contains algorithms for optimization with 
-gradient and nongradient-based methods; uncertainty quantification with 
-sampling, reliability, stochastic expansion, and epistemic methods; parameter 
-estimation with nonlinear least squares methods; and sensitivity/variance 
-analysis with design of experiments and parameter study capabilities.  These 
-capabilities may be used on their own or as components within advanced 
-strategies such as surrogate-based optimization, mixed integer nonlinear 
-programming, or optimization under uncertainty.
+The DAKOTA (Design Analysis Kit for Optimization and Terascale Applications) 
+toolkit provides a flexible, extensible interface between analysis codes and 
+iteration methods. DAKOTA contains algorithms for optimization with gradient 
+and nongradient-based methods; uncertainty quantification with sampling, 
+reliability, stochastic expansion, and epistemic methods; parameter estimation 
+with nonlinear least squares methods; and sensitivity/variance analysis with 
+design of experiments and parameter study capabilities.  These capabilities 
+may be used on their own or as components within advanced strategies such as 
+surrogate-based optimization, mixed integer nonlinear programming, or 
+optimization under uncertainty.
 
 Refer to http://dakota.sandia.gov/ for additional information,
 including support contacts.
@@ -141,32 +134,28 @@ including support contacts.
 ------------------------------------------------------------------------------
 Distributions
 
-Dakota is distributed in binary (executable/library) and source code
+DAKOTA is distributed in binary (executable/library) and source code
 formats.  Recommendations for getting started with either format can
 be found in INSTALL included with the distribution, but the most up to
-date guidance can be found alongside downloads on the Dakota website.
+date guidance can be found alongside downloads on the DAKOTA website.
 
 ------------------------------------------------------------------------------
 Platforms
 
-Dakota operates on most systems running Unix or Linux operating
+DAKOTA operates on most systems running Unix or Linux operating
 systems as well as on Windows (with or without the help of a Cygwin
-emulation layer).  Dakota is developed and most extensively tested on
+emulation layer).  DAKOTA is developed and most extensively tested on
 Redhat Enterprise Linux with GNU compilers, but additional operating
 systems / compiler combinations are tested nightly as well.  See the
-Dakota website for more information on supported platforms for
-particular Dakota versions.  Dakota was historically tested on
+DAKOTA website for more information on supported platforms for
+particular DAKOTA versions.  DAKOTA was historically tested on
 SGI/IRIX, DEC/OSF, and HP-UX, but these are not actively supported.
 
 ------------------------------------------------------------------------------
 Versions
 
-Versions of the Dakota software have been tagged as follows:
+Versions of the DAKOTA software have been tagged as follows:
 
-6.3		   11/15/15 (refer to svn externals for TPL tags)
-6.2		   05/15/15 (refer to svn externals for TPL tags)
-6.1		   11/15/14 (refer to svn externals for TPL tags)
-6.0		   05/15/14 (refer to svn externals for TPL tags)
 5.4                11/15/13 (refer to svn externals for TPL tags)
 5.3.1              05/15/13 (refer to svn externals for TPL tags)
 5.3                01/31/13 (refer to svn externals for TPL tags)
@@ -197,9 +186,9 @@ Version-1-0         2/18/99
 ------------------------------------------------------------------------------
 Contributing enhancements.
 
-Dakota is both a research and a production code and is under active
+DAKOTA is both a research and a production code and is under active
 development.  Bug reports, suggestions for improvement, and changes to
-support other platforms/compilers are welcome.  See the Dakota
+support other platforms/compilers are welcome.  See the DAKOTA
 Developer Portal at http://dakota.sandia.gov/developer/ for more
 information.
 

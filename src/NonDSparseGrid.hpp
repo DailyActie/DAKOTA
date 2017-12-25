@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,9 +41,9 @@ public:
   //
 
   // alternate constructor for instantiations "on the fly"
-  NonDSparseGrid(Model& model, const UShortArray& ssg_level_seq,
-		 const RealVector& dim_pref,
-		 short exp_coeffs_soln_approach, short driver_mode,
+  NonDSparseGrid(Model& model, short exp_coeffs_approach,
+		 const UShortArray& ssg_level_seq, const RealVector& dim_pref,
+		 //short sparse_grid_usage,
 		 short growth_rate = Pecos::MODERATE_RESTRICTED_GROWTH,
 		 //short refine_type  = Pecos::NO_REFINEMENT,
 		 short refine_control = Pecos::NO_CONTROL,
@@ -64,6 +64,8 @@ public:
 
   /// returns SparseGridDriver::active_multi_index()
   const std::set<UShortArray>& active_multi_index() const;
+  /// returns SparseGridDriver::old_multi_index()
+  const std::set<UShortArray>& old_multi_index() const;
 
   /// invokes SparseGridDriver::print_smolyak_multi_index()
   void print_smolyak_multi_index() const;
@@ -84,8 +86,10 @@ public:
   void decrement_set();
   /// invokes SparseGridDriver::update_sets()
   void update_sets(const UShortArray& set_star);
+  /// invokes SparseGridDriver::print_final_sets(bool)
+  void print_final_sets(bool converged_within_tol);
   /// invokes SparseGridDriver::finalize_sets()
-  void finalize_sets(bool output_sets, bool converged_within_tol);
+  void finalize_sets();
 
   /// invokes SparseGridDriver::evaluate_grid_increment()
   void evaluate_grid_increment();
@@ -98,8 +102,8 @@ protected:
   //- Heading: Constructors and destructor
   //
 
-  NonDSparseGrid(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDSparseGrid();                                       ///< destructor
+  NonDSparseGrid(Model& model); ///< constructor
+  ~NonDSparseGrid();            ///< destructor
 
   //
   //- Heading: Virtual function redefinitions
@@ -154,6 +158,10 @@ inline const std::set<UShortArray>& NonDSparseGrid::active_multi_index() const
 { return ssgDriver->active_multi_index(); }
 
 
+inline const std::set<UShortArray>& NonDSparseGrid::old_multi_index() const
+{ return ssgDriver->old_multi_index(); }
+
+
 inline void NonDSparseGrid::print_smolyak_multi_index() const
 { return ssgDriver->print_smolyak_multi_index(); }
 
@@ -194,9 +202,12 @@ inline void NonDSparseGrid::update_sets(const UShortArray& set_star)
 { ssgDriver->update_sets(set_star); }
 
 
-inline void NonDSparseGrid::
-finalize_sets(bool output_sets, bool converged_within_tol)
-{ ssgDriver->finalize_sets(output_sets, converged_within_tol); }
+inline void NonDSparseGrid::print_final_sets(bool converged_within_tol)
+{ ssgDriver->print_final_sets(converged_within_tol); }
+
+
+inline void NonDSparseGrid::finalize_sets()
+{ ssgDriver->finalize_sets(); }
 
 
 inline void NonDSparseGrid::evaluate_grid_increment()

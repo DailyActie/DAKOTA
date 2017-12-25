@@ -1,11 +1,10 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
 # DAKOTA INPUT FILE: dakota_trsbouu2_cantilever.in
 #
 # Surrogate-based OUU with trust regions: surrogate containing nested
 #
 
-environment,
+strategy,
+	single_method
 #	  graphics
 	method_pointer = 'SBLO'
 
@@ -67,7 +66,7 @@ method,
 	sampling
 	  sample_type lhs #samples = 9
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 #	dace lhs seed = 5
 #	  samples = 9 symbols = 9
 
@@ -97,7 +96,7 @@ method,
         sampling
 	  samples = 50 sample_type lhs
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  output quiet
 
 model,

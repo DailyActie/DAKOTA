@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -30,28 +30,22 @@ namespace Dakota {
 
 class NonDReliability: public NonD
 {
-public:
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
-
 protected:
 
   //
   //- Heading: Constructors and destructor
   //
 
-  NonDReliability(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDReliability();                                       ///< destructor
+  NonDReliability(Model& model); ///< constructor
+  ~NonDReliability();            ///< destructor
 
   //
   //- Heading: Virtual function redefinitions
   //
 
   /// initialize graphics customized for reliability methods
-  void initialize_graphics(int iterator_server_id = 1);
+  void initialize_graphics(bool graph_2d, bool tabular_data,
+			   const String& tabular_file);
 
   const Model& algorithm_space_model() const;
 
@@ -69,19 +63,19 @@ protected:
 
   /// the MPP search type selection: MV, x/u-space AMV, x/u-space AMV+,
   /// x/u-space TANA, x/u-space EGO, or NO_APPROX
-  unsigned short mppSearchType;
+  short mppSearchType;
 
   /// importance sampling instance used to compute/refine probabilities
   Iterator importanceSampler;
   /// integration refinement type (NO_INT_REFINE, IS, AIS, or MMAIS)
   /// provided by \c refinement specification
-  unsigned short integrationRefinement;
+  short integrationRefinement;
   // number of samples for integration refinement
   //int refinementSamples;
   // random seed for integration refinement
   //int refinementSeed;
 
-  /// number of invocations of core_run()
+  /// number of invocations of quantify_uncertainty()
   size_t numRelAnalyses;
 
   /// number of approximation cycles for the current respFnCount/levelCount

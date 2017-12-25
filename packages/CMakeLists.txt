@@ -3,7 +3,7 @@ option(HAVE_AMPL "Build the AMPL package." ON)
 option(HAVE_CONMIN "Build the CONMIN package." ON)
 option(HAVE_DDACE "Build the DDACE package." ON)
 option(HAVE_DOT "Build the DOT package." ON)
-option(HAVE_DREAM "Build the DREAM package." ON)
+option(HAVE_DREAM "Build the DREAM package." OFF)
 option(HAVE_FSUDACE "Build the FSUDACE package." ON)
 option(HAVE_HOPSPACK "Build the hopspack package." ON)
 option(HAVE_JEGA "Build the JEGA package." ON)
@@ -17,22 +17,13 @@ option(HAVE_PECOS "Build the Pecos package." ON)
 option(HAVE_PLUGIN "Enable plugins to the dakota executable." ON)
 option(HAVE_PSUADE "Build the PSUADE package." ON)
 option(HAVE_SURFPACK "Build the Surfpack package." ON)
-# Packages formerly underneath Pecos
-option(HAVE_FFT "Use either the fftw or dfftpack packages" ON)
-option(HAVE_DFFTPACK "Build the dfftpack package.  This OPTION has no effect if
-  HAVE_FFT is OFF" ON)
-option(HAVE_FFTW "Find and use an installed fftw package. This OPTION has no
-  effect if HAVE_FFT is OFF" OFF)
 
-option(HAVE_LHS "Build the LHS package." ON)
-option(HAVE_SPARSE_GRID "Build the VPISparseGrid package." ON)
-
-# For managing additional packages that packages like pecos and surfpack depend on
-include(ManageRelocatablePackage)
-
-# Surfpack requires CONMIN and NCSUOPT before descending
-ManageRelocatablePackage(CONMIN CONMIN)
-ManageRelocatablePackage(NCSUOPT NCSUOpt)
+if(HAVE_CONMIN)
+  if ( NOT CONMIN_DIR )
+    set( CONMIN_DIR ${CMAKE_CURRENT_BINARY_DIR}/CONMIN )
+    add_subdirectory(CONMIN)
+  endif()
+endif(HAVE_CONMIN)
 
 add_subdirectory(nidr)
 
@@ -48,18 +39,8 @@ if(HAVE_OPTPP)
   endif()
 endif()
 
-# Configure other Pecos dependencies before descending
 # Both DAKOTA and PECOS unconditionally depend on Teuchos, and the "shared
 # component magic" is managed in the top-level CMakeLists.txt file
-include(FftwExternalProject) 
-if(HAVE_FFT) 
-  ManageRelocatablePackage(DFFTPACK dfftpack) 
-  FftwExternalProject() 
-endif(HAVE_FFT) 
- 
-ManageRelocatablePackage(LHS LHS)
- 
-ManageRelocatablePackage(SPARSE_GRID VPISparseGrid)
 
 add_subdirectory(pecos)
 
@@ -67,21 +48,17 @@ include(ExternalProject)
 
 if(HAVE_QUESO)
 
+  # Prerequisites for building QUESO
+  find_program(SH sh)
+  if(${SH} MATCHES "sh-NOTFOUND")
+    message(FATAL_ERROR "Cannot build QUESO as an external project without sh")
+  endif()
+
   # Queso depends on GSL, so ensure GSL detection and proper lib settings
   # Require user to turn on this GPL package explicitly
   if(NOT DAKOTA_HAVE_GSL)
     message(FATAL_ERROR 
       "HAVE_QUESO requires enabling GPL package GSL via DAKOTA_HAVE_GSL.")
-  endif()
-
-  if(DAKOTA_QUESO_CMAKE)
-    add_subdirectory(queso)
-  else()
-
-  # Prerequisites for building QUESO
-  find_program(SH sh)
-  if(${SH} MATCHES "sh-NOTFOUND")
-    message(FATAL_ERROR "Cannot build QUESO as an external project without sh")
   endif()
 
   # Use gsl-config to get GSL settings
@@ -112,23 +89,54 @@ if(HAVE_QUESO)
       " but not set.")
   endif()
 
-  # Configure, build, and install QUESO in packages/queso_ext.  Build
-  # is in queso_ext/src; Install is to queso_ext/{bin,examples,include,lib}
+  # Optionally configure and build GRVY. As of queso-0.46.0, GRVY is optional
+  if (HAVE_QUESO_GRVY)
+
+    set(GRVY_EXT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/grvy_ext)
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${GRVY_EXT_BINARY_DIR} )
+      
+    set(grvy_config_cmd
+      ${SH} ${CMAKE_CURRENT_BINARY_DIR}/grvy_ext-prefix/src/grvy_ext/configure
+      "F77=${CMAKE_Fortran_COMPILER}" "FC=${CMAKE_Fortran_COMPILER}"
+      "--without-hdf5" "--with-boost=${Boost_INCLUDE_DIR}/.."
+      "--prefix" "${GRVY_EXT_BINARY_DIR}"
+      )
+    externalproject_add(grvy_ext
+      URL ${CMAKE_CURRENT_SOURCE_DIR}/queso/grvy-0.32.0.tar.gz
+      BUILD_IN_SOURCE 1
+      CONFIGURE_COMMAND "${grvy_config_cmd}"
+      )
+
+    #add_library(grvy UNKNOWN IMPORTED GLOBAL)
+    #set_target_properties(grvy PROPERTIES 
+    #  IMPORTED_LOCATION ${Dakota_BINARY_DIR}/packages/grvy_ext/lib)
+
+  endif()
+
+  # Configure and build QUESO
+  set(QUESO_EXT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/queso_ext)
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUESO_EXT_BINARY_DIR} )
+
   set(queso_config_cmd
-    ${SH} ${CMAKE_CURRENT_SOURCE_DIR}/queso/configure
+    ${SH} ${CMAKE_CURRENT_BINARY_DIR}/queso_ext-prefix/src/queso_ext/configure
     "CC=${CMAKE_C_COMPILER}" "CXX=${CMAKE_CXX_COMPILER}"
     "F77=${CMAKE_Fortran_COMPILER}" "FC=${CMAKE_Fortran_COMPILER}"
     "--without-hdf5" "--without-glpk"
     "--with-boost=${Boost_INCLUDE_DIR}/.."
-#    "--disable-shared"
     "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:${Boost_LIBRARY_DIRS}:${GSL_LIBRARY_DIRS}"
     "CXXFLAGS=${CMAKE_CXX_FLAGS}"
-    "--prefix=${CMAKE_CURRENT_BINARY_DIR}/queso_ext"
+    "--prefix" "${QUESO_EXT_BINARY_DIR}"
     )
+  if (HAVE_QUESO_GRVY)
+    set(queso_config_cmd ${queso_config_cmd} 
+      "--with-grvy=${GRVY_EXT_BINARY_DIR}")
+  endif()
 
   externalproject_add(queso_ext
-    PREFIX "${CMAKE_CURRENT_BINARY_DIR}/queso_ext"
-    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/queso"
+    URL ${CMAKE_CURRENT_SOURCE_DIR}/queso/queso-0.46.0.tar.gz
+    BUILD_IN_SOURCE 1
     CONFIGURE_COMMAND "${queso_config_cmd}"
     )
 
@@ -136,15 +144,20 @@ if(HAVE_QUESO)
   #set_target_properties(queso PROPERTIES 
   #  IMPORTED_LOCATION ${Dakota_BINARY_DIR}/packages/queso_ext/lib)
 
+  if (HAVE_QUESO_GRVY)
+    add_dependencies(queso_ext grvy_ext)
+  endif()
+  
   # Install QUESO (and possibly GRVY) libs
   install(SCRIPT "${Dakota_SOURCE_DIR}/cmake/InstallQuesoLibs.cmake")
-
-  endif()  # DAKOTA_QUESO_CMAKE
 
 endif(HAVE_QUESO)
 
 
 if(HAVE_ADAPTIVE_SAMPLING AND HAVE_MORSE_SMALE)
+  #svn co https://software.sandia.gov/svn/public/tpl/ann/trunk ann
+  add_subdirectory(ann/src)
+
   # Extract Dionysus, but no build required
   externalproject_add(dionysus_ext
     # svn co 
@@ -161,31 +174,17 @@ if(HAVE_ADAPTIVE_SAMPLING AND HAVE_MORSE_SMALE)
     )
 endif()
 
-if(HAVE_APPROXNN)
-  add_subdirectory(approxnn/src)
-endif()
-
-
 
 if(HAVE_SURFPACK)
   add_subdirectory(surfpack)
 endif(HAVE_SURFPACK)
 
 if(HAVE_ACRO)
-  # Overrides of default MPI settings; may want to always set off
-  # until we're using PEBBL parallel features to minimize configure
-  # time errors
-  if(DAKOTA_HAVE_MPI)
-    # This variable has historically been set when Dakota enables MPI;
-    # needs to be revisted
-    set(USE_MPI "ON")
-  else()
-    # COLIN, PEBBL, and SCOLIB have USE_MPI
-    set(USE_MPI FALSE CACHE BOOL
-      "MPI NOT enabled in DAKOTA so disable in Acro (COLIN, PEBBL, SCOLIB)" 
-      FORCE)
-    set(UTILIB_USE_MPI FALSE CACHE BOOL
-      "MPI NOT enabled in DAKOTA so disable in Acro (Utilib) as well" FORCE)
+  if(NOT DAKOTA_HAVE_MPI)
+    set(ACRO_USING_MPI OFF CACHE BOOL
+        "MPI NOT enabled in DAKOTA so disable in acro as well" FORCE)
+    set(UTILIB_USE_MPI OFF CACHE BOOL
+        "MPI NOT enabled in DAKOTA so disable in utilib as well" FORCE)
   endif()
   add_subdirectory(acro)
 endif(HAVE_ACRO)
@@ -215,20 +214,15 @@ if(HAVE_HOPSPACK)
   # Default the GPL package to off in Dakota, but allow user override
   set(HAVE_CDDLIB OFF CACHE BOOL "Enable GPL-licensed package CDDLIB")
 
-  # Override the HOPSPACK default to install the binary in bin/
-  set(HOPSPACK_EXEC_DEST "bin")
-
   # HOPSPACK doesn't install headers and libraries by default
   set(INSTALL_HEADERS ON CACHE BOOL "Install headers")
   set(INSTALL_LIB ON CACHE BOOL "Install libraries")
 
-  # Dakota is not currently using MPI features of HOPSPACK; if we do,
-  # we will need to better sync up our CMake MPI probes
-  #if(DAKOTA_HAVE_MPI)
-  #  # See hopspack/ConfigureMPI.cmake for MPI "help"
-  #  set(mpi ON CACHE BOOL "MPI requested so enable in HOPSPACK" FORCE)
-  #  message("HOPSPACK caches the variable mpi = ${mpi}")
-  #endif(DAKOTA_HAVE_MPI)
+  if(DAKOTA_HAVE_MPI)
+    # See hopspack/ConfigureMPI.cmake for MPI "help"
+    set(mpi ON CACHE BOOL "MPI requested so enable in HOPSPACK" FORCE)
+    message("HOPSPACK caches the variable mpi = ${mpi}")
+  endif(DAKOTA_HAVE_MPI)
 
   # HOPSPACK expects BLAS symbol ddot to be found in LAPACK libs 
   set(LAPACK_ADD_LIBS ${BLAS_LIBS})
@@ -239,6 +233,10 @@ endif(HAVE_HOPSPACK)
 if(HAVE_JEGA)
   add_subdirectory(JEGA)
 endif(HAVE_JEGA)
+
+if(HAVE_NCSUOPT)
+  add_subdirectory(NCSUOpt)
+endif(HAVE_NCSUOPT)
 
 if(HAVE_NL2SOL)
   add_subdirectory(NL2SOL)
@@ -273,5 +271,5 @@ endif(HAVE_PSUADE)
 #endif()
 
 if(HAVE_X_GRAPHICS)
-  add_subdirectory(sciplot)
+  add_subdirectory(motif)
 endif(HAVE_X_GRAPHICS)

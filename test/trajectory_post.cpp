@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -15,46 +15,41 @@
 #include <algorithm>
 #include <cctype>
 #include <boost/algorithm/string.hpp>
+using namespace std;
 
 enum var_t { FT1,  FT2 };
-
-#define HIERARCH_TAG
 
 
 int main(int argc, char** argv)
 {
   // This application program reads and writes parameter and response data 
   // directly so no input/output filters are needed.
-  std::ifstream fin(argv[1]);
+  ifstream fin(argv[1]);
   if (!fin) {
-    std::cerr << "\nError: failure opening " << argv[1] << std::endl;
+    cerr << "\nError: failure opening " << argv[1] << endl;
     exit(-1);
   }
   size_t i, j, num_vars, num_fns, num_deriv_vars, num_ac;
-  std::string text, hier_tag;
+  string text, hier_tag;
 
-  // define the std::string to enumeration map
-  std::map<std::string, var_t> var_t_map;
+  // define the string to enumeration map
+  map<string, var_t> var_t_map;
   var_t_map["failthresh1"] = FT1; var_t_map["failthresh2"] = FT2;
 
-  // Get the parameter std::vector and ignore the labels
+  // Get the parameter vector and ignore the labels
   fin >> num_vars >> text;
-  if (num_vars != 2 && num_vars != 10) {
-    std::cerr << "Error: wrong number of variables for trajectory_post().\n";
-    exit(-1);
-  }
-  std::map<var_t, double> vars;
-  //std::vector<var_t> labels(num_vars);
-  double value_i; std::string label_i; //var_t v_i;
-  std::map<std::string, var_t>::iterator v_iter;
+  map<var_t, double> vars;
+  //vector<var_t> labels(num_vars);
+  double value_i; string label_i; //var_t v_i;
+  map<string, var_t>::iterator v_iter;
   for (i=0; i<num_vars; i++) {
     fin >> value_i >> label_i;
     transform(label_i.begin(), label_i.end(), label_i.begin(),
 	      (int(*)(int))tolower);
     v_iter = var_t_map.find(label_i);
     // if (v_iter == var_t_map.end()) {
-    //   std::cerr << "Error: label \"" << label_i << "\" not supported in analysis "
-    // 	   << "driver." << std::endl;
+    //   cerr << "Error: label \"" << label_i << "\" not supported in analysis "
+    // 	   << "driver." << endl;
     //   exit(-1);
     // }
     // else
@@ -66,22 +61,26 @@ int main(int argc, char** argv)
     if (v_iter != var_t_map.end())
       vars[v_iter->second] = value_i;
   }
-
-  // Get the ASV std::vector and ignore the labels
-  fin >> num_fns >> text;
-  if (num_fns != 1) {
-    std::cerr << "Error: wrong number of functions in trajectory_post.\n";
+  if (vars.size() != 2) {
+    cerr << "Error: wrong number of variables for trajectory_post().\n";
     exit(-1);
   }
-  std::vector<short> ASV(num_fns);
+
+  // Get the ASV vector and ignore the labels
+  fin >> num_fns >> text;
+  vector<short> ASV(num_fns);
   for (i=0; i<num_fns; i++) {
     fin >> ASV[i];
     fin.ignore(256, '\n');
   }
+  if (num_fns != 1) {
+    cerr << "Error: wrong number of functions in trajectory_post().\n";
+    exit(-1);
+  }
 
-  // Get the DVV std::vector and ignore the labels
+  // Get the DVV vector and ignore the labels
   fin >> num_deriv_vars >> text;
-  //std::vector<var_t> DVV(num_deriv_vars);
+  //vector<var_t> DVV(num_deriv_vars);
   unsigned int dvv_i;
   for (i=0; i<num_deriv_vars; i++) {
     fin >> dvv_i;
@@ -89,48 +88,43 @@ int main(int argc, char** argv)
     //DVV[i] = labels[dvv_i-1];
   }
 
-  // Extract the AC std::vector and ignore the labels
+  // Extract the AC vector and ignore the labels
   fin >> num_ac >> text;
-  std::vector<std::string> AC(num_ac);
+  vector<string> AC(num_ac);
   for (i=0; i<num_ac; i++) {
     fin >> AC[i];
     fin.ignore(256, '\n');
   }
 
-#ifdef HIERARCH_TAG
   // Extract the hierarchical fn eval tags (required to link to opt interface)
   fin >> hier_tag; fin.ignore(256, '\n');
-  std::vector<std::string> tags;
+  vector<string> tags;
   boost::split(tags, hier_tag, boost::is_any_of(".: "));
   size_t num_tags = tags.size();
   if (num_tags < 2) {
-    std::cerr << "Error: insufficient hierarchical tag depth." << std::endl;
+    cerr << "Error: unsufficient hierarchical tag depth." << endl;
     exit(-1);
   }
-  std::string e_tag   = tags[0];                 // if file_tag is on
-  //std::string e_tag = tags[0] + '.' + tags[0]; // if file_tag is off (hack)
+  string e_tag   = tags[0];                 // if file_tag is on
+  //string e_tag = tags[0] + '.' + tags[0]; // if file_tag is off (hack)
   for (i=1; i<num_tags-1; ++i)
     e_tag += '.' + tags[i]; // up one level from last tag
 
   // Compute and output responses
-  std::string history = "../epistemic_simulation." + e_tag + "/time_history.dat";
-#else
-  std::string history = "time_history.dat";
-#endif
-
-  std::ifstream hist_in(history.c_str());
+  string history = "../epistemic_simulation." + e_tag + "/time_history.dat";
+  ifstream hist_in(history.c_str());
   if (!fin) {
-    std::cerr << "\nError: failure opening " << history << std::endl;
+    cerr << "\nError: failure opening " << history << endl;
     exit(-1);
   }
-  std::ofstream fout(argv[2]);
+  ofstream fout(argv[2]);
   if (!fout) {
-    std::cerr << "\nError: failure creating " << argv[2] << std::endl;
+    cerr << "\nError: failure creating " << argv[2] << endl;
     exit(-1);
   }
   fout.precision(15); // 16 total digits
-  fout.setf(std::ios::scientific);
-  fout.setf(std::ios::right);
+  fout.setf(ios::scientific);
+  fout.setf(ios::right);
 
   size_t num_delta;
   hist_in >> num_delta;

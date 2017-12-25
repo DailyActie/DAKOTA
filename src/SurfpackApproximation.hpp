@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -52,8 +52,7 @@ public:
   SurfpackApproximation();
   /// standard constructor: Surfpack surface of appropriate type will be created
   SurfpackApproximation(const ProblemDescDB& problem_db,
-			const SharedApproxData& shared_data,
-                        const String& approx_label);
+			const SharedApproxData& shared_data);
   /// alternate constructor
   SurfpackApproximation(const SharedApproxData& shared_data);
   /// destructor
@@ -73,15 +72,10 @@ protected:
   /// and the appropriate Surfpack build method will be invoked
   void build();
 
-  /// export the Surpack model to disk or console
-  void export_model(const String& fn_label, const String& export_prefix = "", 
-                    const unsigned short export_format = NO_MODEL_FORMAT);
-
   // return #coefficients
-  //RealVector approximation_coefficients(bool normalized) const;
+  //const RealVector& approximation_coefficients() const;
   // set #coefficients
-  //void approximation_coefficients(const RealVector& approx_coeffs,
-  //                                bool normalized);
+  //void approximation_coefficients(const RealVector& approx_coeffs);
 
   /// Return the value of the Surfpack surface for a given parameter vector x
   Real value(const Variables& vars);
@@ -92,16 +86,6 @@ protected:
   /// retrieve the variance of the predicted value for a given parameter set x
   /// (KrigingModel only)
   Real prediction_variance(const Variables& vars);
-    
-  /// Return the value of the Surfpack surface for a given parameter vector x
-  Real value(const RealVector& c_vars);
-  /// retrieve the approximate function gradient for a given parameter vector x
-  const RealVector& gradient(const RealVector& c_vars);
-  /// retrieve the approximate function Hessian for a given parameter vector x
-  const RealSymMatrix& hessian(const RealVector& c_vars);
-  /// retrieve the variance of the predicted value for a given parameter set x
-  /// (KrigingModel only)
-  Real prediction_variance(const RealVector& c_vars);
 
   /// check if the diagnostics are available (true for the Surfpack types)
   bool diagnostics_available();
@@ -117,18 +101,8 @@ protected:
   void primary_diagnostics(int fn_index);
   /// compute and print all requested diagnostics for user provided
   /// challenge pts
-  void challenge_diagnostics(int fn_index, const RealMatrix& challenge_points,
-                             const RealVector& challenge_responses);
+  void challenge_diagnostics(const RealMatrix& challenge_points, int fn_index);
 
-  /// compute and return cross-validation for metric_type with num_folds
-  RealArray cv_diagnostic(const StringArray& metric_types, unsigned num_folds);
-  
-  /// compute and print all requested diagnostics for user provided
-  /// challenge pts
-  RealArray challenge_diagnostic(const StringArray& metric_types,
-			    const RealMatrix& challenge_points,
-                            const RealVector& challenge_responses);
- 
 private:
 
   //
@@ -174,13 +148,13 @@ inline bool SurfpackApproximation::diagnostics_available()
 
 /* The value returned from this function is currently meaningless.
    \todo: Provide an appropriate list of coefficients for each surface type */
-//inline RealVector SurfpackApproximation::
-//approximation_coefficients(bool normalized) const
+//inline const RealVector& SurfpackApproximation::
+//approximation_coefficients() const
 //{ return coefficients; }
 
 
 //inline void SurfpackApproximation::
-//approximation_coefficients(const RealVector& approx_coeffs, bool normalized)
+//approximation_coefficients(const RealVector& approx_coeffs)
 //{ coefficients = approx_coeffs; }
 
 } // namespace Dakota

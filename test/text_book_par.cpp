@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,6 +21,7 @@
 
 int main(int argc, char** argv)
 {
+  using namespace std;
 
   int rank = 0, size = 1;
 #ifdef USE_MPI
@@ -30,13 +31,13 @@ int main(int argc, char** argv)
 #endif // USE_MPI
 
   size_t i, j, k, num_vars, num_fns, num_deriv_vars;
-  std::ofstream fout;
+  ofstream fout;
   double* x;
   int* ASV;
   int* DVV;
   if (rank == 0) {
-    std::ifstream fin(argv[1]);
-    std::string vars_text, fns_text, dvv_text;
+    ifstream fin(argv[1]);
+    string vars_text, fns_text, dvv_text;
 
     // Get the parameter vector and ignore the labels
     fin >> num_vars >> vars_text;
@@ -77,8 +78,8 @@ int main(int argc, char** argv)
     // of results readability.
     fout.open(argv[2]);
     fout.precision(15); // 16 total digits
-    fout.setf(std::ios::scientific);
-    fout.setf(std::ios::right);
+    fout.setf(ios::scientific);
+    fout.setf(ios::right);
   }
 #ifdef USE_MPI
   else {

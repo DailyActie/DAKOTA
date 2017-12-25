@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -28,9 +28,8 @@ namespace Dakota {
 
 /** This constructor is called for a standard letter-envelope iterator
     instantiation using the ProblemDescDB. */
-NonDStochCollocation::
-NonDStochCollocation(ProblemDescDB& problem_db, Model& model):
-  NonDExpansion(problem_db, model)
+NonDStochCollocation::NonDStochCollocation(Model& model):
+  NonDExpansion(model), sgBasisType(DEFAULT_INTERPOLANT)
 {
   // ----------------------------------------------
   // Resolve settings and initialize natafTransform
@@ -44,7 +43,9 @@ NonDStochCollocation(ProblemDescDB& problem_db, Model& model):
   // Recast g(x) to G(u)
   // -------------------
   Model g_u_model;
-  transform_model(iteratedModel, g_u_model); // retain distribution bounds
+  bool global_bnds
+    = (numContDesVars || numContEpistUncVars || numContStateVars);
+  transform_model(iteratedModel, g_u_model, global_bnds);
 
   // -------------------------
   // Construct u_space_sampler
@@ -58,39 +59,36 @@ NonDStochCollocation(ProblemDescDB& problem_db, Model& model):
     = probDescDB.get_usa("method.nond.sparse_grid_level");
   const RealVector& dim_pref
     = probDescDB.get_rv("method.nond.dimension_preference");
-  check_dimension_preference(dim_pref);
   if (!quad_order_spec.empty()) {
     expansionCoeffsApproach = Pecos::QUADRATURE;
-    expansionBasisType = Pecos::NODAL_INTERPOLANT;
     construct_quadrature(u_space_sampler, g_u_model, quad_order_spec, dim_pref);
   }
   else if (!ssg_level_spec.empty()) {
-    switch (expansionBasisType) {
-    case Pecos::HIERARCHICAL_INTERPOLANT:
+    sgBasisType = probDescDB.get_short("method.nond.sparse_grid_basis_type");
+    switch (sgBasisType) {
+    case HIERARCHICAL_INTERPOLANT:
       expansionCoeffsApproach = Pecos::HIERARCHICAL_SPARSE_GRID;          break;
-    case Pecos::NODAL_INTERPOLANT:
+    case NODAL_INTERPOLANT:
       expansionCoeffsApproach = Pecos::COMBINED_SPARSE_GRID;              break;
-    case Pecos::DEFAULT_BASIS:
+    case DEFAULT_INTERPOLANT:
       if ( u_space_type == STD_UNIFORM_U && nestedRules &&// TO DO:retire nested
 	   ( refineControl == Pecos::DIMENSION_ADAPTIVE_CONTROL_GENERALIZED ||
 	     refineControl == Pecos::LOCAL_ADAPTIVE_CONTROL ) ) {
 	expansionCoeffsApproach = Pecos::HIERARCHICAL_SPARSE_GRID;
-	expansionBasisType = Pecos::HIERARCHICAL_INTERPOLANT;
+	sgBasisType = HIERARCHICAL_INTERPOLANT;
       }
       else {
 	expansionCoeffsApproach = Pecos::COMBINED_SPARSE_GRID;
-	expansionBasisType = Pecos::NODAL_INTERPOLANT;
+	sgBasisType = NODAL_INTERPOLANT;
       }
       break;
     }
     /*
     if (refineControl == Pecos::LOCAL_ADAPTIVE_CONTROL) {
-      if (!piecewiseBasis ||
-          expansionBasisType != Pecos::HIERARCHICAL_INTERPOLANT) {
+      if (!piecewiseBasis || sgBasisType != HIERARCHICAL_INTERPOLANT) {
 	// TO DO: promote this error check to resolve_inputs()
 	PCerr << "Warning: overriding basis type to local hierarchical\n.";
-	piecewiseBasis = true;
-	expansionBasisType = Pecos::HIERARCHICAL_INTERPOLANT;
+	piecewiseBasis = true; sgBasisType = HIERARCHICAL_INTERPOLANT;
       }
       expansionCoeffsApproach = Pecos::HIERARCHICAL_SPARSE_GRID;
     }
@@ -108,34 +106,35 @@ NonDStochCollocation(ProblemDescDB& problem_db, Model& model):
   short  corr_order = -1, corr_type = NO_CORRECTION;
   String pt_reuse, approx_type;
   if (piecewiseBasis)
-    approx_type = (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) ? 
+    approx_type = (sgBasisType == HIERARCHICAL_INTERPOLANT) ? 
       "piecewise_hierarchical_interpolation_polynomial" :
       "piecewise_nodal_interpolation_polynomial";
   else
-    approx_type = (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) ?
+    approx_type = (sgBasisType == HIERARCHICAL_INTERPOLANT) ?
       "global_hierarchical_interpolation_polynomial" :
       "global_nodal_interpolation_polynomial";
   UShortArray approx_order; // empty
   //const Variables& g_u_vars = g_u_model.current_variables();
-  ActiveSet sc_set = g_u_model.current_response().active_set(); // copy
-  sc_set.request_values(3); // stand-alone mode: surrogate grad evals at most
-  String empty_str; // build data import not supported for structured grids
   uSpaceModel.assign_rep(new DataFitSurrModel(u_space_sampler, g_u_model,
-    sc_set, approx_type, approx_order, corr_type, corr_order, data_order,
-    outputLevel, pt_reuse, empty_str, TABULAR_ANNOTATED, false,
-    probDescDB.get_string("method.export_approx_points_file"),
-    probDescDB.get_ushort("method.export_approx_format")), false);
+    //g_u_vars.view(), g_u_vars.variables_components(),
+    //g_u_model.current_response().active_set(),
+    approx_type, approx_order, corr_type, corr_order, data_order,
+    outputLevel, pt_reuse, probDescDB.get_string("method.export_points_file"),
+    probDescDB.get_bool("method.export_points_file_annotated")), false);
+    // point import not supported for structured grids
   initialize_u_space_model();
 
   // -------------------------------
   // Construct expSampler, if needed
   // -------------------------------
-  construct_expansion_sampler(
-    probDescDB.get_string("method.import_approx_points_file"),
-    probDescDB.get_ushort("method.import_approx_format"),
-    probDescDB.get_bool("method.import_approx_active_only"));
+  construct_expansion_sampler();
 
-  if (parallelLib.command_line_check())
+  // uSpaceModel concurrency is defined by the number of samples used
+  // in evaluating the stochastic expansion
+  uSpaceModel.init_communicators(
+    numSamplesOnExpansion*uSpaceModel.derivative_concurrency());
+
+  if (probDescDB.parallel_library().command_line_check())
     Cout << "\nStochastic collocation construction completed: initial grid "
 	 << "size of " << numSamplesOnModel << " evaluations to be performed."
 	 << std::endl;
@@ -145,16 +144,11 @@ NonDStochCollocation(ProblemDescDB& problem_db, Model& model):
 /** This constructor is used for helper iterator instantiation on the fly. */
 NonDStochCollocation::
 NonDStochCollocation(Model& model, short exp_coeffs_approach,
-		     const UShortArray& num_int_seq, const RealVector& dim_pref,
-		     short u_space_type, bool piecewise_basis, bool use_derivs):
-  NonDExpansion(STOCH_COLLOCATION, model, exp_coeffs_approach, u_space_type,
-		piecewise_basis, use_derivs)
+		     unsigned short num_int_level, short u_space_type,
+		     bool piecewise_basis, bool use_derivs):
+  NonDExpansion(model, exp_coeffs_approach, u_space_type,
+		piecewise_basis, use_derivs), sgBasisType(DEFAULT_INTERPOLANT)
 {
-  // -------------------
-  // input sanity checks
-  // -------------------
-  check_dimension_preference(dim_pref);
-
   // ----------------------------------------------
   // Resolve settings and initialize natafTransform
   // ----------------------------------------------
@@ -166,25 +160,29 @@ NonDStochCollocation(Model& model, short exp_coeffs_approach,
   // Recast g(x) to G(u)
   // -------------------
   Model g_u_model;
-  transform_model(iteratedModel, g_u_model); // retain distribution bounds
+  bool global_bnds
+    = (numContDesVars || numContEpistUncVars || numContStateVars);
+  transform_model(iteratedModel, g_u_model, global_bnds);
 
   // -------------------------
   // Construct u_space_sampler
   // -------------------------
+  RealVector  dim_pref;                      // empty -> isotropic
+  UShortArray num_int_seq(1, num_int_level); // single sequence
   // LHS/Incremental LHS/Quadrature/SparseGrid samples in u-space
   // generated using active sampling view:
   Iterator u_space_sampler;
   switch (expansionCoeffsApproach) {
   case Pecos::QUADRATURE:
-    expansionBasisType = Pecos::NODAL_INTERPOLANT;
+    // sgBasisType left as DEFAULT_INTERPOLANT
     construct_quadrature(u_space_sampler, g_u_model, num_int_seq, dim_pref);
     break;
   case Pecos::COMBINED_SPARSE_GRID:
-    expansionBasisType = Pecos::NODAL_INTERPOLANT;
+    sgBasisType = NODAL_INTERPOLANT;
     construct_sparse_grid(u_space_sampler, g_u_model, num_int_seq, dim_pref);
     break;
   case Pecos::HIERARCHICAL_SPARSE_GRID:
-    expansionBasisType = Pecos::HIERARCHICAL_INTERPOLANT;
+    sgBasisType = HIERARCHICAL_INTERPOLANT;
     construct_sparse_grid(u_space_sampler, g_u_model, num_int_seq, dim_pref);
     break;
   }
@@ -199,19 +197,16 @@ NonDStochCollocation(Model& model, short exp_coeffs_approach,
   short  corr_order = -1, corr_type = NO_CORRECTION;
   String pt_reuse, approx_type;
   if (piecewiseBasis)
-    approx_type = (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) ?
+    approx_type = (sgBasisType == HIERARCHICAL_INTERPOLANT) ?
       "piecewise_hierarchical_interpolation_polynomial" :
       "piecewise_nodal_interpolation_polynomial";
   else
-    approx_type = (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) ?
+    approx_type = (sgBasisType == HIERARCHICAL_INTERPOLANT) ?
       "global_hierarchical_interpolation_polynomial" :
       "global_nodal_interpolation_polynomial";
   UShortArray approx_order; // empty
-  ActiveSet sc_set = g_u_model.current_response().active_set(); // copy
-  sc_set.request_values(3); // TO DO: support surr Hessian evals in helper mode
-                            // TO DO: consider passing in data_mode
   uSpaceModel.assign_rep(new DataFitSurrModel(u_space_sampler, g_u_model,
-    sc_set, approx_type, approx_order, corr_type, corr_order, data_order,
+    approx_type, approx_order, corr_type, corr_order, data_order,
     outputLevel, pt_reuse), false);
   initialize_u_space_model();
 
@@ -220,18 +215,10 @@ NonDStochCollocation(Model& model, short exp_coeffs_approach,
 
 
 NonDStochCollocation::~NonDStochCollocation()
-{ }
-
-
-bool NonDStochCollocation::resize()
 {
-  bool parent_reinit_comms = NonDExpansion::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
+  if (numSamplesOnExpansion)
+    uSpaceModel.free_communicators(
+      numSamplesOnExpansion*uSpaceModel.derivative_concurrency());
 }
 
 
@@ -254,8 +241,8 @@ resolve_inputs(short& u_space_type, short& data_order)
   // within the NestedModel ctor prior to subIterator instantiation.
   data_order = 1;
   if (useDerivs) { // input specification
-    if (iteratedModel.gradient_type()  != "none") data_order |= 2;
-    //if (iteratedModel.hessian_type() != "none") data_order |= 4; // not yet
+    if (gradientType  != "none") data_order |= 2;
+    //if (hessianType != "none") data_order |= 4; // not yet supported
 #ifdef ALLOW_GLOBAL_HERMITE_INTERPOLATION
     if (data_order == 1)
       Cerr << "\nWarning: use_derivatives option in stoch_collocation "
@@ -303,14 +290,15 @@ void NonDStochCollocation::initialize_u_space_model()
 				       true, useDerivs);
 
   // build a polynomial basis for purposes of defining collocation pts/wts
-  std::vector<Pecos::BasisPolynomial> driver_basis;
+  std::vector<Pecos::BasisPolynomial> num_int_poly_basis;
   Pecos::SharedInterpPolyApproxData::construct_basis(natafTransform.u_types(),
-    iteratedModel.aleatory_distribution_parameters(), bc_options, driver_basis);
+    iteratedModel.aleatory_distribution_parameters(), bc_options,
+    num_int_poly_basis);
 
   // set the polynomial basis within the NonDIntegration instance
   NonDIntegration* u_space_sampler_rep
     = (NonDIntegration*)uSpaceModel.subordinate_iterator().iterator_rep();
-  u_space_sampler_rep->initialize_grid(driver_basis);
+  u_space_sampler_rep->initialize_grid(num_int_poly_basis);
 
   // perform last due to numSamplesOnModel update
   NonDExpansion::initialize_u_space_model();
@@ -319,7 +307,7 @@ void NonDStochCollocation::initialize_u_space_model()
 
 void NonDStochCollocation::update_expansion()
 {
-  if (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) {
+  if (sgBasisType == HIERARCHICAL_INTERPOLANT) {
     // grid levels have been updated, now evaluate the new points
     NonDSparseGrid* nond_sparse = (NonDSparseGrid*)
       uSpaceModel.subordinate_iterator().iterator_rep();
@@ -334,7 +322,7 @@ void NonDStochCollocation::update_expansion()
 
 Real NonDStochCollocation::compute_covariance_metric()
 {
-  if (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) {
+  if (sgBasisType == HIERARCHICAL_INTERPOLANT) {
     size_t i, j;
     RealSymMatrix delta_resp_covar(numFunctions, false);
     bool warn_flag = false,
@@ -378,7 +366,7 @@ Real NonDStochCollocation::compute_final_statistics_metric()
   // combine delta_beta() and delta_z() from HierarchInterpPolyApproximation
   // with default definition of delta-{p,beta*}
 
-  if (expansionBasisType == Pecos::HIERARCHICAL_INTERPOLANT) {
+  if (sgBasisType == HIERARCHICAL_INTERPOLANT) {
     // Note: from a generality perspective, it would be desirable to map through
     // support for delta_mean() and delta_std_deviation().  But how to manage
     // user requests (w/o nested response mappings)?  Since delta in response

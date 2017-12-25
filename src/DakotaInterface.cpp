@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -45,7 +45,7 @@
 #endif // HAVE_AMPL
 
 //#define DEBUG
-//#define REFCOUNT_DEBUG
+
 
 namespace Dakota {
 
@@ -58,19 +58,24 @@ namespace Dakota {
     IS the representation, interfaceRep is set to NULL (an uninitialized 
     pointer causes problems in ~Interface). */
 Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db): 
-  interfaceType(problem_db.get_ushort("interface.type")),
+  interfaceType(problem_db.get_string("interface.type")),
   interfaceId(problem_db.get_string("interface.id")), algebraicMappings(false),
-  coreMappings(true), outputLevel(problem_db.get_short("method.output")),
-  currEvalId(0), fineGrainEvalCounters(outputLevel > NORMAL_OUTPUT),
+  coreMappings(true), currEvalId(0), fineGrainEvalCounters(false),
   evalIdCntr(0), newEvalIdCntr(0), evalIdRefPt(0), newEvalIdRefPt(0),
   multiProcEvalFlag(false), ieDedMasterFlag(false),
   // See base constructor in DakotaIterator.cpp for full discussion of output
   // verbosity.  Interfaces support the full granularity in verbosity.
-  appendIfaceId(true), interfaceRep(NULL), referenceCount(1), asl(NULL)
+  outputLevel(problem_db.get_short("method.output")), appendIfaceId(true),
+  interfaceRep(NULL), referenceCount(1)
 {
 #ifdef DEBUG
   outputLevel = DEBUG_OUTPUT;
 #endif // DEBUG
+  if (outputLevel > NORMAL_OUTPUT) { // detailed evaluation reporting
+    fineGrainEvalCounters = true;
+    fnLabels = problem_db.get_sa("responses.labels");
+    init_evaluation_counters(fnLabels.size());
+  }
 
   // Process the algebraic_mappings file (an AMPL .nl file) to get the number
   // of variables/responses (currently, the tags are converted to index arrays
@@ -94,14 +99,14 @@ Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db):
     FILE* ampl_nl = jac0dim(nonconst_stub, stub_str_len);
     if (!ampl_nl) {
       Cerr << "\nError: failure opening " << ampl_file_name << std::endl;
-      abort_handler(IO_ERROR);
+      abort_handler(-1);
     }
     int rtn = (hess_flag) ? pfgh_read(ampl_nl, ASL_return_read_err)
                           :   fg_read(ampl_nl, ASL_return_read_err);
     if (rtn) {
       Cerr << "\nError: AMPL processing problem with " << ampl_file_name
 	   << std::endl;
-      abort_handler(IO_ERROR);
+      abort_handler(-1);
     }
 
     // extract input/output tag lists
@@ -109,8 +114,8 @@ Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db):
 
     std::ifstream ampl_col(col.c_str());
     if (!ampl_col) {
-      Cerr << "\nError: failure opening " << col << std::endl;
-      abort_handler(IO_ERROR);
+      Cerr << "\nError: failure opening " << ampl_col << std::endl;
+      abort_handler(-1);
     }
     algebraicVarTags.resize(n_var);
     for (size_t i=0; i<n_var; i++) {
@@ -118,16 +123,16 @@ Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db):
       if (ampl_col.good())
 	algebraicVarTags[i] = ampl_tag;
       else {
-	Cerr << "\nError: failure reading AMPL col file " << col
+	Cerr << "\nError: failure reading AMPL col file " << ampl_col 
 	     << std::endl;
-	abort_handler(IO_ERROR);
+	abort_handler(-1);
       }
     }
 
     std::ifstream ampl_row(row.c_str());
     if (!ampl_row) {
-      Cerr << "\nError: failure opening " << row << std::endl;
-      abort_handler(IO_ERROR);
+      Cerr << "\nError: failure opening " << ampl_row << std::endl;
+      abort_handler(-1);
     }
     algebraicFnTags.resize(n_obj+n_con);
     algebraicFnTypes.resize(n_obj+n_con);
@@ -139,9 +144,9 @@ Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db):
 	algebraicFnTypes[i] = algebraic_function_type(ampl_tag);
       }
       else {
-	Cerr << "\nError: failure reading AMPL row file " << row
+	Cerr << "\nError: failure reading AMPL row file " << ampl_row 
 	     << std::endl;
-	abort_handler(IO_ERROR);
+	abort_handler(-1);
       }
     }
 
@@ -166,16 +171,19 @@ Interface::Interface(BaseConstructor, const ProblemDescDB& problem_db):
 
 
 Interface::Interface(NoDBBaseConstructor, size_t num_fns, short output_level):
-  interfaceId("NO_SPECIFICATION"), algebraicMappings(false), coreMappings(true),
-  outputLevel(output_level), currEvalId(0), 
-  fineGrainEvalCounters(outputLevel > NORMAL_OUTPUT), evalIdCntr(0), 
-  newEvalIdCntr(0), evalIdRefPt(0), newEvalIdRefPt(0), multiProcEvalFlag(false),
-  ieDedMasterFlag(false), appendIfaceId(true), interfaceRep(NULL),
-  referenceCount(1)
+  interfaceId("NO_DB_INTERFACE"), algebraicMappings(false), coreMappings(true),
+  currEvalId(0), fineGrainEvalCounters(false), evalIdCntr(0), newEvalIdCntr(0),
+  evalIdRefPt(0), newEvalIdRefPt(0), multiProcEvalFlag(false),
+  ieDedMasterFlag(false), outputLevel(output_level), appendIfaceId(true),
+  interfaceRep(NULL), referenceCount(1)
 {
 #ifdef DEBUG
   outputLevel = DEBUG_OUTPUT;
 #endif // DEBUG
+  if (outputLevel > NORMAL_OUTPUT) {
+    fineGrainEvalCounters = true;
+    init_evaluation_counters(num_fns);
+  }
 
 #ifdef REFCOUNT_DEBUG
   Cout << "Interface::Interface(NoDBBaseConstructor) called to build base "
@@ -211,21 +219,21 @@ Interface::Interface(ProblemDescDB& problem_db): referenceCount(1)
     to the appropriate derived type. */
 Interface* Interface::get_interface(ProblemDescDB& problem_db)
 {
-  const unsigned short interface_type = problem_db.get_ushort("interface.type");
 #ifdef REFCOUNT_DEBUG
-  Cout << "Envelope instantiating letter: Getting interface "
-       << interface_enum_to_string(interface_type) << std::endl;
+  Cout << "Envelope instantiating letter: Getting interface " << interface_type 
+       << std::endl;
 #endif
 
   // In the case where a derived interface type has been selected for managing
   // analysis_drivers, then this determines the letter instantiation and any 
   // algebraic mappings are overlayed by ApplicationInterface.
+  const String& interface_type = problem_db.get_string("interface.type");
   const String& algebraic_map_file
     = problem_db.get_string("interface.algebraic_mappings");
-  if (interface_type == SYSTEM_INTERFACE)
+  if (interface_type == "system")
     return new SysCallApplicInterface(problem_db);
 
-  else if (interface_type == FORK_INTERFACE) {
+  else if (interface_type == "fork") {
 #if defined(HAVE_SYS_WAIT_H) && defined(HAVE_UNISTD_H) // includes CYGWIN/MINGW
     return new ForkApplicInterface(problem_db);
 #elif defined(_WIN32) // or _MSC_VER (native MSVS compilers)
@@ -237,18 +245,18 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 #endif
   }
 
-  else if (interface_type == TEST_INTERFACE)
+  else if (interface_type == "direct")
     return new TestDriverInterface(problem_db);
   // Note: in the case of a plug-in direct interface, this object gets replaced
   // using Interface::assign_rep().  Error checking in DirectApplicInterface::
   // derived_map_ac() should catch if this replacement fails to occur properly.
 
 #ifdef DAKOTA_GRID
-  else if (interface_type == GRID_INTERFACE)
+  else if (interface_type == "grid")
     return new GridApplicInterface(problem_db);
 #endif
 
-  else if (interface_type == MATLAB_INTERFACE) {
+  else if (interface_type == "matlab") {
 #ifdef DAKOTA_MATLAB
     return new MatlabInterface(problem_db);
 #else
@@ -258,7 +266,7 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 #endif
   }
 
-  else if (interface_type == PYTHON_INTERFACE) {
+  else if (interface_type == "python") {
 #ifdef DAKOTA_PYTHON
     return new PythonInterface(problem_db);
 #else
@@ -268,7 +276,7 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 #endif
   }
 
-  else if (interface_type == SCILAB_INTERFACE) {
+  else if (interface_type == "scilab") {
 #ifdef DAKOTA_SCILAB
     return new ScilabInterface(problem_db);
 #else
@@ -280,7 +288,7 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 
   // Should not be needed since ApproximationInterface is plugged-in from
   // DataFitSurrModel using Interface::assign_rep().
-  //else if (interface_type == APPROX_INTERFACE)
+  //else if (interface_type == "approximation")
   //  return new ApproximationInterface(problem_db, num_acv, num_fns);
 
   // In the case where only algebraic mappings are used, then no derived map
@@ -295,15 +303,14 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 
   // If the interface type is empty (e.g., from default DataInterface creation
   // in ProblemDescDB::check_input()), then ApplicationInterface is the letter.
-  else if (interface_type == DEFAULT_INTERFACE) {
+  else if (interface_type.empty()) {
     Cerr << "Warning: empty interface type in Interface::get_interface()."
 	 << std::endl;
     return new ApplicationInterface(problem_db);
   }
 
   else {
-    Cerr << "Invalid interface: " << interface_enum_to_string(interface_type) 
-	 << std::endl;
+    Cerr << "Invalid interface: " << interface_type << std::endl;
     return NULL;
   }
 }
@@ -311,12 +318,12 @@ Interface* Interface::get_interface(ProblemDescDB& problem_db)
 
 /** Copy constructor manages sharing of interfaceRep and incrementing
     of referenceCount. */
-Interface::Interface(const Interface& interface_in)
+Interface::Interface(const Interface& interface)
 {
   // Increment new (no old to decrement)
-  interfaceRep = interface_in.interfaceRep;
+  interfaceRep = interface.interfaceRep;
   if (interfaceRep) // Check for an assignment of NULL
-    ++interfaceRep->referenceCount;
+    interfaceRep->referenceCount++;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "Interface::Interface(Interface&)" << std::endl;
@@ -329,17 +336,17 @@ Interface::Interface(const Interface& interface_in)
 
 /** Assignment operator decrements referenceCount for old interfaceRep, assigns
     new interfaceRep, and increments referenceCount for new interfaceRep. */
-Interface Interface::operator=(const Interface& interface_in)
+Interface Interface::operator=(const Interface& interface)
 {
-  if (interfaceRep != interface_in.interfaceRep) { // normal case: old != new
+  if (interfaceRep != interface.interfaceRep) { // normal case: old != new
     // Decrement old
     if (interfaceRep) // Check for NULL
       if ( --interfaceRep->referenceCount == 0 ) 
 	delete interfaceRep;
     // Assign and increment new
-    interfaceRep = interface_in.interfaceRep;
+    interfaceRep = interface.interfaceRep;
     if (interfaceRep) // Check for NULL
-      ++interfaceRep->referenceCount;
+      interfaceRep->referenceCount++;
   }
   // else if assigning same rep, then do nothing since referenceCount
   // should already be correct
@@ -448,7 +455,7 @@ void Interface::init_evaluation_counters(size_t num_fns)
     //  fnLabels.resize(num_fns);
     //  build_labels(fnLabels, "response_fn_"); // generic resp fn labels
     //}
-    if (fnValCounter.size() != num_fns) {
+    if (fnValCounter.empty()) {
       fnValCounter.assign(num_fns, 0);     fnGradCounter.assign(num_fns, 0);
       fnHessCounter.assign(num_fns, 0);    newFnValCounter.assign(num_fns, 0);
       newFnGradCounter.assign(num_fns, 0); newFnHessCounter.assign(num_fns, 0);
@@ -584,7 +591,7 @@ init_algebraic_mappings(const Variables& vars, const Response& response)
       Cerr << "\nError: AMPL column label " << algebraicVarTags[i] << " does "
 	   <<"not exist in DAKOTA continuous variable descriptors.\n"
 	   << std::endl;
-      abort_handler(INTERFACE_ERROR);
+      abort_handler(-1);
     }
     else {
       algebraicACVIndices[i] = acv_index;
@@ -600,7 +607,7 @@ init_algebraic_mappings(const Variables& vars, const Response& response)
     if (fn_index == _NPOS) {
       Cerr << "\nError: AMPL row label " << algebraicFnTags[i] << " does not "
 	   <<"exist in DAKOTA response descriptors.\n" << std::endl;
-      abort_handler(INTERFACE_ERROR);
+      abort_handler(-1);
     }
     else
       algebraicFnIndices[i] = fn_index;
@@ -691,7 +698,7 @@ algebraic_mappings(const Variables& vars, const ActiveSet& algebraic_set,
 	fn_val = conival(-1-algebraicFnTypes[i], nl_vars, &err);
       if (err) {
 	Cerr << "\nError: AMPL processing failure in objval().\n" << std::endl;
-	abort_handler(INTERFACE_ERROR);
+	abort_handler(-1);
       }
       algebraic_response.function_value(fn_val, i);
     }
@@ -704,7 +711,7 @@ algebraic_mappings(const Variables& vars, const ActiveSet& algebraic_set,
 	congrd(-1-algebraicFnTypes[i], nl_vars, fn_grad.values(), &err);
       if (err) {
 	Cerr << "\nError: AMPL processing failure in objgrad().\n" << std::endl;
-	abort_handler(INTERFACE_ERROR);
+	abort_handler(-1);
       }
     }
     // nl_vars -> response Hessians via AMPL
@@ -872,49 +879,34 @@ int Interface::algebraic_function_type(String functionTag)
 
   Cerr << "Error: No function type available for \'" << functionTag << "\' " 
        << "via algebraic_mappings interface." << std::endl;
-  abort_handler(INTERFACE_ERROR);
+  abort_handler(-1);
 #else
   return 0;
 #endif // HAVE_AMPL
 }
 
-const IntResponseMap& Interface::synchronize()
+const IntResponseMap& Interface::synch()
 {
   if (!interfaceRep) { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual synchronize() "
-	 << "function.\nNo default defined at Interface base class."
-	 << std::endl;
+    Cerr << "Error: Letter lacking redefinition of virtual synch function.\n"
+         << "No default synch defined at Interface base class." << std::endl;
     abort_handler(-1);
   }
 
-  return interfaceRep->synchronize();
+  return interfaceRep->synch();
 }
 
 
-const IntResponseMap& Interface::synchronize_nowait()
+const IntResponseMap& Interface::synch_nowait()
 {
   if (!interfaceRep) { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual synchronize_nowait"
-	 << "() function.\nNo default defined at Interface base class."
-	 << std::endl;
+    Cerr << "Error: Letter lacking redefinition of virtual synch_nowait "
+	 << "function.\nNo default synch_nowait defined at Interface base "
+	 << "class." << std::endl;
     abort_handler(-1);
   }
 
-  return interfaceRep->synchronize_nowait();
-}
-
-
-void Interface::cache_unmatched_response(int raw_id)
-{
-  if (interfaceRep) // envelope fwd to letter
-    interfaceRep->cache_unmatched_response(raw_id);
-  else { // base definition; not virtual
-    IntRespMIter rr_it = rawResponseMap.find(raw_id);
-    if (rr_it != rawResponseMap.end()) {
-      cachedResponseMap.insert(*rr_it);
-      rawResponseMap.erase(rr_it);
-    }
-  }
+  return interfaceRep->synch_nowait();
 }
 
 
@@ -945,10 +937,10 @@ void Interface::stop_evaluation_servers()
 
 
 void Interface::init_communicators(const IntArray& message_lengths,
-				   int max_eval_concurrency)
+				   int max_iterator_concurrency)
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->init_communicators(message_lengths, max_eval_concurrency);
+    interfaceRep->init_communicators(message_lengths,max_iterator_concurrency);
   else { // letter lacking redefinition of virtual fn.
     // ApproximationInterfaces: do nothing
   }
@@ -956,26 +948,24 @@ void Interface::init_communicators(const IntArray& message_lengths,
 
 
 void Interface::set_communicators(const IntArray& message_lengths,
-				  int max_eval_concurrency)
+				  int max_iterator_concurrency)
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->set_communicators(message_lengths, max_eval_concurrency);
+    interfaceRep->set_communicators(message_lengths, max_iterator_concurrency);
   else { // letter lacking redefinition of virtual fn.
     // ApproximationInterfaces: do nothing
   }
 }
 
 
-/*
 void Interface::free_communicators()
 {
   if (interfaceRep) // envelope fwd to letter
     interfaceRep->free_communicators();
   else { // letter lacking redefinition of virtual fn.
-    // default is no-op
+    // ApproximationInterfaces: do nothing
   }
 }
-*/
 
 
 void Interface::init_serial()
@@ -997,12 +987,12 @@ int Interface::asynch_local_evaluation_concurrency() const
 }
 
 
-short Interface::interface_synchronization() const
+String Interface::interface_synchronization() const
 {
   if (interfaceRep) // envelope fwd to letter
     return interfaceRep->interface_synchronization(); // ApplicationInterfaces
   else // letter lacking redefinition of virtual fn.
-    return SYNCHRONOUS_INTERFACE; // default (ApproximationInterfaces)
+    return String("synchronous"); // default (ApproximationInterfaces)
 }
 
 
@@ -1134,18 +1124,6 @@ build_approximation(const RealVector&  c_l_bnds, const RealVector&  c_u_bnds,
   }
 }
 
-void Interface::
-export_approximation()
-{
-  if (interfaceRep) // envelope fwd to letter
-    interfaceRep->export_approximation();
-  else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual export_approximation"
-         << "() function.\n       This interface does not support exporting "
-	 << "approximations." << std::endl;
-    abort_handler(-1);
-  }
-}
 
 void Interface::
 rebuild_approximation(const BoolDeque& rebuild_deque)
@@ -1174,28 +1152,28 @@ void Interface::pop_approximation(bool save_surr_data)
 }
 
 
-void Interface::push_approximation()
+void Interface::restore_approximation()
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->push_approximation();
+    interfaceRep->restore_approximation();
   else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual push_"
+    Cerr << "Error: Letter lacking redefinition of virtual restore_"
 	 << "approximation() function.\n       This interface does not "
-	 << "support approximation data retrieval." << std::endl;
+	 << "support approximation restoration." << std::endl;
     abort_handler(-1);
   }
 }
 
 
-bool Interface::push_available()
+bool Interface::restore_available()
 {
   if (!interfaceRep) { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual push_"
+    Cerr << "Error: Letter lacking redefinition of virtual restore_"
 	 << "available() function.\n       This interface does not "
-	 << "support approximation data retrieval." << std::endl;
+	 << "support approximation restoration queries." << std::endl;
     abort_handler(-1);
   }
-  return interfaceRep->push_available();
+  return interfaceRep->restore_available();
 }
 
 
@@ -1212,38 +1190,12 @@ void Interface::finalize_approximation()
 }
 
 
-void Interface::store_approximation(size_t index)
+void Interface::store_approximation()
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->store_approximation(index);
+    interfaceRep->store_approximation();
   else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual store_approximation"
-	 << "() function.\n       This interface does not support approximation"
-	 << " storage." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-void Interface::restore_approximation(size_t index)
-{
-  if (interfaceRep) // envelope fwd to letter
-    interfaceRep->restore_approximation(index);
-  else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual restore_"
-	 << "approximation() function.\n       This interface does not "
-	 << "support approximation storage." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-void Interface::remove_stored_approximation(size_t index)
-{
-  if (interfaceRep) // envelope fwd to letter
-    interfaceRep->remove_stored_approximation(index);
-  else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual remove_stored_"
+    Cerr << "Error: Letter lacking redefinition of virtual store_"
 	 << "approximation() function.\n       This interface does not "
 	 << "support approximation storage." << std::endl;
     abort_handler(-1);
@@ -1259,33 +1211,6 @@ void Interface::combine_approximation(short corr_type)
     Cerr << "Error: Letter lacking redefinition of virtual combine_"
 	 << "approximation() function.\n       This interface does not "
 	 << "support approximation combination." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-Real2DArray Interface::
-cv_diagnostics(const StringArray& metric_types, unsigned num_folds)
-{
-  if (interfaceRep) // envelope fwd to letter
-    return interfaceRep->cv_diagnostics(metric_types, num_folds);
-  else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual cv_diagnostics()"
-	 << "function.\n       This interface does not "
-	 << "support cross-validation diagnostics." << std::endl;
-    abort_handler(-1);
-  }
-}
-
-
-RealArray Interface::challenge_diagnostics(const String& metric_type,
-					    const RealMatrix& challenge_pts)
-{
-  if (interfaceRep) // envelope fwd to letter
-    return interfaceRep->challenge_diagnostics(metric_type, challenge_pts);
-  else { // letter lacking redefinition of virtual fn.
-    Cerr << "Error: Letter lacking redefinition of virtual challenge_"
-	 << "diagnostics() function.\n       This interface does not "
-	 << "support challenge data diagnostics." << std::endl;
     abort_handler(-1);
   }
 }
@@ -1311,10 +1236,10 @@ void Interface::clear_all()
 }
 
 
-void Interface::clear_popped()
+void Interface::clear_saved()
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->clear_popped();
+    interfaceRep->clear_saved();
   else { // letter lacking redefinition of virtual fn.
     // ApplicationInterfaces: do nothing
   }
@@ -1363,7 +1288,7 @@ const Pecos::SurrogateData& Interface::approximation_data(size_t index)
 }
 
 
-const RealVectorArray& Interface::approximation_coefficients(bool normalized)
+const RealVectorArray& Interface::approximation_coefficients()
 {
   if (!interfaceRep) { // letter lacking redefinition of virtual fn.
     Cerr << "Error: Letter lacking redefinition of virtual approximation_"
@@ -1373,16 +1298,14 @@ const RealVectorArray& Interface::approximation_coefficients(bool normalized)
   }
   
   // envelope fwd to letter
-  return interfaceRep->approximation_coefficients(normalized);
+  return interfaceRep->approximation_coefficients();
 }
 
 
-void Interface::
-approximation_coefficients(const RealVectorArray& approx_coeffs,
-			   bool normalized)
+void Interface::approximation_coefficients(const RealVectorArray& approx_coeffs)
 {
   if (interfaceRep) // envelope fwd to letter
-    interfaceRep->approximation_coefficients(approx_coeffs, normalized);
+    interfaceRep->approximation_coefficients(approx_coeffs);
   else { // letter lacking redefinition of virtual fn.
     Cerr << "Error: Letter lacking redefinition of virtual approximation_"
 	 << "coefficients function.\n       This interface does not support "

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -54,48 +54,10 @@ bool APPSEvalMgr::isReadyForWork() const
 bool APPSEvalMgr::submit(const int apps_tag, const HOPSPACK::Vector& apps_xtrial,
 			 const HOPSPACK::EvalRequestType apps_request)
 {
-  int num_cont_vars = iteratedModel.cv();
-  int num_disc_int_vars = iteratedModel.div();
-  int num_disc_real_vars = iteratedModel.drv();
-  int num_disc_string_vars = iteratedModel.dsv();
-
-  const BitArray& int_set_bits = iteratedModel.discrete_int_sets();
-  const IntSetArray& set_int_vars = iteratedModel.discrete_set_int_values();
-  const RealSetArray& set_real_vars = iteratedModel.discrete_set_real_values();
-  const StringSetArray& set_string_vars = iteratedModel.discrete_set_string_values();
-
-  size_t i, dsi_cntr;
-
   if (numWorkersUsed < numWorkersTotal) {
-
-    for(i=0; i<num_cont_vars; i++)
-      iteratedModel.continuous_variable(apps_xtrial[i], i);
-
-    for(i=0, dsi_cntr=0; i<num_disc_int_vars; i++)
-      { 
-	// This active discrete int var is a set type
-	// Map from index back to value.
-	if (int_set_bits[i]) {
-	  int int_set_value = 
-	    set_index_to_value(apps_xtrial[i+num_cont_vars], set_int_vars[dsi_cntr]);
-	  iteratedModel.discrete_int_variable(int_set_value, i);
-	  ++dsi_cntr;
-	}
-	// This active discrete int var is a range type
-	else
-	  iteratedModel.discrete_int_variable(apps_xtrial[i+num_cont_vars], i);
-      }
-
-    for (i=0; i<num_disc_real_vars; i++)
-    {
-      Real real_set_value = 
-	set_index_to_value(apps_xtrial[i+num_cont_vars+num_disc_int_vars], set_real_vars[i]);
-      iteratedModel.discrete_real_variable(real_set_value, i);
-    }
-
-    for (i=0; i<num_disc_string_vars; i++)
-      iteratedModel.discrete_string_variable(set_index_to_value(apps_xtrial[i+num_cont_vars+num_disc_int_vars+num_disc_real_vars], set_string_vars[i]), i);
-
+    for (int i=0; i<xTrial.length(); i++)
+      xTrial[i] = apps_xtrial[i];
+    iteratedModel.continuous_variables(xTrial);
     numWorkersUsed++;
   }
   else
@@ -109,14 +71,14 @@ bool APPSEvalMgr::submit(const int apps_tag, const HOPSPACK::Vector& apps_xtrial
     // Need to map between DAKOTA and APPS tags for asynchronous
     // evaluations.
 
-    iteratedModel.evaluate_nowait();
+    iteratedModel.asynch_compute_response();
     tagList[iteratedModel.evaluation_id()] = apps_tag;
   }
   else {
     // Need to associate responses with APPS tags for synchronous
     // evaluations.
 
-    iteratedModel.evaluate();
+    iteratedModel.compute_response();
     functionList[apps_tag] = iteratedModel.current_response().function_values();
   }
 
@@ -217,11 +179,6 @@ int APPSEvalMgr::recv(int& apps_tag, HOPSPACK::Vector& apps_f,
     else
       return 0;
   }
-}
-
-std::string APPSEvalMgr::getEvaluatorType(void) const
-{
-  return ("DakotaLinkedEvaluator");
 }
 
 } // namespace Dakota

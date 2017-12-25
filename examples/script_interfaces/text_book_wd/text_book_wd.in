@@ -1,6 +1,7 @@
 
 
-environment,
+strategy,
+	single_method
 
 method,
 #       DOT performs better, but may not be available 	
@@ -24,8 +25,8 @@ interface,
         file_save directory_save
 
 responses,
-	objective_functions = 1
-	nonlinear_inequality_constraints = 2
+	num_objective_functions = 1
+	num_nonlinear_inequality_constraints = 2
 	numerical_gradients
 	  method_source dakota
 	  interval_type central

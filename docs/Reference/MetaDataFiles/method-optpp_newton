@@ -1,0 +1,11 @@
+Blurb::
+Newton method based optimization
+Description::
+
+See \ref topic-package_optpp for info related to all \c optpp methods.
+
+Topics::	package_optpp, local_optimization_methods, not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	method-optpp_cg, method-optpp_g_newton, method-optpp_pds, method-optpp_fd_newton, method-optpp_g_newton

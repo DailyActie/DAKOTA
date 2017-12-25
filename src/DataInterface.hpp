@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -18,52 +18,9 @@
 
 #include "dakota_system_defs.hpp"
 #include "dakota_data_types.hpp"
-#include "dakota_global_defs.hpp"
 #include "MPIPackBuffer.hpp"
 
 namespace Dakota {
-
-
-/// offset for external process interface types
-#define PROCESS_INTERFACE_BIT 8
-/// offset for direct coupled interface types
-#define DIRECT_INTERFACE_BIT  16
-
-/// special values for interface type
-enum { 
-  // default is for algebraic-only and all other interface types
-  DEFAULT_INTERFACE=0, APPROX_INTERFACE,
-  // external process interfaces
-  FORK_INTERFACE=PROCESS_INTERFACE_BIT, SYSTEM_INTERFACE, GRID_INTERFACE,
-  // direct coupled interfaces
-  TEST_INTERFACE=DIRECT_INTERFACE_BIT, 
-  MATLAB_INTERFACE, PYTHON_INTERFACE, SCILAB_INTERFACE
-};
-
-// put this helper function here to encourage sync with enum above
-static String interface_enum_to_string(unsigned short interface_type) 
-{
-  switch (interface_type) {
-  case DEFAULT_INTERFACE: return String("default");       break;
-  case APPROX_INTERFACE:  return String("approximation"); break;
-  case FORK_INTERFACE:    return String("fork");          break;
-  case SYSTEM_INTERFACE:  return String("system");        break;
-  case GRID_INTERFACE:    return String("grid");          break;
-  case TEST_INTERFACE:    return String("direct");        break;
-  case MATLAB_INTERFACE:  return String("matlab");        break;
-  case PYTHON_INTERFACE:  return String("python");        break;
-  case SCILAB_INTERFACE:  return String("scilab");        break;
-  default:
-    Cerr << "\nError: Unknown interface enum " << interface_type << std::endl;
-    abort_handler(-1); 
-    return String();
-    break;
-  }
-}
-
-
-/// interface synchronization types 
-enum { SYNCHRONOUS_INTERFACE, ASYNCHRONOUS_INTERFACE };
 
 /// define algebraic function types
 enum { OBJECTIVE, INEQUALITY_CONSTRAINT, EQUALITY_CONSTRAINT };
@@ -98,7 +55,7 @@ public:
   /// (from the id_interface specification in \ref InterfIndControl)
   String idInterface;
   /// the interface selection: system, fork, direct, or grid
-  unsigned short interfaceType;
+  String interfaceType;
   /// defines the subset of the parameter to response mapping that is
   /// explicit and algebraic.  This is typically a stub.nl filename
   /// (AMPL format) from JAGUAR.
@@ -134,8 +91,6 @@ public:
   /// system call and fork interfaces (from the \c aprepro
   /// specification in \ref InterfApplicSC and \ref InterfApplicF)
   bool apreproFlag;
-  /// Expected format of results file
-  unsigned short resultsFileFormat;
   /// flag for file tagging of parameters and results files for
   /// system call and fork interfaces (from the \c file_tag
   /// specification in \ref InterfApplicSC and \ref InterfApplicF)
@@ -144,6 +99,9 @@ public:
   /// system call and fork interfaces (from the \c file_save
   /// specification in \ref InterfApplicSC and \ref InterfApplicF)
   bool fileSaveFlag;
+  /// processors per parallel analysis for a direct interface (from the
+  /// \c processors_per_analysis specification in \ref InterfApplicDF)
+  int procsPerAnalysis;
   // names of host machines for a grid interface (from the
   // \c hostnames specification in \ref InterfApplicG)
   //StringArray gridHostNames;
@@ -153,14 +111,13 @@ public:
   /// parallel mode for a simulation-based interface: synchronous or
   /// asynchronous (from the \c asynchronous specification in \ref
   /// InterfIndControl)
-  short interfaceSynchronization;
+  String interfaceSynchronization;
   /// evaluation concurrency for asynchronous simulation-based interfaces (from
   /// the \c evaluation_concurrency specification in \ref InterfIndControl)
   int asynchLocalEvalConcurrency;
-  /// scheduling approach for asynchronous local evaluations:
-  /// {DEFAULT,DYNAMIC,STATIC}_SCHEDULING (from the \c
-  /// local_evaluation_scheduling specification in \ref InterfIndControl)
-  short asynchLocalEvalScheduling;
+  /// scheduling approach for asynchronous local evaluations (from the 
+  /// \c local_evaluation_scheduling specification in \ref InterfIndControl)
+  String asynchLocalEvalScheduling;
   /// analysis concurrency for asynchronous simulation-based interfaces
   /// (from the \c analysis_concurrency specification in \ref InterfIndControl)
   int asynchLocalAnalysisConcurrency;
@@ -168,22 +125,16 @@ public:
   /// (from the \c evaluation_servers specification in \ref InterfIndControl)
   int evalServers;
   /// the scheduling approach to be used for concurrent evaluations
-  /// within an iterator: {DEFAULT,MASTER,PEER_DYNAMIC,PEER_STATIC}_SCHEDULING 
-  /// (from the \c evaluation_scheduling specification in \ref InterfIndControl)
-  short evalScheduling;
-  /// processors per parallel evaluation within the parallel configuration
-  /// (from the \c processors_per_evaluation spec in \ref InterfIndControl)
-  int procsPerEval;
+  /// within an iterator (from the \c evaluation_scheduling specification
+  /// in \ref InterfIndControl)
+  String evalScheduling;
   /// number of analysis servers to be used in the parallel configuration
   /// (from the \c analysis_servers specification in \ref InterfIndControl)
   int analysisServers;
-   /// the scheduling approach to be used for concurrent analyses within
-  /// a function evaluation: {DEFAULT,MASTER,PEER}_SCHEDULING (from the
-  /// \c analysis_scheduling specification in \ref InterfIndControl)
-  short analysisScheduling;
-  /// processors per parallel analysis for a direct interface (from the
-  /// \c processors_per_analysis specification in \ref InterfApplicDF)
-  int procsPerAnalysis;
+  /// the scheduling approach to be used for concurrent analyses within
+  /// a function evaluation (from the \c analysis_scheduling specification
+  /// in \ref InterfIndControl)
+  String analysisScheduling;
   /// the selected action upon capture of a simulation failure:
   /// abort, retry, recover, or continuation (from the \c failure_capture
   /// specification in \ref InterfIndControl)
@@ -199,16 +150,11 @@ public:
   /// off) (from the \c deactivate \c active_set_vector specification in
   /// \ref InterfIndControl)
   bool activeSetVectorFlag;
-  /// flag for deactivating lookups within the function evaluation
-  /// cache (from the \c deactivate \c evaluation_cache specification
-  /// in \ref InterfIndControl)
+  /// function evaluation cache: 1=active (all new evaluations checked against
+  /// existing cache and then added to cache), 0=inactive (cache neither
+  /// queried nor augmented) (from the \c deactivate \c evaluation_cache
+  /// specification in \ref InterfIndControl)
   bool evalCacheFlag;
-  /// flag enabling use of tolerance-based evaluation cache lookups
-  /// (from the \c deactivate \c strict_cache_equality specification
-  /// in \ref InterfIndControl)
-  bool nearbyEvalCacheFlag;
-  /// numerical tolerance for nearby evaluation cache lookups
-  Real nearbyEvalCacheTol;
   /// function evaluation cache: 1=active (all new evaluations written to
   /// restart), 0=inactive (no records written to restart) (from the
   /// \c deactivate \c restart_file specification in \ref InterfIndControl)
@@ -221,11 +167,13 @@ public:
   bool dirTag;
   /// whether dir_save was specified
   bool dirSave;
-  /// files to link into work directories
-  StringArray linkFiles;
-  /// files to copy into work directories
-  StringArray copyFiles;
-  /// whether to replace / overwrite existing files
+  /// template directory (if specified)
+  String templateDir;
+  /// template files (if specified)
+  StringArray templateFiles;
+  /// whether to force a copy (versus link) every time
+  bool templateCopy;
+  /// whether to replace existing files
   bool templateReplace;
   /// Python interface: use NumPy data structures (default is list data)
   bool numpyFlag;
@@ -284,6 +232,8 @@ class DataInterface
   friend class ProblemDescDB;
   // the NIDR derived problem description database
   friend class NIDRProblemDescDB;
+  /// library_mode default data initializer
+  friend void run_dakota_data();
 
 public:
 
@@ -310,11 +260,9 @@ public:
 
   /// read a DataInterface object from a packed MPI buffer
   void read(MPIUnpackBuffer& s);
+
   /// write a DataInterface object to a packed MPI buffer
   void write(MPIPackBuffer& s) const;
-
-  /// return dataIfaceRep
-  DataInterfaceRep* data_rep();
 
 private:
 
@@ -325,10 +273,6 @@ private:
   /// pointer to the body (handle-body idiom)
   DataInterfaceRep* dataIfaceRep;
 };
-
-
-inline DataInterfaceRep* DataInterface::data_rep()
-{return dataIfaceRep; }
 
 
 /// MPIPackBuffer insertion operator for DataInterface

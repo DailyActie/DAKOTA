@@ -1,19 +1,35 @@
-#@ p*: Label=FastTest
-#@ p0: MPIProcs=2
-
 # DAKOTA INPUT FILE - dakota_sbo_textbook.in
 
 # Demonstrates the use of approximation models and a trust region
-# optimization environment in performing constrained minimization on
+# optimization strategy in performing constrained minimization on
 # the textbook test function.
+#
+# Each DAKOTA test file is capable of running multiple tests. The
+# manual process for doing this is to add or uncomment specific lines
+# needed for a test and comment out other lines which are not needed
+# for that specific test.  Within the automatic test script, a special
+# syntax is used to automatically determine which lines are to be used
+# for a specific test. A #n (0 - 9) is used to associate lines in the
+# test file with a specific test.  The #0 is used to designate lines
+# which are to be run as part of the baseline test but not part of the
+# other tests. To add multiple tests to a file add the #n to the
+# trailing comment of a line, the dakota_test script will parse
+# through the file uncommenting the lines marked for a specific test,
+# and commenting out unneeded lines marked with the #0. Specific lines
+# can be included in multiple tests by adding multiple #n designaters
+# seperated by a comma.
 
 # These tests exercise the "correction" capabilities of the surrogate
-# based optimization environment. Here, the options are "none," "additive
+# based optimization strategy. Here, the options are "none," "additive
 # zeroth_order," "multiplicative zeroth_order," "additive first_order,"
 # and "multiplicative first_order."  The "none" case is the default
 # setting which is invoked if the "correction" keyword is omitted.
 
-environment,
+# Processor specification for parallel tests:
+# p0=2
+
+strategy,
+	single_method
 #	graphics
 	method_pointer = 'SBLO'
 
@@ -45,14 +61,14 @@ model,
 	surrogate global
 	  dace_method_pointer = 'SAMPLING'
 #	  reuse_samples region
-#	  correction additive       zeroth_order #s1,#s5
-#	  correction multiplicative zeroth_order #s2
-#	  correction additive       first_order	 #s3,#s6,#s7,#p0
-#	  correction multiplicative first_order	 #s4
-#	  use_derivatives			 #s6,#s7
+#	  correction additive       zeroth_order #1,#5
+#	  correction multiplicative zeroth_order #2
+#	  correction additive       first_order	 #3,#6,#7,#p0
+#	  correction multiplicative first_order	 #4
+#	  use_derivatives			 #6,#7
 #	  neural_network
-	  polynomial quadratic			 #s0,#s1,#s2,#s3,#s4,#p0	
-#	  gaussian_process surfpack                                #s5,#s6,#s7
+	  polynomial quadratic			 #0,#1,#2,#3,#4,#p0	
+#	  gaussian_process surfpack                                #5,#6,#7
 #	  gaussian_process surfpack correlation_lengths =  0.707106781186547 0.707106781186547
 #	  mars
 # 	surrogate local taylor_series
@@ -100,7 +116,7 @@ model,
 	  responses_pointer = 'TRUE_RESP'
 
 interface,
-	direct
+	system #asynchronous
 	id_interface = 'TRUE_FN'
  	  analysis_driver = 'text_book'
 
@@ -108,10 +124,10 @@ responses,
 	id_responses = 'TRUE_RESP'
 	objective_functions = 1
 	nonlinear_inequality_constraints = 2
-#	analytic_gradients		#s3,#s4,#s7
-	no_gradients		 	#s0,#s1,#s2,#s5
-#  	numerical_gradients		#s6,#p0
-#  	  method_source dakota		#s6,#p0
-#  	  interval_type central		#s6,#p0
-#  	  fd_gradient_step_size = 1.e-9	#s6,#p0
+#	analytic_gradients		#3,#4,#7
+	no_gradients		 	#0,#1,#2,#5
+#  	numerical_gradients		#6,#p0
+#  	  method_source dakota		#6,#p0
+#  	  interval_type central		#6,#p0
+#  	  fd_gradient_step_size = 1.e-9	#6,#p0
 	no_hessians

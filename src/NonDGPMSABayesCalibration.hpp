@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,6 +17,8 @@
 #define NOND_GPMSA_BAYES_CALIBRATION_H
 
 #include "NonDBayesCalibration.hpp"
+#include "uqGslVector.h"
+#include "uqGslMatrix.h"
 
 
 namespace Dakota {
@@ -50,25 +52,30 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// constructor
-  NonDGPMSABayesCalibration(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~NonDGPMSABayesCalibration();
+  NonDGPMSABayesCalibration(Model& model); ///< standard constructor
+  ~NonDGPMSABayesCalibration();            ///< destructor
 
   //
   //- Heading: Data
   //
-
-  /// number of samples of the simulation to construct the GP 
-  int buildSamples;
-  /// flag to indicated if the sigma terms should be calibrated (default true)
-  bool calibrateSigmaFlag;
-  /// name of file from which to import build points to build GP
-  String approxImportFile;
-  /// build data import tabular format
-  unsigned short approxImportFormat;
-  /// import active variables only
-  bool approxImportActiveOnly;
+    /// Rejection type (standard or delayed, in the DRAM framework)
+    String rejectionType;
+    /// Metropolis type (hastings or adaptive, in the DRAM framework)
+    String metropolisType;
+    /// number of samples in the chain (e.g. number of MCMC samples)
+    int numSamples;
+    /// number of samples of the simulation to construct the GP 
+    int emulatorSamples;
+    /// scale factor for proposal covariance
+    RealVector proposalCovScale;
+    /// scale factor for likelihood
+    Real likelihoodScale;
+    /// flag to indicated if the sigma terms should be calibrated (default true)
+    bool calibrateSigmaFlag;
+    /// name of file from which to import build points to build GP
+    String approxImportFile;
+    ///  annotate flag
+    bool approxImportAnnotated;
 
 protected:
 
@@ -76,35 +83,34 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
   /// performs a forward uncertainty propagation by using GPM/SA to 
   /// generate a posterior distribution on parameters given a set of 
   /// simulation parameter/response data, a set of experimental data, and 
   /// additional variables to be specified here. 
-  void core_run();
+  void quantify_uncertainty();
 
-  // print the final statistics
+  /// print the final statistics
   //void print_results(std::ostream& s);
+  //
+  //  //- Heading: Data
 
-  //
-  //- Heading: Data
-  //
+  /// random seed to pass to QUESO
+  int randomSeed;
+  
 
 private:
 
   //
   //- Heading: Data
   //
-
-  //short emulatorType;
+   short emulatorType;
  
   /// Pointer to current class instance for use in static callback functions
-  static NonDGPMSABayesCalibration* nonDGPMSAInstance;
+  static NonDGPMSABayesCalibration* NonDGPMSAInstance;
   /// LHS iterator for generating samples for GP 
   Iterator lhsIter;
+  
+
 };
 
 } // namespace Dakota

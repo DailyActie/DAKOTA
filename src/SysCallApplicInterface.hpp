@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -49,8 +49,8 @@ protected:
 
   int synchronous_local_analysis(int analysis_id);
 
-  void init_communicators_checks(int max_eval_concurrency);
-  void set_communicators_checks(int max_eval_concurrency);
+  void init_communicators_checks(int max_iterator_concurrency);
+  void set_communicators_checks(int max_iterator_concurrency);
 
   void map_bookkeeping(pid_t pid, int fn_eval_id);
 
@@ -64,7 +64,7 @@ private:
 
   /// detect completion of a function evaluation through existence of
   /// the necessary results file(s)
-  bool system_call_file_test(const bfs::path& root_file);
+  bool system_call_file_test(const std::string& root_file);
 
   /// spawn a complete function evaluation
   void spawn_evaluation_to_shell(bool block_flag);
@@ -118,7 +118,7 @@ inline int SysCallApplicInterface::synchronous_local_analysis(int analysis_id)
     However, process init issues as warnings since some contexts (e.g.,
     HierarchSurrModel) initialize more configurations than will be used. */
 inline void SysCallApplicInterface::
-init_communicators_checks(int max_eval_concurrency)
+init_communicators_checks(int max_iterator_concurrency)
 {
   bool warn = true;
   check_multiprocessor_analysis(warn);
@@ -127,7 +127,7 @@ init_communicators_checks(int max_eval_concurrency)
 
 /** Process run-time issues as hard errors. */
 inline void SysCallApplicInterface::
-set_communicators_checks(int max_eval_concurrency)
+set_communicators_checks(int max_iterator_concurrency)
 {
   bool warn = false;
   if (check_multiprocessor_analysis(warn))

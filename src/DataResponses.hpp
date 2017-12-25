@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -22,11 +22,6 @@
 
 namespace Dakota {
 
-/// special values for derived Response type
-enum { BASE_RESPONSE=0, SIMULATION_RESPONSE, EXPERIMENT_RESPONSE };
-
-/// values for primary response types
-enum {GENERIC_FNS = 0, OBJECTIVE_FNS, CALIB_TERMS };
 
 /// Body class for responses specification data.
 
@@ -63,47 +58,18 @@ public:
   /// number of objective functions (from the \c
   /// num_objective_functions specification in \ref RespFnOpt)
   size_t numObjectiveFunctions;
-  /// number of least squares terms (from the \c
-  /// num_calibration_terms specification in \ref RespFnLS)
-  size_t numLeastSqTerms;
   /// number of nonlinear inequality constraints (from the \c
   /// num_nonlinear_inequality_constraints specification in \ref RespFnOpt)
   size_t numNonlinearIneqConstraints;
   /// number of nonlinear equality constraints (from the \c
   /// num_nonlinear_equality_constraints specification in \ref RespFnOpt)
   size_t numNonlinearEqConstraints;
+  /// number of least squares terms (from the \c
+  /// num_least_squares_terms specification in \ref RespFnLS)
+  size_t numLeastSqTerms;
   /// number of generic response functions (from the \c
   /// num_response_functions specification in \ref RespFnGen)
   size_t numResponseFunctions;
-
-  ///  scalar_objectives:  number of objective functions which are scalar
-  size_t numScalarObjectiveFunctions;
-  ///  scalar_calibration_terms:  number of calibration terms which are scalar
-  size_t numScalarLeastSqTerms;
-  /// number of scalar nonlinear inequality constraints (from the \c
-  /// num_scalar_nonlinear_inequality_constraints specification in
-  /// \ref RespFnOpt)
-  size_t numScalarNonlinearIneqConstraints;
-  /// number of scalar nonlinear equality constraints (from the \c
-  /// num_scalar_nonlinear_equality_constraints specification in \ref RespFnOpt)
-  size_t numScalarNonlinearEqConstraints;
-  ///  scalar_responses:  number of response functions which are scalar
-  size_t numScalarResponseFunctions;
-
-  ///  field_objectives:  number of objective functions which are field-valued
-  size_t numFieldObjectiveFunctions;
-  ///  field_calibration_terms: number of calibration terms which are
-  ///  field-valued
-  size_t numFieldLeastSqTerms;
-  /// number of field nonlinear inequality constraints (from the \c
-  /// num_scalar_nonlinear_inequality_constraints specification in
-  /// \ref RespFnOpt)
-  size_t numFieldNonlinearIneqConstraints;
-  /// number of field nonlinear equality constraints (from the \c
-  /// num_scalar_nonlinear_equality_constraints specification in \ref RespFnOpt)
-  size_t numFieldNonlinearEqConstraints;
-  ///  field_responses:  number of response functions which are field-valued
-  size_t numFieldResponseFunctions;
 
   // response set weights, bounds, targets
 
@@ -149,29 +115,28 @@ public:
 
   // experimental data (for least squares and Bayesian algorithms)
 
-  /// whether calibration data was specified
-  bool calibrationDataFlag;
   /// number of distinct experiments in experimental data
   size_t numExperiments;
+  /// number of replicates in experimental data (e.g. one experiment 
+  /// run many times at the same configuration gives replicates)
+  IntVector numReplicates;
   /// number of experimental configuration vars (state variables) in
   /// each row of data
   size_t numExpConfigVars;
+  /// whether to read num_responses standard deviations from each row
+  /// of data file
+  size_t numExpStdDeviations;
   /// list of num_experiments x num_config_vars configuration variable values
   RealVector expConfigVars;
-  /// whether one should interpolate between the experiment and simulation field data 
-  bool interpolateFlag;
-
-  // next two can be retired?
   /// list of num_calibration_terms observation data
   RealVector expObservations;
   /// list of 1 or num_calibration_terms observation standard deviations
   RealVector expStdDeviations;
-
   /// name of experimental data file containing response data (with
   /// optional state variable and sigma data) to read
-  String scalarDataFileName;
-  /// tabular format of the scalar data file
-  unsigned short scalarDataFormat;
+  String expDataFileName;
+  /// whether the experimental data is in annotated format
+  bool expDataFileAnnotated;
 
   // derivative settings
 
@@ -236,18 +201,6 @@ public:
   /// specification in \ref RespHessMixed)
   IntSet idAnalyticHessians;
 
-  // Field Data specification
-
-  /// number of entries in each field
-  IntVector fieldLengths;
-  /// number of coordinates per field
-  IntVector numCoordsPerField;
-  /// Field data related storage:  whether to read simulation field coordinates
-  bool readFieldCoords;
-   /// Array which specifies the sigma type per response (none, one 
-  /// constant value, one per response (vector) or a full covariance matrix
-  StringArray varianceType; 
-
 private:
 
   //
@@ -302,6 +255,8 @@ class DataResponses
   friend class ProblemDescDB;
   // the NIDR derived problem description database
   friend class NIDRProblemDescDB;
+  /// library_mode default data initializer
+  friend void run_dakota_data();
 
 public:
 
@@ -328,11 +283,9 @@ public:
 
   /// read a DataResponses object from a packed MPI buffer
   void read(MPIUnpackBuffer& s);
+
   /// write a DataResponses object to a packed MPI buffer
   void write(MPIPackBuffer& s) const;
-
-  /// return dataRespRep
-  DataResponsesRep* data_rep();
 
 private:
 
@@ -343,10 +296,6 @@ private:
   /// pointer to the body (handle-body idiom)
   DataResponsesRep* dataRespRep;
 };
-
-
-inline DataResponsesRep* DataResponses::data_rep()
-{return dataRespRep; }
 
 
 /// MPIPackBuffer insertion operator for DataResponses

@@ -1,0 +1,11 @@
+Blurb::
+Newton method based optimization
+Description::
+Linear constraints only.
+
+See \ref topic-package_optpp for info related to all \c optpp methods.
+
+Topics::	package_optpp, local_optimization_methods, not_yet_reviewed
+Examples::
+Theory::
+Faq::

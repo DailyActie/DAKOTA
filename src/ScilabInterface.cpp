@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -78,11 +78,8 @@ int ScilabInterface::derived_map_ac(const String& ac_name)
 
   int fail_code = scilab_engine_run(ac_name);
 
-  if (fail_code) {
-    std::string err_msg("Error evaluating Scilab analysis_driver ");
-    err_msg += ac_name;
-    throw FunctionEvalFailure(err_msg);
-  }
+  if (fail_code)
+    throw fail_code;
 
   return 0;
 }
@@ -508,7 +505,7 @@ int ScilabInterface::scilab_engine_run(const String& ac_name)
   if (function_name.size() == 0) {
     Cerr << "\nError: invalid Scilab function '" << ac_name
 	 << "' specified in analysis_drivers." << std::endl;
-    abort_handler(INTERFACE_ERROR);
+    abort_handler(-1);
   }
 
   // build up an analysis command to execute in Matlab:

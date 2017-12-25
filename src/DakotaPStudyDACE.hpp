@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -30,12 +30,6 @@ namespace Dakota {
 class PStudyDACE: public Analyzer
 {
 public:
-    
-  //
-  //- Heading: Virtual member function redefinitions
-  //
-
-  bool resize();
 
 protected:
 
@@ -44,9 +38,9 @@ protected:
   //
 
   /// constructor
-  PStudyDACE(ProblemDescDB& problem_db, Model& model);
+  PStudyDACE(Model& model);
   /// alternate constructor for instantiations "on the fly"
-  PStudyDACE(unsigned short method_name, Model& model);
+  PStudyDACE(NoDBBaseConstructor, Model& model);
   /// destructor
   ~PStudyDACE();
     
@@ -54,7 +48,15 @@ protected:
   //- Heading: Virtual member function redefinitions
   //
 
+  void run();
   void print_results(std::ostream& s);
+
+  //
+  //- Heading: New virtual member functions
+  //
+
+  /// Redefines the run_iterator virtual function for the PStudy/DACE branch.
+  virtual void extract_trends() = 0;
 
   //
   //- Heading: Member functions
@@ -91,6 +93,10 @@ private:
   /// quality measure
   double tauMeas;
 };
+
+
+inline void PStudyDACE::run()
+{ bestVarsRespMap.clear(); extract_trends(); }
 
 } // namespace Dakota
 

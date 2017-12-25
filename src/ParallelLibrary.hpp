@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,12 +20,33 @@
 #include "dakota_global_defs.hpp"  // for Cout
 #include "dakota_data_types.hpp"
 #include "MPIPackBuffer.hpp"
-#include "MPIManager.hpp"
-#include "ProgramOptions.hpp"
-#include "OutputManager.hpp"
+#ifdef DAKOTA_HAVE_MPI
+#include <mpi.h>
+#endif // DAKOTA_HAVE_MPI
+
+// forward declarations
+namespace boost {
+  namespace archive {
+    class binary_oarchive;
+    class binary_iarchive;
+  }
+}
 
 
 namespace Dakota {
+
+#ifndef DAKOTA_HAVE_MPI
+typedef int MPI_Comm;
+typedef struct { int MPI_SOURCE; int MPI_TAG; int MPI_ERROR; } MPI_Status;
+typedef void* MPI_Request;
+#define MPI_COMM_WORLD   0
+#define MPI_COMM_NULL    0
+#define MPI_ANY_TAG      0
+#define MPI_REQUEST_NULL 0
+#endif // not DAKOTA_HAVE_MPI
+
+class CommandLineHandler;
+
 
 /// Container class for the data associated with a single level of 
 /// communicator partitioning.
@@ -62,300 +83,129 @@ public:
   //- Heading: Member functions
   //
 
-  //bool own_communicators() const;              // return ownCommFlag
-  bool dedicated_master() const;               ///< return dedicatedMasterFlag
-  //bool communicator_split() const;             // return commSplitFlag
-  bool server_master() const;                  ///< return serverMasterFlag
+  bool dedicated_master_flag() const;          ///< return dedicatedMasterFlag
+  bool communicator_split_flag() const;        ///< return commSplitFlag
+  bool server_master_flag() const;             ///< return serverMasterFlag
   bool message_pass() const;                   ///< return messagePass
-  bool idle_partition() const;                 ///< return idlePartition
-  int num_servers() const;                     ///< return numServers
-  int processors_per_server() const;           ///< return procsPerServer
-  int processor_remainder() const;             ///< return procRemainder
+  const int& num_servers() const;              ///< return numServers
+  const int& processors_per_server() const;    ///< return procsPerServer
+  const int& processor_remainder() const;      ///< return procRemainder
   const MPI_Comm& server_intra_communicator() const; ///< return serverIntraComm
-  int server_communicator_rank() const;        ///< return serverCommRank
-  int server_communicator_size() const;        ///< return serverCommSize
+  const int& server_communicator_rank() const; ///< return serverCommRank
+  const int& server_communicator_size() const; ///< return serverCommSize
   const MPI_Comm& hub_server_intra_communicator() const;
                                                ///< return hubServerIntraComm
-  int hub_server_communicator_rank() const;    ///< return hubServerCommRank
-  int hub_server_communicator_size() const;    ///< return hubServerCommSize
+  const int& hub_server_communicator_rank() const; ///< return hubServerCommRank
+  const int& hub_server_communicator_size() const; ///< return hubServerCommSize
   const MPI_Comm& hub_server_inter_communicator() const;
                                                ///< return hubServerInterComm
   MPI_Comm* hub_server_inter_communicators() const;
                                                ///< return hubServerInterComms
-  int server_id() const;                       ///< return serverId
-
-  /// read a ParallelLevel object from a packed MPI buffer
-  void read(MPIUnpackBuffer& s);
-  /// write a ParallelLevel object to a packed MPI buffer
-  void write(MPIPackBuffer& s) const;
-
-  /// test comm for MPI_COMM_NULL
-  bool null(const MPI_Comm& comm);
-  /// test comm for special identity that cannot be deallocated
-  bool special(const MPI_Comm& comm);
-
-  /// deallocate the communicators in this ParallelLevel
-  /** This appears to be more robust outside of the destructor due to
-      interactions among managed deallocation and default deallocation
-      (e.g., explicitly freeing a communicator and then default
-      deallocating its handle). */
-  void clear();
-
-  /// assign the attributes of the incoming pl to this object.  For
-  /// communicators, this is a lightweight copy which assigns the same
-  /// pointer values as the incoming pl, resulting in the same context.
-  void alias(const ParallelLevel& pl);
-  /// deep copy the attributes of the incoming pl to this object using
-  /// MPI_Comm_dup to create equivalent communicators with a unique context.
-  void copy(const ParallelLevel& pl);
-  /// copy the scalar attributes of the incoming pl to this object,
-  /// omitting communicators
-  void copy_config(const ParallelLevel& pl);
+  const int& server_id() const;                ///< return serverId
 
 private:
+
+  //
+  //- Heading: Convenience functions
+  //
+
+  /// assign the attributes of the incoming pl to this object
+  void assign(const ParallelLevel& pl);
 
   //
   //- Heading: Data
   //
 
-  bool ownCommFlag;              ///< signals Comm ownership for deallocation
-
   bool dedicatedMasterFlag;      ///< signals dedicated master partitioning
   bool commSplitFlag;            ///< signals a communicator split was used
   bool serverMasterFlag;         ///< identifies master server processors
-  bool messagePass;              ///< flag for message passing at this level,
-                                 ///< indicating work assignment among servers
-  bool idlePartition;            ///< identifies presence of an idle processor
-                                 ///< partition at this level
-
+  bool messagePass;              ///< flag for message passing at this level
   int numServers;                ///< number of servers
   int procsPerServer;            ///< processors per server
   int procRemainder;             ///< proc remainder after equal distribution
-  int serverId;                  ///< server identifier
-
   MPI_Comm serverIntraComm;      ///< intracomm. for each server partition
   int serverCommRank;            ///< rank in serverIntraComm
   int serverCommSize;            ///< size of serverIntraComm
-
   MPI_Comm hubServerIntraComm;   ///< intracomm for all serverCommRank==0
                                  ///< w/i next higher level serverIntraComm
   int hubServerCommRank;         ///< rank in hubServerIntraComm
   int hubServerCommSize;         ///< size of hubServerIntraComm
-
   MPI_Comm hubServerInterComm;   ///< intercomm. between a server & the hub  
                                  ///< (on server partitions only)
   MPI_Comm* hubServerInterComms; ///< intercomm. array on hub processor
+  int serverId;                  ///< server identifier
 };
 
 
-inline ParallelLevel::ParallelLevel(): ownCommFlag(true),
-  dedicatedMasterFlag(false), commSplitFlag(false), serverMasterFlag(true),
-  messagePass(false), idlePartition(false), numServers(0), procsPerServer(0),
-  procRemainder(0), serverId(0), serverIntraComm(MPI_COMM_NULL),
-  serverCommRank(0), serverCommSize(1), hubServerIntraComm(MPI_COMM_NULL),
-  hubServerCommRank(0), hubServerCommSize(1), hubServerInterComm(MPI_COMM_NULL),
-  hubServerInterComms(NULL)
+inline ParallelLevel::ParallelLevel(): dedicatedMasterFlag(false),
+  commSplitFlag(false), serverMasterFlag(false), messagePass(false),
+  numServers(0), procsPerServer(0), procRemainder(0),
+  serverIntraComm(MPI_COMM_NULL), serverCommRank(0), serverCommSize(1),
+  hubServerIntraComm(MPI_COMM_NULL), hubServerCommRank(0), hubServerCommSize(1),
+  hubServerInterComm(MPI_COMM_NULL), hubServerInterComms(NULL), serverId(0)
 { }
 
 inline ParallelLevel::~ParallelLevel()
+{ }
+
+inline void ParallelLevel::assign(const ParallelLevel& pl)
 {
-  // Since MPI_Finalize occurs in the MPIManager dtor and is preceded by the
-  // ParallelLibrary dtor, we should be able to deallocate all of the comms
-  // here, but memory issues have been observed with this approach.  So we
-  // resort to an explicit .clear() on all levels from ~ParallelLibrary.
-
-  // There are temporaries that go out of scope (list insertions by value
-  // and print_configuration()) so dellocating here generally requires a
-  // deep copy() approach with MPI_Comm_dup().
-}
-
-inline bool ParallelLevel::special(const MPI_Comm& comm)
-{
-  return (comm == MPI_COMM_NULL || comm == MPI_COMM_SELF ||
-	  comm == MPI_COMM_WORLD);
-}
-
-inline bool ParallelLevel::null(const MPI_Comm& comm)
-{ return (comm == MPI_COMM_NULL); }
-
-inline void ParallelLevel::clear()
-{
-#ifdef DAKOTA_HAVE_MPI
-  // ownCommFlag needs to prevent multiple deallocations (e.g., shallow
-  // inherits).  MPI_Comm_free sets the current MPI_Comm pointer to 
-  // MPI_COMM_NULL but it can't do so for other pointers pointing to the
-  // same memory (that has now been deallocated...)
-  if (ownCommFlag) { // dealloc intra/inter comms
-    if (!special(serverIntraComm))    MPI_Comm_free(&serverIntraComm);
-    if (!special(hubServerIntraComm)) MPI_Comm_free(&hubServerIntraComm);
-    if (dedicatedMasterFlag) { // master-slave interComms
-      if (serverId == 0 && hubServerInterComms) { // if dedicated master
-	int i;
-	for(i=0; i<numServers; ++i)
-	  if (!special(hubServerInterComms[i]))
-	    MPI_Comm_free(&hubServerInterComms[i]);
-	// trailing server of idle processors
-	if (idlePartition && !special(hubServerInterComms[i]))
-	  MPI_Comm_free(&hubServerInterComms[i]);
-	delete [] hubServerInterComms;
-	hubServerInterComms = NULL;
-      }
-      else if (!special(hubServerInterComm)) // servers 1 through n
-	MPI_Comm_free(&hubServerInterComm);
-    }
-    else { // peer interComms
-      if (serverId == 1 && hubServerInterComms) { // 1st peer
-	int i;
-	for(i=0; i<numServers-1; ++i) 
-	  if (!special(hubServerInterComms[i]))
-	    MPI_Comm_free(&hubServerInterComms[i]);
-	// trailing server of idle processors
-	if (idlePartition && !special(hubServerInterComms[i]))
-	  MPI_Comm_free(&hubServerInterComms[i]);
-	delete [] hubServerInterComms;
-	hubServerInterComms = NULL;
-      }
-      else if (!special(hubServerInterComm)) // peers 2 through n
-	MPI_Comm_free(&hubServerInterComm);
-    }
-  }
-#endif // DAKOTA_HAVE_MPI
-}
-
-inline void ParallelLevel::copy_config(const ParallelLevel& pl)
-{
-  // This function copies scalar config settings without copying MPI_Comms
-
-  // these are shared configuration attributes (also passed in read/write)
   dedicatedMasterFlag = pl.dedicatedMasterFlag;
-  commSplitFlag = pl.commSplitFlag; serverMasterFlag = pl.serverMasterFlag;
-  messagePass   = pl.messagePass;   idlePartition    = pl.idlePartition;
-  numServers    = pl.numServers;    procsPerServer   = pl.procsPerServer;
-  procRemainder = pl.procRemainder;
-
-  // these are local configuration attributes (not passed in read/write)
-  serverId          = pl.serverId;
-  serverCommRank    = pl.serverCommRank;
-  serverCommSize    = pl.serverCommSize;
-  hubServerCommRank = pl.hubServerCommRank;
-  hubServerCommSize = pl.hubServerCommSize;
-}
-
-inline void ParallelLevel::alias(const ParallelLevel& pl)
-{
-  // This function is invoked by the copy constructor and operator=, as
-  // "aliasing" of MPI comms (sharing the pointer to struct) seems sufficient
-  // in practice and avoids the collective communication necessary for
-  // MPI_Comm_dup().  Since the copy ctor does not define an initializer list
-  // (to avoid initializing data that will be immediately copied over), assign
-  // to all values.
-
-  copy_config(pl);
-
-  // For the MPI communicators below, this is a shallow copy.  For many MPI
-  // implementations, an MPI_Comm is a pointer to struct so assuming these 
-  // pointer values requires care on deallocation (see ownCommFlag protection
-  // in ParallelLibrary::clear()).
-  ownCommFlag         = false; // shallow copy
-  serverIntraComm     = pl.serverIntraComm;     // MPI_Comm is pointer to struct
-  hubServerIntraComm  = pl.hubServerIntraComm;  // MPI_Comm is pointer to struct
-  hubServerInterComm  = pl.hubServerInterComm;  // MPI_Comm is pointer to struct
-  hubServerInterComms = pl.hubServerInterComms; // MPI_Comm*
-}
-
-inline void ParallelLevel::copy(const ParallelLevel& pl)
-{
-  // This function is _not_ invoked by the copy constructor and operator=.
-  // It is for explicit use when the communication config is the same but
-  // a separate communication context is required.
-
-  // MPI_Comm_dup guarantees a new context that prevents misassociation of
-  // messages with the same source/dest and tag (e.g., reuse of fn_eval_id
-  // tag across LF and HF models when using nonblocking scheduling of both).
-
-#ifdef DAKOTA_HAVE_MPI
-  copy_config(pl);
-
-  //if (mpiManager.mpirun_flag()) { // not accessible from ParallelLevel
-    ownCommFlag = true; // deep copy
-
-    if (null(pl.serverIntraComm))    serverIntraComm    = MPI_COMM_NULL;
-    else MPI_Comm_dup(pl.serverIntraComm,    &serverIntraComm);
-
-    if (null(pl.hubServerIntraComm)) hubServerIntraComm = MPI_COMM_NULL;
-    else MPI_Comm_dup(pl.hubServerIntraComm, &hubServerIntraComm);
-
-    if (null(pl.hubServerInterComm)) hubServerInterComm = MPI_COMM_NULL;
-    else MPI_Comm_dup(pl.hubServerInterComm, &hubServerInterComm);
-
-    if (pl.hubServerInterComms == NULL) hubServerInterComms = NULL;
-    else { // reallocate + MPI_Comm_dup()
-      int i, num_hs_ic = (dedicatedMasterFlag) ? numServers : numServers - 1;
-      if (idlePartition) ++num_hs_ic;
-      hubServerInterComms = new MPI_Comm [num_hs_ic];
-      for (i=0; i<num_hs_ic; ++i)
-	if (null(pl.hubServerInterComms[i]))
-	  hubServerInterComms[i] = MPI_COMM_NULL;
-	else
-	  MPI_Comm_dup(pl.hubServerInterComms[i], &hubServerInterComms[i]);
-    }
-  //}
-  //else
-  //  alias(pl);
-#else
-  alias(pl);
-#endif
+  commSplitFlag   = pl.commSplitFlag;   serverMasterFlag = pl.serverMasterFlag;
+  messagePass     = pl.messagePass;     numServers       = pl.numServers;
+  procsPerServer  = pl.procsPerServer;  procRemainder    = pl.procRemainder;
+  serverIntraComm = pl.serverIntraComm; serverCommRank   = pl.serverCommRank;
+  serverCommSize  = pl.serverCommSize;
+  hubServerIntraComm  = pl.hubServerIntraComm;
+  hubServerCommRank   = pl.hubServerCommRank;
+  hubServerCommSize   = pl.hubServerCommSize; 
+  hubServerInterComm  = pl.hubServerInterComm;
+  hubServerInterComms = pl.hubServerInterComms; serverId = pl.serverId;
 }
 
 inline ParallelLevel::ParallelLevel(const ParallelLevel& pl)
-{ alias(pl); }
+{ assign(pl); }
 
 inline ParallelLevel& ParallelLevel::operator=(const ParallelLevel& pl)
-{ alias(pl); return *this; }
+{ assign(pl); return *this; }
 
-//inline bool ParallelLevel::own_communicators() const
-//{ return ownCommFlag; }
-
-inline bool ParallelLevel::dedicated_master() const
+inline bool ParallelLevel::dedicated_master_flag() const
 { return dedicatedMasterFlag; }
 
-//inline bool ParallelLevel::communicator_split() const
-//{ return commSplitFlag; }
+inline bool ParallelLevel::communicator_split_flag() const
+{ return commSplitFlag; }
 
-inline bool ParallelLevel::server_master() const
+inline bool ParallelLevel::server_master_flag() const
 { return serverMasterFlag; }
 
 inline bool ParallelLevel::message_pass() const
 { return messagePass; }
 
-inline bool ParallelLevel::idle_partition() const
-{ return idlePartition; }
-
-inline int ParallelLevel::num_servers() const
+inline const int& ParallelLevel::num_servers() const
 { return numServers; }
 
-inline int ParallelLevel::processors_per_server() const
+inline const int& ParallelLevel::processors_per_server() const
 { return procsPerServer; }
 
-inline int ParallelLevel::processor_remainder() const
+inline const int& ParallelLevel::processor_remainder() const
 { return procRemainder; }
 
 inline const MPI_Comm& ParallelLevel::server_intra_communicator() const
 { return serverIntraComm; }
 
-inline int ParallelLevel::server_communicator_rank() const
+inline const int& ParallelLevel::server_communicator_rank() const
 { return serverCommRank; }
 
-inline int ParallelLevel::server_communicator_size() const
+inline const int& ParallelLevel::server_communicator_size() const
 { return serverCommSize; }
 
 inline const MPI_Comm& ParallelLevel::hub_server_intra_communicator() const
 { return hubServerIntraComm; }
 
-inline int ParallelLevel::hub_server_communicator_rank() const
+inline const int& ParallelLevel::hub_server_communicator_rank() const
 { return hubServerCommRank; }
 
-inline int ParallelLevel::hub_server_communicator_size() const
+inline const int& ParallelLevel::hub_server_communicator_size() const
 { return hubServerCommSize; }
 
 inline const MPI_Comm& ParallelLevel::hub_server_inter_communicator() const
@@ -364,42 +214,8 @@ inline const MPI_Comm& ParallelLevel::hub_server_inter_communicator() const
 inline MPI_Comm* ParallelLevel::hub_server_inter_communicators() const
 { return hubServerInterComms; }
 
-inline int ParallelLevel::server_id() const
+inline const int& ParallelLevel::server_id() const
 { return serverId; }
-
-inline void ParallelLevel::read(MPIUnpackBuffer& s)
-{
-  // pass configuration settings (which are relevant on other procs),
-  // but not specific comm/rank/size/id
-  s >> dedicatedMasterFlag >> commSplitFlag >> serverMasterFlag >> messagePass
-    >> idlePartition >> numServers >> procsPerServer >> procRemainder;
-  //>> serverIntraComm >> serverCommRank >> serverCommSize
-  //>> hubServerIntraComm >> hubServerCommRank >> hubServerCommSize
-  //>> hubServerInterComm >> hubServerInterComms >> serverId;
-}
-
-inline void ParallelLevel::write(MPIPackBuffer& s) const
-{
-  // pass configuration settings (which are relevant on other procs),
-  // but not specific comm/rank/size/id
-  s << dedicatedMasterFlag << commSplitFlag << serverMasterFlag << messagePass
-    << idlePartition << numServers << procsPerServer << procRemainder;
-  //<< serverIntraComm << serverCommRank << serverCommSize
-  //<< hubServerIntraComm << hubServerCommRank << hubServerCommSize
-  //<< hubServerInterComm << hubServerInterComms << serverId;
-}
-
-/// MPIUnpackBuffer extraction operator for ParallelLevel.  Calls
-/// read(MPIUnpackBuffer&).
-inline MPIUnpackBuffer& 
-operator>>(MPIUnpackBuffer& s, ParallelLevel& pl)
-{ pl.read(s); return s; }
-
-/// MPIPackBuffer insertion operator for ParallelLevel.  Calls
-/// write(MPIPackBuffer&).
-inline MPIPackBuffer& 
-operator<<(MPIPackBuffer& s, const ParallelLevel& pl)
-{ pl.write(s); return s; }
 
 
 /// Container class for a set of ParallelLevel list iterators that
@@ -442,37 +258,14 @@ public:
   //- Heading: Member functions
   //
 
-  /// return the ParallelLevel corresponding to miPLIters.front()
+  /// return the ParallelLevel corresponding to wPLIter
   const ParallelLevel&  w_parallel_level() const;
-  /// return the ParallelLevel corresponding to miPLIters[index]
-  const ParallelLevel& mi_parallel_level(size_t index = _NPOS) const;
+  /// return the ParallelLevel corresponding to siPLIter
+  const ParallelLevel& si_parallel_level() const;
   /// return the ParallelLevel corresponding to iePLIter
   const ParallelLevel& ie_parallel_level() const;
   /// return the ParallelLevel corresponding to eaPLIter
   const ParallelLevel& ea_parallel_level() const;
-
-  /// test for definition of world parallel level
-  bool  w_parallel_level_defined() const;
-  /// test for definition of meta-iterator-iterator parallel level
-  bool mi_parallel_level_defined(size_t index = _NPOS) const;
-  /// test for definition of iterator-evaluation parallel level
-  bool ie_parallel_level_defined() const;
-  /// test for definition of evaluation-analysis parallel level
-  bool ea_parallel_level_defined() const;
-
-  /// return miPLIters.front()
-  ParLevLIter  w_parallel_level_iterator() const;
-  /// return miPLIters[index]
-  ParLevLIter mi_parallel_level_iterator(size_t index = _NPOS) const;
-  /// return iePLIter
-  ParLevLIter ie_parallel_level_iterator() const;
-  /// return eaPLIter
-  ParLevLIter ea_parallel_level_iterator() const;
-
-  /// return the index within miPLIters corresponding to pl_iter
-  size_t mi_parallel_level_index(ParLevLIter pl_iter) const;
-  /// return the index of the last entry in miPLIters
-  size_t mi_parallel_level_last_index() const;
 
 private:
 
@@ -489,125 +282,60 @@ private:
 
   short numParallelLevels; ///< number of parallel levels
 
-  /// list iterator for world level followed by any concurrent iterator
-  /// partitions (there may be multiple per parallel configuration instance)
-  std::vector<ParLevLIter> miPLIters;
+  /// list iterator for MPI_COMM_WORLD (not strictly required, but
+  /// improves modularity by avoiding explicit usage of MPI_COMM_WORLD)
+  ParLevLIter wPLIter;
+
+  /// list iterator for concurrent iterator partitions
+  /// (there may be more than one per parallel configuration instance)
+  ParLevLIter siPLIter;
+  //std::list<ParLevLIter> siPLIters;
+
   /// list iterator identifying the iterator-evaluation parallelLevel 
   /// (there can only be one)
   ParLevLIter iePLIter;
+
   /// list iterator identifying the evaluation-analysis parallelLevel 
   /// (there can only be one)
   ParLevLIter eaPLIter;
-
-  /// snapshot of the end of ParallelLibrary::parallelLevels; used for detecting
-  /// when a component of the parallel configuration has been initialized
-  ParLevLIter endPLIter;
 };
 
 
 inline ParallelConfiguration::ParallelConfiguration(): numParallelLevels(0)
-  //iePLIter(NULL), eaPLIter(NULL)
+  //wPLIter(NULL), siPLIter(NULL), iePLIter(NULL), eaPLIter(NULL)
 { }
-
 
 inline ParallelConfiguration::~ParallelConfiguration()
 { }
 
-
 inline void ParallelConfiguration::assign(const ParallelConfiguration& pc)
 {
   numParallelLevels = pc.numParallelLevels;
-  miPLIters = pc.miPLIters;
-  iePLIter  = pc.iePLIter;
-  eaPLIter  = pc.eaPLIter;
-  endPLIter = pc.endPLIter;
+  wPLIter  = pc.wPLIter;
+  siPLIter = pc.siPLIter;
+  iePLIter = pc.iePLIter;
+  eaPLIter = pc.eaPLIter;
 }
-
 
 inline ParallelConfiguration::
 ParallelConfiguration(const ParallelConfiguration& pc)
 { assign(pc); }
 
-
 inline ParallelConfiguration& ParallelConfiguration::
 operator=(const ParallelConfiguration& pc)
 { assign(pc); return *this; }
 
+inline const ParallelLevel& ParallelConfiguration::w_parallel_level()  const
+{ return *wPLIter; }
 
-inline const ParallelLevel& ParallelConfiguration::w_parallel_level() const
-{ return *miPLIters.front(); }
-
-
-/** If a meaningful index is not provided, return the last mi parallel
-    level.  This is useful within the Model context, for which we need
-    the lowest level partition after any meta-iterator recursions. */
-inline const ParallelLevel& ParallelConfiguration::
-mi_parallel_level(size_t index) const
-{ return (index == _NPOS) ? *miPLIters.back() : *miPLIters[index]; }
-
-
-inline size_t ParallelConfiguration::
-mi_parallel_level_index(ParLevLIter pl_iter) const
-{
-  size_t i, len = miPLIters.size();
-  for (i=0; i<len; ++i)
-    if (miPLIters[i] == pl_iter)
-      return i;
-  return _NPOS;
-}
-
-
-inline size_t ParallelConfiguration::mi_parallel_level_last_index() const
-{ return (miPLIters.empty()) ? _NPOS : miPLIters.size() - 1; }
-
+inline const ParallelLevel& ParallelConfiguration::si_parallel_level() const
+{ return *siPLIter; }
 
 inline const ParallelLevel& ParallelConfiguration::ie_parallel_level() const
 { return *iePLIter; }
 
-
 inline const ParallelLevel& ParallelConfiguration::ea_parallel_level() const
 { return *eaPLIter; }
-
-
-inline bool ParallelConfiguration::w_parallel_level_defined() const
-{ return !miPLIters.empty(); }
-
-
-inline bool ParallelConfiguration::mi_parallel_level_defined(size_t index) const
-{
-  if (index == _NPOS) // check for trailing entry (default=last partition)
-    return ( !miPLIters.empty() && miPLIters.back() != endPLIter );
-  else // specific mi parallel level from index
-    return ( index < miPLIters.size() && miPLIters[index] != endPLIter );
-}
-
-
-inline bool ParallelConfiguration::ie_parallel_level_defined() const
-{ return ( iePLIter != endPLIter ); }
-
-
-inline bool ParallelConfiguration::ea_parallel_level_defined() const
-{ return ( eaPLIter != endPLIter ); }
-
-
-inline ParLevLIter ParallelConfiguration::w_parallel_level_iterator() const
-{ return miPLIters.front(); }
-
-
-/** If a meaningful index is not provided, return the last mi parallel
-    level.  This is useful within the Model context, for which we need
-    the lowest level partition after any meta-iterator recursions. */
-inline ParLevLIter ParallelConfiguration::
-mi_parallel_level_iterator(size_t index) const
-{ return (index == _NPOS) ? miPLIters.back() : miPLIters[index]; }
-
-
-inline ParLevLIter ParallelConfiguration::ie_parallel_level_iterator() const
-{ return iePLIter; }
-
-
-inline ParLevLIter ParallelConfiguration::ea_parallel_level_iterator() const
-{ return eaPLIter; }
 
 
 /// Class for partitioning multiple levels of parallelism and managing
@@ -631,13 +359,15 @@ public:
   //- Heading: Constructors and Destructor
   //
 
-  /// default constructor (used for dummy_lib)
+  /// stand-alone mode constructor
+  ParallelLibrary(int& argc, char**& argv);
+  /// default library mode constructor (assumes MPI_COMM_WORLD)
   ParallelLibrary();
-  /// stand-alone and default library mode constructor; don't require options
-  //  ParallelLibrary(const ProgramOptions& prog_opts = ProgramOptions());
   /// library mode constructor accepting communicator
-  ParallelLibrary(const MPIManager& mpi_mgr, ProgramOptions& prog_opts,
-		  OutputManager& output_mgr);
+  ParallelLibrary(MPI_Comm dakota_mpi_comm);
+  /// dummy constructor (used for dummy_lib)
+  ParallelLibrary(const std::string& dummy);
+
   /// destructor
   ~ParallelLibrary();
 
@@ -645,136 +375,98 @@ public:
   //- Heading: Member functions
   //
 
+  /// detect parallel launch of DAKOTA using mpirun/mpiexec/poe/etc.
+  /// based on command line arguments and environment variables
+  static bool detect_parallel_launch(int& argc, char**& argv);
+
   /// split MPI_COMM_WORLD into iterator communicators
-  const ParallelLevel& init_iterator_communicators(int iterator_servers,
-    int procs_per_iterator, int min_procs_per_iterator,
-    int max_procs_per_iterator, int max_iterator_concurrency,
-    short default_config, short iterator_scheduling, bool peer_dynamic_avail);
+  const ParallelLevel& init_iterator_communicators(const int& iterator_servers,
+    const int& procs_per_iterator, const int& max_iterator_concurrency,
+    const std::string& default_config, const std::string& iterator_scheduling);
 
   /// split an iterator communicator into evaluation communicators
-  const ParallelLevel& init_evaluation_communicators(int evaluation_servers,
-    int procs_per_evaluation, int min_procs_per_eval, int max_procs_per_eval,
-    int max_evaluation_concurrency, int asynch_local_evaluation_concurrency,
-    short default_config, short evaluation_scheduling, bool peer_dynamic_avail);
+  const ParallelLevel& init_evaluation_communicators(
+    const int& evaluation_servers, const int& procs_per_evaluation,
+    const int& max_evaluation_concurrency,
+    const int& asynch_local_evaluation_concurrency,
+    const std::string& default_config, const std::string& evaluation_scheduling);
 
   /// split an evaluation communicator into analysis communicators
-  const ParallelLevel& init_analysis_communicators(int analysis_servers,
-    int procs_per_analysis, int min_procs_per_analysis,
-    int max_procs_per_analysis, int max_analysis_concurrency,
-    int asynch_local_analysis_concurrency, short default_config,
-    short analysis_scheduling, bool peer_dynamic_avail);
+  const ParallelLevel& init_analysis_communicators(const int& analysis_servers,
+    const int& procs_per_analysis, const int& max_analysis_concurrency,
+    const int& asynch_local_analysis_concurrency,
+    const std::string& default_config, const std::string& analysis_scheduling);
+
+  /// deallocate iterator communicators
+  void free_iterator_communicators();
+  /// deallocate evaluation communicators
+  void free_evaluation_communicators();
+  /// deallocate analysis communicators
+  void free_analysis_communicators();
 
   /// print the parallel level settings for a particular parallel configuration
   void print_configuration();
 
-  /// conditionally append an iterator server id tag to the
-  /// hierarchical output tag, manage restart, and rebind cout/cerr
-  void push_output_tag(const ParallelLevel& pl);
-
-  /// pop the last output tag and rebind streams as needed; pl isn't
-  /// yet used, but may be in the future when we generalize to
-  /// arbitrary output context switching
-  void pop_output_tag(const ParallelLevel& pl);
+  /// specify output streams and restart file(s) using command line
+  /// inputs (normal mode)
+  void specify_outputs_restart(CommandLineHandler& cmd_line_handler);
+  /// specify output streams and restart file(s) using external
+  /// inputs (library mode).
+  void specify_outputs_restart(const char* clh_std_output_filename    = NULL,
+			       const char* clh_std_error_filename     = NULL,
+			       const char* clh_read_restart_filename  = NULL,
+			       const char* clh_write_restart_filename = NULL,
+			       int stop_restart_evals = 0,
+			       bool pre_run_flag = false);
+  /// manage output streams and restart file(s) (both modes)
+  void manage_outputs_restart(const ParallelLevel& pl,
+			      bool results_output = false,
+			      std::string results_filename = std::string());
 
   /// write a parameter/response set to the restart file
   void write_restart(const ParamResponsePair& prp);
 
-  /// return programOptions reference
-  ProgramOptions& program_options();
-  /// return outputManager reference
-  OutputManager& output_manager();
-
-  /// terminate ModelCenter if running
-  void terminate_modelcenter();
+  /// close streams, files, and any other services
+  void close_streams();
 
   /// finalize MPI with correct communicator for abort
   void abort_helper(int code);
 
+  /// get pretty startup message
+  const std::string& startup_message() const;
+
+  /// perform output of message on rank 0 only
+  void output_helper(const std::string& message, std::ostream &os = Cout) const;
+
   // Functions to get run_mode data
-  // BMA TODO: consider moving all to ProgramOptions, possibly with
-  // delegation from here.
   bool command_line_check() const;      ///< return checkFlag
   bool command_line_pre_run() const;    ///< return preRunFlag
   bool command_line_run() const;        ///< return runFlag
   bool command_line_post_run() const;   ///< return postRunFlag
   bool command_line_user_modes() const; ///< return userModesFlag
-  const String& command_line_pre_run_input() const;   ///< preRunInput filename
-  const String& command_line_pre_run_output() const;  ///< preRunOutput filename
-  const String& command_line_run_input() const;       ///< runInput filename
-  const String& command_line_run_output() const;      ///< runOutput filename
-  const String& command_line_post_run_input() const;  ///< postRunInput filename
-  const String& command_line_post_run_output() const; ///< postRunOutput fname
+  const std::string& command_line_pre_run_input() const;   ///< preRunInput filename
+  const std::string& command_line_pre_run_output() const;  ///< preRunOutput filename
+  const std::string& command_line_run_input() const;       ///< runInput filename
+  const std::string& command_line_run_output() const;      ///< runOutput filename
+  const std::string& command_line_post_run_input() const;  ///< postRunInput filename
+  const std::string& command_line_post_run_output() const; ///< postRunOutput fname
 
-  /// blocking buffer send at the current communication level
-  void  send(MPIPackBuffer& send_buff, int dest, int tag,
-	     const ParallelLevel& parent_pl, const ParallelLevel& child_pl);
-  /// blocking integer send at the current communication level
-  void  send(int& send_int, int dest, int tag,
-	     const ParallelLevel& parent_pl, const ParallelLevel& child_pl);
+  /// blocking send at the strategy-iterator communication level
+  void  send_si(int& send_int, int dest, int tag);
+  /// blocking receive at the strategy-iterator communication level
+  void  recv_si(int& recv_int, int source, int tag, MPI_Status& status);
 
-  /// nonblocking buffer send at the current communication level
-  void isend(MPIPackBuffer& send_buff, int dest, int tag,
-	     MPI_Request& send_req, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-  /// nonblocking integer send at the current communication level
-  void isend(int& send_int, int dest, int tag,
-	     MPI_Request& send_req, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-
-  /// blocking buffer receive at the current communication level
-  void  recv(MPIUnpackBuffer& recv_buff, int source, int tag,
-	     MPI_Status& status, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-  /// blocking integer receive at the current communication level
-  void  recv(int& recv_int, int source, int tag,
-	     MPI_Status& status, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-
-  /// nonblocking buffer receive at the current communication level
-  void irecv(MPIUnpackBuffer& recv_buff, int source, int tag,
-	     MPI_Request& recv_req, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-  /// nonblocking integer receive at the current communication level
-  void irecv(int& recv_int, int source, int tag,
-	     MPI_Request& recv_req, const ParallelLevel& parent_pl,
-	     const ParallelLevel& child_pl);
-
-  /// process _NPOS default and perform error checks
-  void check_mi_index(size_t& index) const;
-
-  /// blocking send at the metaiterator-iterator communication level
-  void  send_mi(int& send_int, int dest, int tag, size_t index = _NPOS);
-  /// nonblocking send at the metaiterator-iterator communication level
-  void isend_mi(int& send_int, int dest, int tag, MPI_Request& send_req,
-		size_t index = _NPOS);
-  /// blocking receive at the metaiterator-iterator communication level
-  void  recv_mi(int& recv_int, int source, int tag, MPI_Status& status,
-		size_t index = _NPOS);
-  /// nonblocking receive at the metaiterator-iterator communication level
-  void irecv_mi(int& recv_int, int source, int tag, MPI_Request& recv_req,
-		size_t index = _NPOS);
-
-  /// blocking send at the metaiterator-iterator communication level
-  void  send_mi(MPIPackBuffer& send_buff, int dest, int tag,
-		size_t index = _NPOS);
-  /// nonblocking send at the metaiterator-iterator communication level
-  void isend_mi(MPIPackBuffer& send_buff, int dest, int tag, 
-		MPI_Request& send_req, size_t index = _NPOS);
-  /// blocking receive at the metaiterator-iterator communication level
-  void  recv_mi(MPIUnpackBuffer& recv_buff, int source, int tag, 
-		MPI_Status& status, size_t index = _NPOS);
-  /// nonblocking receive at the metaiterator-iterator communication level
-  void irecv_mi(MPIUnpackBuffer& recv_buff, int source, int tag, 
-		MPI_Request& recv_req, size_t index = _NPOS);
-
-  /// blocking send at the iterator-evaluation communication level
-  void  send_ie(int& send_int, int dest, int tag);
-  /// nonblocking send at the iterator-evaluation communication level
-  void isend_ie(int& send_int, int dest, int tag, MPI_Request& send_req);
-  /// blocking receive at the iterator-evaluation communication level
-  void  recv_ie(int& recv_int, int source, int tag, MPI_Status& status);
-  /// nonblocking receive at the iterator-evaluation communication level
-  void irecv_ie(int& recv_int, int source, int tag, MPI_Request& recv_req);
+  /// blocking send at the strategy-iterator communication level
+  void  send_si(MPIPackBuffer& send_buff, int dest, int tag);
+  /// nonblocking send at the strategy-iterator communication level
+  void isend_si(MPIPackBuffer& send_buff, int dest, int tag, 
+		MPI_Request& send_req);
+  /// blocking receive at the strategy-iterator communication level
+  void  recv_si(MPIUnpackBuffer& recv_buff, int source, int tag, 
+		MPI_Status& status);
+  /// nonblocking receive at the strategy-iterator communication level
+  void irecv_si(MPIUnpackBuffer& recv_buff, int source, int tag, 
+		MPI_Request& recv_req);
 
   /// blocking send at the iterator-evaluation communication level
   void  send_ie(MPIPackBuffer& send_buff, int dest, int tag);
@@ -797,70 +489,52 @@ public:
   /// nonblocking receive at the evaluation-analysis communication level
   void irecv_ea(int& recv_int, int source, int tag, MPI_Request& recv_req);
 
-  /// broadcast an integer across the serverIntraComm of a ParallelLevel
-  void bcast(int& data, const ParallelLevel& pl);
-  /// broadcast an integer across the serverIntraComm of a ParallelLevel
-  void bcast(short& data, const ParallelLevel& pl);
-  /// broadcast a MPIPackBuffer across the serverIntraComm of a ParallelLevel
-  void bcast(MPIPackBuffer& send_buff, const ParallelLevel& pl);
-  /// broadcast a MPIUnpackBuffer across the serverIntraComm of a ParallelLevel
-  void bcast(MPIUnpackBuffer& recv_buff, const ParallelLevel& pl);
-  /// broadcast an integer across the hubServerIntraComm of a ParallelLevel
-  void bcast_hs(int& data, const ParallelLevel& pl);
-  /// broadcast a MPIPackBuffer across the hubServerIntraComm of a ParallelLevel
-  void bcast_hs(MPIPackBuffer& send_buff, const ParallelLevel& pl);
-  /// broadcast a MPIUnpackBuffer across the hubServerIntraComm of a
-  /// ParallelLevel
-  void bcast_hs(MPIUnpackBuffer& recv_buff, const ParallelLevel& pl);
-
   /// broadcast an integer across MPI_COMM_WORLD
   void bcast_w(int& data);
   /// broadcast an integer across an iterator communicator
-  void bcast_i(int& data, size_t index = _NPOS);
+  void bcast_i(int& data);
   /// broadcast a short integer across an iterator communicator
-  void bcast_i(short& data, size_t index = _NPOS);
+  void bcast_i(short& data);
   /// broadcast an integer across an evaluation communicator
   void bcast_e(int& data);
   /// broadcast an integer across an analysis communicator
   void bcast_a(int& data);
-  /// broadcast an integer across a metaiterator-iterator intra communicator
-  void bcast_mi(int& data, size_t index = _NPOS);
+  /// broadcast an integer across a strategy-iterator intra communicator
+  void bcast_si(int& data);
   /// broadcast a packed buffer across MPI_COMM_WORLD
   void bcast_w(MPIPackBuffer& send_buff);
   /// broadcast a packed buffer across an iterator communicator
-  void bcast_i(MPIPackBuffer& send_buff, size_t index = _NPOS);
+  void bcast_i(MPIPackBuffer& send_buff);
   /// broadcast a packed buffer across an evaluation communicator
   void bcast_e(MPIPackBuffer& send_buff);
   /// broadcast a packed buffer across an analysis communicator
   void bcast_a(MPIPackBuffer& send_buff);
-  /// broadcast a packed buffer across a metaiterator-iterator intra
-  /// communicator
-  void bcast_mi(MPIPackBuffer& send_buff, size_t index = _NPOS);
+  /// broadcast a packed buffer across a strategy-iterator intra communicator
+  void bcast_si(MPIPackBuffer& send_buff);
   /// matching receive for packed buffer broadcast across MPI_COMM_WORLD
   void bcast_w(MPIUnpackBuffer& recv_buff);
   /// matching receive for packed buffer bcast across an iterator communicator
-  void bcast_i(MPIUnpackBuffer& recv_buff, size_t index = _NPOS);
+  void bcast_i(MPIUnpackBuffer& recv_buff);
   /// matching receive for packed buffer bcast across an evaluation communicator
   void bcast_e(MPIUnpackBuffer& recv_buff);
   /// matching receive for packed buffer bcast across an analysis communicator
   void bcast_a(MPIUnpackBuffer& recv_buff);
-  /// matching recv for packed buffer bcast across a
-  /// metaiterator-iterator intra comm
-  void bcast_mi(MPIUnpackBuffer& recv_buff, size_t index = _NPOS);
+  /// matching recv for packed buffer bcast across a strat-iterator intra comm
+  void bcast_si(MPIUnpackBuffer& recv_buff);
 
   /// enforce MPI_Barrier on MPI_COMM_WORLD
   void barrier_w();
   /// enforce MPI_Barrier on an iterator communicator
-  void barrier_i(size_t index = _NPOS);
+  void barrier_i();
   /// enforce MPI_Barrier on an evaluation communicator
   void barrier_e();
   /// enforce MPI_Barrier on an analysis communicator
   void barrier_a();
 
   /// compute a sum over an eval-analysis intra-communicator using MPI_Reduce
-  void reduce_sum_ea(double* local_vals, double* sum_vals, int num_vals);
+  void reduce_sum_ea(double* local_vals, double* sum_vals, const int& num_vals);
   /// compute a sum over an analysis communicator using MPI_Reduce
-  void reduce_sum_a(double* local_vals, double* sum_vals, int num_vals);
+  void reduce_sum_a(double* local_vals, double* sum_vals, const int& num_vals);
 
   /// test a nonblocking send/receive request for completion
   void test(MPI_Request& request, int& test_flag, MPI_Status& status);
@@ -868,10 +542,10 @@ public:
   /// wait for a nonblocking send/receive request to complete
   void wait(MPI_Request& request, MPI_Status& status);
   /// wait for all messages from a series of nonblocking receives
-  void waitall(int num_recvs, MPI_Request*& recv_reqs);
+  void waitall(const int& num_recvs, MPI_Request*& recv_reqs);
   /// wait for at least one message from a series of nonblocking receives
   /// but complete all that are available
-  void waitsome(int num_sends, MPI_Request*& recv_requests,
+  void waitsome(const int& num_sends, MPI_Request*& recv_requests,
 		int& num_recvs, int*& index_array, MPI_Status*& status_array);
 
   /// free an MPI_Request
@@ -881,17 +555,17 @@ public:
   //- Heading: Set/Inquire functions
   //
 
-  // TODO: rename to reflect dakotaMPIComm
-  int world_size() const; ///< return MPIManager::worldSize
-  int world_rank() const; ///< return MPIManager::worldRank
-  bool mpirun_flag() const;   ///< return MPIManager::mpirunFlag
-  bool is_null() const;       ///< return dummyFlag
-  Real parallel_time() const; ///< returns current MPI wall clock time
+  // TODO: rename to reflect dakotaMPIComm?
+  const int& world_size()     const; ///< return worldSize
+  const int& world_rank()     const; ///< return worldRank
+  bool mpirun_flag()          const; ///< return mpirunFlag
+  bool is_null()              const; ///< return dummyFlag
+  Real parallel_time()        const; ///< returns current MPI wall clock time
 
   /// set the current ParallelConfiguration node
-  void parallel_configuration_iterator(ParConfigLIter pc_iter);
+  void parallel_configuration_iterator(const ParConfigLIter& pc_iter);
   /// return the current ParallelConfiguration node
-  ParConfigLIter parallel_configuration_iterator() const;
+  const ParConfigLIter& parallel_configuration_iterator() const;
   /// return the current ParallelConfiguration instance
   const ParallelConfiguration& parallel_configuration() const;
 
@@ -899,36 +573,22 @@ public:
   size_t num_parallel_configurations() const;
   /// identifies if the current ParallelConfiguration has been fully populated
   bool parallel_configuration_is_complete();
-  /// add a new node to parallelConfigurations and increment currPCIter;
-  /// limit miPLIters within new configuration to mi_pl_iter level
-  void increment_parallel_configuration(ParLevLIter mi_pl_iter);
-  /// add a new node to parallelConfigurations and increment currPCIter;
-  /// copy all of miPLIters into new configuration
+  /// add a new node to parallelConfigurations and increment currPCIter
   void increment_parallel_configuration();
   // decrement currPCIter
   //void decrement_parallel_configuration();
-
-  /// test current parallel configuration for definition of world parallel level
+  /// test current parallel configuration for definition of world
+  /// parallel level
   bool  w_parallel_level_defined() const;
   /// test current parallel configuration for definition of
-  /// meta-iterator-iterator parallel level
-  bool mi_parallel_level_defined(size_t index = _NPOS) const;
+  /// strategy-iterator parallel level
+  bool si_parallel_level_defined() const;
   /// test current parallel configuration for definition of
   /// iterator-evaluation parallel level
   bool ie_parallel_level_defined() const;
   /// test current parallel configuration for definition of
   /// evaluation-analysis parallel level
   bool ea_parallel_level_defined() const;
-
-  /// for this level, access through ParallelConfiguration is not necessary
-  ParLevLIter w_parallel_level_iterator();
-
-  /// return the index within parallelLevels corresponding to pl_iter
-  size_t parallel_level_index(ParLevLIter pl_iter);
-  // return the index within currPCIter->miPLIters corresponding to pl_iter
-  //size_t mi_parallel_level_index(ParLevLIter pl_iter) const;
-  // return index of trailing entry in currPCIter->miPLIters
-  //size_t mi_parallel_level_last_index() const;
 
   /// return the set of analysis intra communicators for all parallel
   /// configurations (used for setting up direct simulation interfaces
@@ -952,27 +612,63 @@ private:
   void output_timers();
 
   /// split a parent communicator into child server communicators
-  void init_communicators(const ParallelLevel& parent_pl, int num_servers,
-    int procs_per_server, int min_procs_per_server, int max_procs_per_server,
-    int max_concurrency, int asynch_local_concurrency, short default_config,
-    short scheduling_override, bool peer_dynamic_avail);
+  void init_communicators(const ParallelLevel& parent_pl,
+    const int& num_servers, const int& procs_per_server,
+    const int& max_concurrency, const int& asynch_local_concurrency,
+    const std::string& default_config, const std::string& scheduling_override);
+
+  /// deallocate intra/inter communicators for a particular ParallelLevel
+  void free_communicators(ParallelLevel& pl);
 
   /// split a parent communicator into a dedicated master processor
   /// and num_servers child communicators
-  void split_communicator_dedicated_master(const ParallelLevel& parent_pl,
-					   ParallelLevel& child_pl);
+  bool split_communicator_dedicated_master(const ParallelLevel& parent_pl,
+    ParallelLevel& child_pl);
 
   /// split a parent communicator into num_servers peer child
   /// communicators (no dedicated master processor)
-  void split_communicator_peer_partition(const ParallelLevel& parent_pl,
-					 ParallelLevel& child_pl);
+  bool split_communicator_peer_partition(const ParallelLevel& parent_pl,
+    ParallelLevel& child_pl);
 
   /// resolve user inputs into a sensible partitioning scheme
-  void resolve_inputs(ParallelLevel& child_pl, int avail_procs,
-		      int min_procs_per_server, int max_procs_per_server, 
-		      int max_concurrency, int capacity_multiplier,
-		      short default_config, short scheduling_override,
-		      bool peer_dynamic_avail, bool print_rank);
+  bool resolve_inputs(int& num_servers, int& procs_per_server,
+    const int& avail_procs, int& proc_remainder, const int& max_concurrency, 
+    const int& capacity_multiplier, const std::string& default_config,
+    const std::string& scheduling_override, bool print_rank);
+
+  /// blocking buffer send at the current communication level
+  void  send(MPIPackBuffer& send_buff, const int& dest, const int& tag,
+	     ParallelLevel& parent_pl, ParallelLevel& child_pl);
+  /// blocking integer send at the current communication level
+  void  send(int& send_int, const int& dest, const int& tag,
+	     ParallelLevel& parent_pl, ParallelLevel& child_pl);
+
+  /// nonblocking buffer send at the current communication level
+  void isend(MPIPackBuffer& send_buff, const int& dest, const int& tag,
+	     MPI_Request& send_req, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
+  /// nonblocking integer send at the current communication level
+  void isend(int& send_int, const int& dest, const int& tag,
+	     MPI_Request& send_req, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
+
+  /// blocking buffer receive at the current communication level
+  void  recv(MPIUnpackBuffer& recv_buff, const int& source, const int& tag,
+	     MPI_Status& status, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
+  /// blocking integer receive at the current communication level
+  void  recv(int& recv_int, const int& source, const int& tag,
+	     MPI_Status& status, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
+
+  /// nonblocking buffer receive at the current communication level
+  void irecv(MPIUnpackBuffer& recv_buff, const int& source, const int& tag,
+	     MPI_Request& recv_req, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
+  /// nonblocking integer receive at the current communication level
+  void irecv(int& recv_int, const int& source, const int& tag,
+	     MPI_Request& recv_req, ParallelLevel& parent_pl,
+	     ParallelLevel& child_pl);
 
   /// broadcast an integer across a communicator
   void bcast(int& data, const MPI_Comm& comm);
@@ -987,47 +683,84 @@ private:
   void barrier(const MPI_Comm& comm);
 
   /// compute a sum over comm using MPI_Reduce
-  void reduce_sum(double* local_vals, double* sum_vals, int num_vals,
+  void reduce_sum(double* local_vals, double* sum_vals, const int& num_vals,
 		  const MPI_Comm& comm);
 
   /// check the MPI return code and abort if error
-  void check_error(const String& err_source, int err_code);
+  void check_error(const std::string& err_source, const int& err_code);
 
-  /// convenience function for updating child serverIntraComm from
-  /// parent serverIntraComm (shallow Comm copy)
-  void alias_as_server_comm(const ParallelLevel& parent_pl,
-			    ParallelLevel& child_pl);
-  /// convenience function for updating child serverIntraComm from
-  /// parent serverIntraComm (deep Comm copy)
-  void copy_as_server_comm(const ParallelLevel& parent_pl,
-			   ParallelLevel& child_pl);
-  /// convenience function for updating child hubServerIntraComm from
-  /// parent serverIntraComm (shallow Comm copy)
-  void alias_as_hub_server_comm(const ParallelLevel& parent_pl,
-				ParallelLevel& child_pl);
-  /// convenience function for updating child hubServerIntraComm from
-  /// parent serverIntraComm (deep Comm copy)
-  void copy_as_hub_server_comm(const ParallelLevel& parent_pl,
-			       ParallelLevel& child_pl);
+  /// manage run mode information from command-line handler
+  void manage_run_modes(CommandLineHandler& cmd_line_handler);
+
+  /// split a double colon separated pair of filenames (possibly
+  /// empty) into input and output filename strings
+  void split_filenames(const char * filenames, std::string& input_filename,
+		       std::string& output_filename);
+
+  /// potentially reassign streams during initial specification of
+  /// output and error files; may later get overridden with tagged
+  /// files.
+  void assign_streams(bool append);
+
 
   //
   //- Heading: Data
   //
-  
-  /// reference to the MPI manager with Dakota's MPI options
-  const MPIManager& mpiManager;
-  /// programOptions is non-const due to updates from broadcast
-  ProgramOptions& programOptions;
-  /// Non-const output handler to help with file redirection
-  OutputManager& outputManager;
 
+  // Tagged output file streams used when there are concurrent iterators 
+  std::ofstream output_ofstream; ///< tagged file redirection of stdout
+  std::ofstream error_ofstream;  ///< tagged file redirection of stderr
+
+  // TODO: Update rank, size, etc. to reflect DAKOTA's top-level MPI_Comm
+  MPI_Comm dakotaMPIComm; ///< MPI_Comm on which DAKOTA is running
+  int  worldRank;     ///< rank in MPI_Comm in which DAKOTA is running
+  int  worldSize;     ///< size of MPI_Comm in which DAKOTA is running
+  bool mpirunFlag;    ///< flag for a parallel mpirun/yod launch
+  bool ownMPIFlag;    ///< flag for ownership of MPI_Init/MPI_Finalize
   bool dummyFlag;     ///< prevents multiple MPI_Finalize calls due to dummy_lib
-  bool outputTimings; ///< timing info only beyond help/version/check
+  bool stdOutputToFile; ///< flags redirection of DAKOTA std output to a file
+  bool stdErrorToFile;  ///< flags redirection of DAKOTA std error to a file
+
+  /// cached startup message for use in check_inputs
+  std::string startupMessage;
+
+  // run mode flags and I/O files
+  // Could condense flags into a bit-wise short, but using bool for
+  // now for clarity; could use map or vector with enum for Strings
+  //
+  // We opt to cache run mode controls in ParallelLibrary since the
+  // command-line handler is only available on rank 0.  This gives a
+  // convenient way to distribute data from CLH to other iterators in
+  // the case of concurrent iterators.
+  bool checkFlag;       ///< flags invocation with command line option -check
+  bool preRunFlag;      ///< flags invocation with command line option -pre_run
+  bool runFlag;         ///< flags invocation with command line option -run
+  bool postRunFlag;     ///< flags invocation with command line option -post_run
+  bool userModesFlag;   ///< whether user run mdoes are active
+  bool outputTimings;   ///< timing info only beyond help/version/check
+  std::string preRunInput;   ///< filename for pre_run input
+  std::string preRunOutput;  ///< filename for pre_run output
+  std::string runInput;      ///< filename for run input
+  std::string runOutput;     ///< filename for run output
+  std::string postRunInput;  ///< filename for post_run input
+  std::string postRunOutput; ///< filename for post_run output
+
   Real startCPUTime;  ///< start reference for UTILIB CPU timer
   Real startWCTime;   ///< start reference for UTILIB wall clock timer
   Real startMPITime;  ///< start reference for MPI wall clock timer
   long startClock;    ///< start reference for local clock() timer measuring
                       ///< parent+child CPU
+
+  std::string stdOutputFilename;    ///< filename for redirection of stdout
+  std::string stdErrorFilename;     ///< filename for redirection of stderr
+  std::string readRestartFilename;  ///< input filename for restart
+  std::string writeRestartFilename; ///< output filename for restart
+  int stopRestartEvals; ///< number of evals at which to stop restart processing
+
+  /// Binary stream to which restart data is written
+  std::ofstream restartOutputFS;
+  /// Binary output archive to which data is written (ptr as no default ctor)
+  boost::archive::binary_oarchive *restartOutputArchive;
 
   /// the complete set of parallelism levels for managing multilevel
   /// parallelism among one or more configurations
@@ -1037,29 +770,24 @@ private:
   /// indexing into parallelLevels
   std::list<ParallelConfiguration> parallelConfigurations;
 
+  /// list iterator identifying the current node in parallelLevels
+  ParLevLIter currPLIter;
+
   /// list iterator identifying the current node in parallelConfigurations
   ParConfigLIter currPCIter;
 };
 
 
-inline ProgramOptions& ParallelLibrary::program_options()
-{ return programOptions; }
+inline const int& ParallelLibrary::world_rank() const
+{ return worldRank; }
 
 
-inline OutputManager& ParallelLibrary::output_manager()
-{ return outputManager; }
-
-
-inline int ParallelLibrary::world_rank() const
-{ return mpiManager.world_rank(); }
-
-
-inline int ParallelLibrary::world_size() const
-{ return mpiManager.world_size(); }
+inline const int& ParallelLibrary::world_size() const
+{ return worldSize; }
 
 
 inline bool ParallelLibrary::mpirun_flag() const
-{ return mpiManager.mpirun_flag(); }
+{ return mpirunFlag; }
 
 
 inline bool ParallelLibrary::is_null() const
@@ -1069,7 +797,7 @@ inline bool ParallelLibrary::is_null() const
 inline Real ParallelLibrary::parallel_time() const
 {
 #ifdef DAKOTA_HAVE_MPI
-  return (mpiManager.mpirun_flag()) ? MPI_Wtime() - startMPITime : 0.;
+  return (mpirunFlag) ? MPI_Wtime() - startMPITime : 0.;
 #else
   return 0.;
 #endif // DAKOTA_HAVE_MPI
@@ -1077,11 +805,12 @@ inline Real ParallelLibrary::parallel_time() const
 
 
 inline void ParallelLibrary::
-parallel_configuration_iterator(ParConfigLIter pc_iter)
+parallel_configuration_iterator(const ParConfigLIter& pc_iter)
 { currPCIter = pc_iter; }
 
 
-inline ParConfigLIter ParallelLibrary::parallel_configuration_iterator() const
+inline const ParConfigLIter& ParallelLibrary::
+parallel_configuration_iterator() const
 { return currPCIter; }
 
 
@@ -1096,81 +825,58 @@ inline size_t ParallelLibrary::num_parallel_configurations() const
 
 inline bool ParallelLibrary::parallel_configuration_is_complete()
 {
-  size_t i, num_mipl = currPCIter->miPLIters.size();
-  if (!num_mipl) return false; // PC incomplete if w level undefined
-  bool prev_pl_rank0 = (mpiManager.world_rank() == 0);
-  for (i=1; i<num_mipl; ++i) { // skip w_pl (dedicated master not supported)
-    const ParallelLevel& mi_pl = *currPCIter->miPLIters[i];
-    if (mi_pl.dedicatedMasterFlag && prev_pl_rank0)
-      return true; // PC complete at mi level for ded master
-    else
-      prev_pl_rank0 = (mi_pl.serverCommRank == 0);
+  // All processors invoke init_iterator_comms
+  // All strategy procs except ded master invoke init_eval_comms
+  // All iterator procs except ded master invoke init_analysis_comms
+  if ( currPCIter->siPLIter == parallelLevels.end() )
+    return false; // PC incomplete if si level undefined
+  else { // si level defined
+    const ParallelLevel& si_pl = currPCIter->si_parallel_level();
+    if (si_pl.dedicatedMasterFlag && worldRank == 0)
+      return true; // PC complete at si level for strategy ded master
+    else if ( currPCIter->iePLIter == parallelLevels.end() )
+      return false; // PC incomplete for other procs if ie level undefined
+    else { // ie level defined
+      const ParallelLevel& ie_pl = currPCIter->ie_parallel_level();
+      if (ie_pl.dedicatedMasterFlag && si_pl.serverCommRank == 0)
+	return true;  // PC complete at ie level for iterator ded master
+      else if ( currPCIter->eaPLIter == parallelLevels.end() )
+	return false; // PC incomplete for other procs if ea level undefined
+      else // ea level defined
+	return true;  // PC complete
+    }
   }
-
-  if (!currPCIter->ie_parallel_level_defined())
-    return false; // PC incomplete for remaining procs if ie level undefined
-
-  const ParallelLevel& ie_pl = currPCIter->ie_parallel_level();
-  if (ie_pl.dedicatedMasterFlag && prev_pl_rank0)
-    return true;  // PC complete at ie level for iterator ded master
-  else // PC incomplete for remaining procs if ea level undefined
-    return currPCIter->ea_parallel_level_defined();
 }
 
 
 /** Called from the ParallelLibrary ctor and from Model::init_communicators().
     An increment is performed for each Model initialization except the first
-    (which inherits the world level from the first partial configuration). */
-inline void ParallelLibrary::
-increment_parallel_configuration(ParLevLIter mi_pl_iter)
+    (which inherits the world and strategy-iterator parallel levels from the
+    first partial configuration). */
+inline void ParallelLibrary::increment_parallel_configuration()
 {
-  // The world level is set in the ParallelLib ctor, mi levels are set in
-  // MetaIterators and NestedModels, and the ie and ea levels are defined in
+  // The world level is set in the ParallelLib ctor, the si level is
+  // defined in the Strategy ctor, and the ie and ea levels are defined in
   // ApplicationInterface::init_communicators().  Any undefined iterators
-  // are initialized to their "singular values" (NULL is not used).
+  // are initialized to their "singular values" (NULL should not be used).
   ParallelConfiguration pc;
+  pc.numParallelLevels = (worldSize > 1) ? 1 : 0;
 
-  // initial configuration: copy all parallel levels into miPLIters.  In
-  // current usage, there should only be one parallel level (world level)
-  // from ParallelLibrary::init_mpi_comm()
-  size_t i, num_mi_pl;
-  if (parallelConfigurations.empty()) {
-    for (ParLevLIter pl_iter=parallelLevels.begin();
-	 pl_iter!=parallelLevels.end(); ++pl_iter) {
-      pc.miPLIters.push_back(pl_iter);
-      if (pl_iter == mi_pl_iter) break;
-    }
-  }
-  // incrementing from an existing configuration: inherit a subset of
-  // mi parallel levels configured to this point
-  else {
-    //pc.miPLIters = currPCIter->miPLIters; // before passing of num_mipl
-    const std::vector<ParLevLIter>& curr_mipl_iters = currPCIter->miPLIters;
-    num_mi_pl = curr_mipl_iters.size();
-    for (i=0; i<num_mi_pl; ++i) {
-      pc.miPLIters.push_back(curr_mipl_iters[i]);
-      if (curr_mipl_iters[i] == mi_pl_iter) break;
-    }
-  }
-  // update numParallelLevels to correspond to miPLIters starting point
-  num_mi_pl = pc.miPLIters.size();
-  for (i=0; i<num_mi_pl; ++i)
-    if (pc.miPLIters[i]->messagePass)
-      ++pc.numParallelLevels;
+  // Approach 1 does not hard-wire pc.siPLIter and relies on assignment in
+  // init_evaluation_communicators():
+  //pc.wPLIter  = parallelLevels.begin();
+  //pc.siPLIter = pc.iePLIter = pc.eaPLIter = parallelLevels.end();
 
-  // ie & ea levels to be defined by ApplicationInterface::init_communicators()
-  pc.iePLIter = pc.eaPLIter = pc.endPLIter = parallelLevels.end();
+  // Approach 2 is more bullet proof, but also less flexible:
+  ParLevLIter pl_iter = parallelLevels.begin();
+  pc.wPLIter  =   pl_iter;
+  // In the first call from the ParallelLibrary ctor, this sets the siPLIter
+  // to parallelLevels.end() as there's only one ParallelLevel in the list:
+  pc.siPLIter = ++pl_iter;
+  pc.iePLIter = pc.eaPLIter = parallelLevels.end();
 
   parallelConfigurations.push_back(pc);
   currPCIter = --parallelConfigurations.end();
-}
-
-
-inline void ParallelLibrary::increment_parallel_configuration()
-{
-  ParLevLIter pl_iter = (parallelConfigurations.empty()) ?
-    --parallelLevels.end() : currPCIter->miPLIters.back(); // last to include
-  increment_parallel_configuration(pl_iter);
 }
 
 
@@ -1179,74 +885,19 @@ inline void ParallelLibrary::increment_parallel_configuration()
 
 
 inline bool ParallelLibrary::w_parallel_level_defined() const
-{
-  return (  currPCIter != parallelConfigurations.end() &&
-	    currPCIter->w_parallel_level_defined() );
-}
+{ return ( parallelLevels.end() == currPCIter->wPLIter ) ? false : true; }
 
 
-inline bool ParallelLibrary::mi_parallel_level_defined(size_t index) const
-{
-  return (  currPCIter != parallelConfigurations.end() &&
-	    currPCIter->mi_parallel_level_defined(index) );
-}
+inline bool ParallelLibrary::si_parallel_level_defined() const
+{ return ( parallelLevels.end() == currPCIter->siPLIter ) ? false : true; }
 
 
 inline bool ParallelLibrary::ie_parallel_level_defined() const
-{
-  return ( currPCIter != parallelConfigurations.end() &&
-	   currPCIter->ie_parallel_level_defined() );
-}
+{ return ( parallelLevels.end() == currPCIter->iePLIter ) ? false : true; }
 
 
 inline bool ParallelLibrary::ea_parallel_level_defined() const
-{
-  return ( currPCIter != parallelConfigurations.end() &&
-	   currPCIter->ea_parallel_level_defined() );
-}
-
-
-inline ParLevLIter ParallelLibrary::w_parallel_level_iterator()
-{ return parallelLevels.begin(); }
-
-
-inline size_t ParallelLibrary::parallel_level_index(ParLevLIter pl_iter)
-{
-  return (parallelLevels.empty()) ? _NPOS :
-    std::distance(parallelLevels.begin(), pl_iter);
-}
-
-
-/* These are error-prone due to requirement to update currPCIter
-   --> force usage of {method,model}PCIter in clients...
-inline size_t ParallelLibrary::
-mi_parallel_level_index(ParLevLIter pl_iter) const
-{
-  if (currPCIter == parallelConfigurations.end() ||
-      currPCIter->miPLIters.empty()) {
-    Cerr << "Error: mi_parallel_level_index() called with no active mi "
-	 << "parallelism levels defined." << std::endl;
-    abort_handler(-1);
-    return _NPOS;
-  }
-  else 
-    return currPCIter->mi_parallel_level_index(pl_iter);
-}
-
-
-inline size_t ParallelLibrary::mi_parallel_level_last_index() const
-{
-  if (currPCIter == parallelConfigurations.end() ||
-      currPCIter->miPLIters.empty()) {
-    Cerr << "Error: mi_parallel_level_last_index() called with no active mi "
-	 << "parallelism levels defined." << std::endl;
-    abort_handler(-1);
-    return _NPOS;
-  }
-  else 
-    return currPCIter->mi_parallel_level_last_index();
-}
-*/
+{ return ( parallelLevels.end() == currPCIter->eaPLIter ) ? false : true; }
 
 
 inline std::vector<MPI_Comm> ParallelLibrary::analysis_intra_communicators()
@@ -1262,119 +913,112 @@ inline std::vector<MPI_Comm> ParallelLibrary::analysis_intra_communicators()
 
 
 inline const ParallelLevel& ParallelLibrary::
-init_iterator_communicators(int iterator_servers, int procs_per_iterator,
-			    int min_procs_per_iterator,
-			    int max_procs_per_iterator,
-			    int max_iterator_concurrency, short default_config,
-			    short iterator_scheduling, bool peer_dynamic_avail)
+init_iterator_communicators(const int& iterator_servers,
+  const int& procs_per_iterator, const int& max_iterator_concurrency,
+  const std::string& default_config, const std::string& iterator_scheduling)
 {
   int asynch_local_iterator_concurrency = 0;
-  init_communicators(*currPCIter->miPLIters.back(), iterator_servers,
-		     procs_per_iterator, min_procs_per_iterator,
-		     max_procs_per_iterator, max_iterator_concurrency,
-		     asynch_local_iterator_concurrency, default_config,
-		     iterator_scheduling, peer_dynamic_avail);
-  ParLevLIter last = --parallelLevels.end();
-
-  // unconditionally update miPLIters
-  currPCIter->miPLIters.push_back(last);
-  return *last; // same as parallelLevels.back()
-
-  /*
-  // update miPLIters iff new partition.  This complicates deallocation (the new
-  // ParallelLevel does not correpond to a ParLevLIter) and requires the client
-  // to detect and manage when the higher level config has not been updated
-  // (requiring a serialization step to ensure that the previous level settings
-  // are not adopted).  Therefore, the benefits of this streamlining are dubious
-  // given the need to recreate serial settings from the new parallel level.
-  if (last->messagePass || last->idlePartition)
-    currPCIter->miPLIters.push_back(last);
-  else
-    parallelLevels.pop_back(); // assuming comm deallocation in pl destructor
-  return *currPCIter->miPLIters.back();
-  */
+  init_communicators(*parallelLevels.begin(), iterator_servers,
+    procs_per_iterator, max_iterator_concurrency,
+    asynch_local_iterator_concurrency, default_config, iterator_scheduling);
+  currPCIter->siPLIter = currPLIter;
+  return *currPLIter;
 }
 
 
 inline const ParallelLevel& ParallelLibrary::
-init_evaluation_communicators(int evaluation_servers, int procs_per_evaluation,
-			      int min_procs_per_eval, int max_procs_per_eval,
-			      int max_evaluation_concurrency,
-			      int asynch_local_evaluation_concurrency,
-			      short default_config, short evaluation_scheduling,
-			      bool peer_dynamic_avail)
+init_evaluation_communicators(const int& evaluation_servers,
+  const int& procs_per_evaluation, const int& max_evaluation_concurrency,
+  const int& asynch_local_evaluation_concurrency,
+  const std::string& default_config, const std::string& evaluation_scheduling)
 {
-  init_communicators(*currPCIter->miPLIters.back(), evaluation_servers,
-		     procs_per_evaluation, min_procs_per_eval,
-		     max_procs_per_eval, max_evaluation_concurrency,
-		     asynch_local_evaluation_concurrency, default_config,
-		     evaluation_scheduling, peer_dynamic_avail);
-  currPCIter->iePLIter = --parallelLevels.end();
-  return *currPCIter->iePLIter;
+  /*
+  // handle case where there is a new parallel configuration instance, but
+  // init_iterator_communicators has not been called again.
+  if ( parallelLevels.end() == currPCIter->siPLIter ) {
+    if (parallelConfigurations.size() > 1) {
+      // if used, then this needs to be replaced with a while loop,
+      // since the valid siPLIter could be several PC's back
+      ParConfigLIter prev_pc_iter = currPCIter; prev_pc_iter--;
+      currPCIter->siPLIter = prev_pc_iter->siPLIter;
+      if ( currPCIter->siPLIter->communicator_split_flag() )
+        currPCIter->numParallelLevels++;
+    }
+    else {
+      Cerr << "Error: init_evaluation_communicators() called without preceding "
+	   << "init_iterator_communicators() call." << std::endl;
+      abort_handler(-1);
+    }
+  }
+  */
+  init_communicators(*currPCIter->siPLIter, evaluation_servers,
+    procs_per_evaluation, max_evaluation_concurrency,
+    asynch_local_evaluation_concurrency, default_config, evaluation_scheduling);
+  currPCIter->iePLIter = currPLIter;
+  return *currPLIter;
 }
 
 
 inline const ParallelLevel& ParallelLibrary::
-init_analysis_communicators(int analysis_servers, int procs_per_analysis,
-			    int min_procs_per_analysis,
-			    int max_procs_per_analysis,
-			    int max_analysis_concurrency,
-			    int asynch_local_analysis_concurrency,
-			    short default_config, short analysis_scheduling,
-			    bool peer_dynamic_avail)
+init_analysis_communicators(const int& analysis_servers,
+  const int& procs_per_analysis, const int& max_analysis_concurrency,
+  const int& asynch_local_analysis_concurrency,
+  const std::string& default_config, const std::string& analysis_scheduling)
 {
   init_communicators(*currPCIter->iePLIter, analysis_servers,
-		     procs_per_analysis, min_procs_per_analysis,
-		     max_procs_per_analysis, max_analysis_concurrency,
-		     asynch_local_analysis_concurrency, default_config,
-		     analysis_scheduling, peer_dynamic_avail);
-  currPCIter->eaPLIter = --parallelLevels.end();
-  return *currPCIter->eaPLIter;
+    procs_per_analysis, max_analysis_concurrency,
+    asynch_local_analysis_concurrency, default_config, analysis_scheduling);
+  currPCIter->eaPLIter = currPLIter;
+  return *currPLIter;
 }
 
 
-inline bool ParallelLibrary::command_line_check() const
-{ return programOptions.check(); }
+inline void ParallelLibrary::free_iterator_communicators()
+{ free_communicators(*currPCIter->siPLIter); }
 
+
+inline void ParallelLibrary::free_evaluation_communicators()
+{ free_communicators(*currPCIter->iePLIter); }
+
+
+inline void ParallelLibrary::free_analysis_communicators()
+{ free_communicators(*currPCIter->eaPLIter); }
+
+inline const std::string& ParallelLibrary::startup_message() const
+{ return startupMessage; }
+  
+inline bool ParallelLibrary::command_line_check() const
+{ return checkFlag; }
 
 inline bool ParallelLibrary::command_line_pre_run() const
-{ return programOptions.pre_run(); }
-
+{ return preRunFlag; }
 
 inline bool ParallelLibrary::command_line_run() const
-{ return programOptions.run(); }
-
+{ return runFlag; }
 
 inline bool ParallelLibrary::command_line_post_run() const
-{ return programOptions.post_run(); }
-
+{ return postRunFlag; }
 
 inline bool ParallelLibrary::command_line_user_modes() const
-{ return programOptions.user_modes(); }
+{ return userModesFlag; }
 
+inline const std::string& ParallelLibrary::command_line_pre_run_input() const
+{ return preRunInput; }
 
-inline const String& ParallelLibrary::command_line_pre_run_input() const
-{ return programOptions.pre_run_input(); }
+inline const std::string& ParallelLibrary::command_line_pre_run_output() const
+{ return preRunOutput; }
 
+inline const std::string& ParallelLibrary::command_line_run_input() const
+{ return runInput; }
 
-inline const String& ParallelLibrary::command_line_pre_run_output() const
-{ return programOptions.pre_run_output(); }
+inline const std::string& ParallelLibrary::command_line_run_output() const
+{ return runOutput; }
 
+inline const std::string& ParallelLibrary::command_line_post_run_input() const
+{ return postRunInput; }
 
-inline const String& ParallelLibrary::command_line_run_input() const
-{ return programOptions.run_input(); }
-
-
-inline const String& ParallelLibrary::command_line_run_output() const
-{ return programOptions.run_output(); }
-
-
-inline const String& ParallelLibrary::command_line_post_run_input() const
-{ return programOptions.post_run_input(); }
-
-
-inline const String& ParallelLibrary::command_line_post_run_output() const
-{ return programOptions.post_run_output(); }
+inline const std::string& ParallelLibrary::command_line_post_run_output() const
+{ return postRunOutput; }
 
 
 // ---------------------------
@@ -1390,20 +1034,20 @@ inline const String& ParallelLibrary::command_line_post_run_output() const
 //   address (e.g., double*& sum_vals cannot be used in the MPI_Reduce wrappers
 //   due to its use for reducing a single value in DirectApplicInterface).
 inline void ParallelLibrary::
-check_error(const String& err_source, int err_code)
+check_error(const std::string& err_source, const int& err_code)
 {
   // NOTE: for error code meanings, see mpi/include/mpi_errno.h
   if (err_code) {
     Cerr << "Error: " << err_source << " returns with error code " << err_code
-	 << " on processor " << mpiManager.world_rank() << std::endl;
+	 << " on processor " << worldRank << std::endl;
     abort_handler(-1);
   }
 }
 
 
 inline void ParallelLibrary::
-send(MPIPackBuffer& send_buff, int dest, int tag,
-     const ParallelLevel& parent_pl, const ParallelLevel& child_pl)
+send(MPIPackBuffer& send_buff, const int& dest, const int& tag,
+     ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1422,8 +1066,8 @@ send(MPIPackBuffer& send_buff, int dest, int tag,
 
 
 inline void ParallelLibrary::
-send(int& send_int, int dest, int tag, const ParallelLevel& parent_pl,
-     const ParallelLevel& child_pl)
+send(int& send_int, const int& dest, const int& tag, ParallelLevel& parent_pl,
+     ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1441,56 +1085,18 @@ send(int& send_int, int dest, int tag, const ParallelLevel& parent_pl,
 }
 
 
-inline void ParallelLibrary::check_mi_index(size_t& index) const
-{
-  size_t num_mi_pl = currPCIter->miPLIters.size();
-  if (!num_mi_pl) {
-    Cerr << "Error: mi level send/recv called with no mi parallelism levels "
-	 << "defined." << std::endl;
-    abort_handler(-1);
-  }
-  if (index == _NPOS) index = num_mi_pl - 1; // last entry
-  else if (index >= num_mi_pl) {
-    Cerr << "Error: mi level send/recv called with index out of bounds."
-	 << std::endl;
-    abort_handler(-1);
-  }
-}
+inline void ParallelLibrary::send_si(int& send_int, int dest, int tag)
+{ send(send_int, dest, tag, *parallelLevels.begin(), *currPCIter->siPLIter); }
 
 
 inline void ParallelLibrary::
-send_mi(int& send_int, int dest, int tag, size_t index)
-{
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  send(send_int, dest, tag, parent_pl, *currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-send_mi(MPIPackBuffer& send_buff, int dest, int tag, size_t index)
-{
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  send(send_buff, dest, tag, parent_pl, *currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::send_ie(int& send_int, int dest, int tag)
-{
-  send(send_int, dest, tag, *currPCIter->miPLIters.back(),
-       *currPCIter->iePLIter);
-}
+send_si(MPIPackBuffer& send_buff, int dest, int tag)
+{ send(send_buff, dest, tag, *parallelLevels.begin(), *currPCIter->siPLIter);}
 
 
 inline void ParallelLibrary::
 send_ie(MPIPackBuffer& send_buff, int dest, int tag)
-{
-  send(send_buff, dest, tag, *currPCIter->miPLIters.back(),
-       *currPCIter->iePLIter);
-}
+{ send(send_buff, dest, tag, *currPCIter->siPLIter, *currPCIter->iePLIter);}
 
 
 inline void ParallelLibrary::send_ea(int& send_int, int dest, int tag)
@@ -1498,9 +1104,8 @@ inline void ParallelLibrary::send_ea(int& send_int, int dest, int tag)
 
 
 inline void ParallelLibrary::
-isend(MPIPackBuffer& send_buff, int dest, int tag,
-      MPI_Request& send_req, const ParallelLevel& parent_pl,
-      const ParallelLevel& child_pl)
+isend(MPIPackBuffer& send_buff, const int& dest, const int& tag,
+      MPI_Request& send_req, ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1519,8 +1124,8 @@ isend(MPIPackBuffer& send_buff, int dest, int tag,
 
 
 inline void ParallelLibrary::
-isend(int& send_int, int dest, int tag, MPI_Request& send_req,
-      const ParallelLevel& parent_pl, const ParallelLevel& child_pl)
+isend(int& send_int, const int& dest, const int& tag, MPI_Request& send_req,
+      ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1539,40 +1144,17 @@ isend(int& send_int, int dest, int tag, MPI_Request& send_req,
 
 
 inline void ParallelLibrary::
-isend_mi(int& send_int, int dest, int tag, MPI_Request& send_req, size_t index)
+isend_si(MPIPackBuffer& send_buff, int dest, int tag, MPI_Request& send_req)
 {
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  isend(send_int, dest, tag, send_req, parent_pl,
-	*currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-isend_mi(MPIPackBuffer& send_buff, int dest, int tag, MPI_Request& send_req,
-	 size_t index)
-{
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  isend(send_buff, dest, tag, send_req, parent_pl,
-	*currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-isend_ie(int& send_int, int dest, int tag, MPI_Request& send_req)
-{
-  isend(send_int, dest, tag, send_req, *currPCIter->miPLIters.back(),
-	*currPCIter->iePLIter);
+  isend(send_buff, dest, tag, send_req, *parallelLevels.begin(),
+	*currPCIter->siPLIter);
 }
 
 
 inline void ParallelLibrary::
 isend_ie(MPIPackBuffer& send_buff, int dest, int tag, MPI_Request& send_req)
 {
-  isend(send_buff, dest, tag, send_req, *currPCIter->miPLIters.back(),
+  isend(send_buff, dest, tag, send_req, *currPCIter->siPLIter,
 	*currPCIter->iePLIter);
 }
 
@@ -1586,8 +1168,8 @@ isend_ea(int& send_int, int dest, int tag, MPI_Request& send_req)
 
 
 inline void ParallelLibrary::
-recv(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Status& status,
-     const ParallelLevel& parent_pl, const ParallelLevel& child_pl)
+recv(MPIUnpackBuffer& recv_buff, const int& source, const int& tag,
+     MPI_Status& status, ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1606,8 +1188,8 @@ recv(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Status& status,
 
 
 inline void ParallelLibrary::
-recv(int& recv_int, int source, int tag, MPI_Status& status,
-     const ParallelLevel& parent_pl, const ParallelLevel& child_pl)
+recv(int& recv_int, const int& source, const int& tag, MPI_Status& status,
+     ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1626,39 +1208,25 @@ recv(int& recv_int, int source, int tag, MPI_Status& status,
 
 
 inline void ParallelLibrary::
-recv_mi(int& recv_int, int source, int tag, MPI_Status& status, size_t index)
+recv_si(int& recv_int, int source, int tag, MPI_Status& status)
 {
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  recv(recv_int, source, tag, status, parent_pl, *currPCIter->miPLIters[index]);
+  recv(recv_int, source, tag, status, *parallelLevels.begin(),
+       *currPCIter->siPLIter);
 }
 
 
 inline void ParallelLibrary::
-recv_mi(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Status& status,
-	size_t index)
+recv_si(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Status& status)
 {
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  recv(recv_buff, source, tag, status, parent_pl,
-       *currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-recv_ie(int& recv_int, int source, int tag, MPI_Status& status)
-{
-  recv(recv_int, source, tag, status, *currPCIter->miPLIters.back(),
-       *currPCIter->iePLIter);
+  recv(recv_buff, source, tag, status, *parallelLevels.begin(),
+       *currPCIter->siPLIter);
 }
 
 
 inline void ParallelLibrary::
 recv_ie(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Status& status)
 {
-  recv(recv_buff, source, tag, status, *currPCIter->miPLIters.back(),
+  recv(recv_buff, source, tag, status, *currPCIter->siPLIter,
        *currPCIter->iePLIter);
 }
 
@@ -1672,9 +1240,8 @@ recv_ea(int& recv_int, int source, int tag, MPI_Status& status)
 
 
 inline void ParallelLibrary::
-irecv(MPIUnpackBuffer& recv_buff, int source, int tag,
-      MPI_Request& recv_req, const ParallelLevel& parent_pl,
-      const ParallelLevel& child_pl)
+irecv(MPIUnpackBuffer& recv_buff, const int& source, const int& tag,
+      MPI_Request& recv_req, ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1693,8 +1260,8 @@ irecv(MPIUnpackBuffer& recv_buff, int source, int tag,
 
 
 inline void ParallelLibrary::
-irecv(int& recv_int, int source, int tag, MPI_Request& recv_req,
-      const ParallelLevel& parent_pl, const ParallelLevel& child_pl)
+irecv(int& recv_int, const int& source, const int& tag, MPI_Request& recv_req,
+      ParallelLevel& parent_pl, ParallelLevel& child_pl)
 {
 #ifdef DAKOTA_HAVE_MPI
   int err_code = 0;
@@ -1713,41 +1280,17 @@ irecv(int& recv_int, int source, int tag, MPI_Request& recv_req,
 
 
 inline void ParallelLibrary::
-irecv_mi(int& recv_int, int source, int tag, MPI_Request& recv_req,
-	 size_t index)
+irecv_si(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Request& recv_req)
 {
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  irecv(recv_int, source, tag, recv_req, parent_pl,
-	*currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-irecv_mi(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Request& recv_req,
-	 size_t index)
-{
-  check_mi_index(index);
-  const ParallelLevel& parent_pl = (index) ?
-    *currPCIter->miPLIters[index-1] : *parallelLevels.begin();
-  irecv(recv_buff, source, tag, recv_req, parent_pl,
-	*currPCIter->miPLIters[index]);
-}
-
-
-inline void ParallelLibrary::
-irecv_ie(int& recv_int, int source, int tag, MPI_Request& recv_req)
-{
-  irecv(recv_int, source, tag, recv_req, *currPCIter->miPLIters.back(),
-	*currPCIter->iePLIter);
+  irecv(recv_buff, source, tag, recv_req, *parallelLevels.begin(),
+	*currPCIter->siPLIter);
 }
 
 
 inline void ParallelLibrary::
 irecv_ie(MPIUnpackBuffer& recv_buff, int source, int tag, MPI_Request& recv_req)
 {
-  irecv(recv_buff, source, tag, recv_req, *currPCIter->miPLIters.back(),
+  irecv(recv_buff, source, tag, recv_req, *currPCIter->siPLIter,
 	*currPCIter->iePLIter);
 }
 
@@ -1779,54 +1322,16 @@ inline void ParallelLibrary::bcast(short& data, const MPI_Comm& comm)
 }
 
 
-inline void ParallelLibrary::bcast(int& data, const ParallelLevel& pl)
-{ bcast(data, pl.serverIntraComm); }
-
-
-inline void ParallelLibrary::bcast(short& data, const ParallelLevel& pl)
-{ bcast(data, pl.serverIntraComm); }
-
-
-inline void ParallelLibrary::
-bcast(MPIPackBuffer& send_buff, const ParallelLevel& pl)
-{ bcast(send_buff, pl.serverIntraComm); }
-
-
-inline void ParallelLibrary::
-bcast(MPIUnpackBuffer& recv_buff, const ParallelLevel& pl)
-{ bcast(recv_buff, pl.serverIntraComm); }
-
-
-inline void ParallelLibrary::bcast_hs(int& data, const ParallelLevel& pl)
-{ bcast(data, pl.hubServerIntraComm); }
-
-
-inline void ParallelLibrary::
-bcast_hs(MPIPackBuffer& send_buff, const ParallelLevel& pl)
-{ bcast(send_buff, pl.hubServerIntraComm); }
-
-
-inline void ParallelLibrary::
-bcast_hs(MPIUnpackBuffer& recv_buff, const ParallelLevel& pl)
-{ bcast(recv_buff, pl.hubServerIntraComm); }
-
-
 inline void ParallelLibrary::bcast_w(int& data)
-{ bcast(data, currPCIter->miPLIters.front()->serverIntraComm); }
+{ bcast(data, currPCIter->wPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_i(int& data,	size_t index)
-{
-  check_mi_index(index);
-  bcast(data, currPCIter->miPLIters[index]->serverIntraComm);
-}
+inline void ParallelLibrary::bcast_i(int& data)
+{ bcast(data, currPCIter->siPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_i(short& data, size_t index)
-{
-  check_mi_index(index);
-  bcast(data, currPCIter->miPLIters[index]->serverIntraComm);
-}
+inline void ParallelLibrary::bcast_i(short& data)
+{ bcast(data, currPCIter->siPLIter->serverIntraComm); }
 
 
 inline void ParallelLibrary::bcast_e(int& data)
@@ -1837,11 +1342,8 @@ inline void ParallelLibrary::bcast_a(int& data)
 { bcast(data, currPCIter->eaPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_mi(int& data, size_t index)
-{
-  check_mi_index(index);
-  bcast_hs(data, *currPCIter->miPLIters[index]);
-}
+inline void ParallelLibrary::bcast_si(int& data)
+{ bcast(data, currPCIter->siPLIter->hubServerIntraComm); }
 
 
 inline void ParallelLibrary::
@@ -1856,14 +1358,11 @@ bcast(MPIPackBuffer& send_buff, const MPI_Comm& comm)
 
 
 inline void ParallelLibrary::bcast_w(MPIPackBuffer& send_buff)
-{ bcast(send_buff, currPCIter->miPLIters.front()->serverIntraComm); }
+{ bcast(send_buff, currPCIter->wPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_i(MPIPackBuffer& send_buff, size_t index)
-{
-  check_mi_index(index);
-  bcast(send_buff, currPCIter->miPLIters[index]->serverIntraComm);
-}
+inline void ParallelLibrary::bcast_i(MPIPackBuffer& send_buff)
+{ bcast(send_buff, currPCIter->siPLIter->serverIntraComm); }
 
 
 inline void ParallelLibrary::bcast_e(MPIPackBuffer& send_buff)
@@ -1874,11 +1373,8 @@ inline void ParallelLibrary::bcast_a(MPIPackBuffer& send_buff)
 { bcast(send_buff, currPCIter->eaPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_mi(MPIPackBuffer& send_buff, size_t index)
-{
-  check_mi_index(index);
-  bcast_hs(send_buff, *currPCIter->miPLIters[index]);
-}
+inline void ParallelLibrary::bcast_si(MPIPackBuffer& send_buff)
+{ bcast(send_buff, currPCIter->siPLIter->hubServerIntraComm); }
 
 
 inline void ParallelLibrary::
@@ -1893,14 +1389,11 @@ bcast(MPIUnpackBuffer& recv_buff, const MPI_Comm& comm)
 
 
 inline void ParallelLibrary::bcast_w(MPIUnpackBuffer& recv_buff)
-{ bcast(recv_buff, currPCIter->miPLIters.front()->serverIntraComm); }
+{ bcast(recv_buff, currPCIter->wPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_i(MPIUnpackBuffer& recv_buff, size_t index)
-{
-  check_mi_index(index);
-  bcast(recv_buff, currPCIter->miPLIters[index]->serverIntraComm);
-}
+inline void ParallelLibrary::bcast_i(MPIUnpackBuffer& recv_buff)
+{ bcast(recv_buff, currPCIter->siPLIter->serverIntraComm); }
 
 
 inline void ParallelLibrary::bcast_e(MPIUnpackBuffer& recv_buff)
@@ -1911,11 +1404,8 @@ inline void ParallelLibrary::bcast_a(MPIUnpackBuffer& recv_buff)
 { bcast(recv_buff, currPCIter->eaPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::bcast_mi(MPIUnpackBuffer& recv_buff, size_t index)
-{
-  check_mi_index(index);
-  bcast_hs(recv_buff, *currPCIter->miPLIters[index]);
-}
+inline void ParallelLibrary::bcast_si(MPIUnpackBuffer& recv_buff)
+{ bcast(recv_buff, currPCIter->siPLIter->hubServerIntraComm); }
 
 
 inline void ParallelLibrary::barrier(const MPI_Comm& comm)
@@ -1928,14 +1418,11 @@ inline void ParallelLibrary::barrier(const MPI_Comm& comm)
 
 
 inline void ParallelLibrary::barrier_w()
-{ barrier(currPCIter->miPLIters.front()->serverIntraComm); }
+{ barrier(currPCIter->wPLIter->serverIntraComm); }
 
 
-inline void ParallelLibrary::barrier_i(size_t index)
-{
-  check_mi_index(index);
-  barrier(currPCIter->miPLIters[index]->serverIntraComm);
-}
+inline void ParallelLibrary::barrier_i()
+{ barrier(currPCIter->siPLIter->serverIntraComm); }
 
 
 inline void ParallelLibrary::barrier_e()
@@ -1947,7 +1434,7 @@ inline void ParallelLibrary::barrier_a()
 
 
 inline void ParallelLibrary::
-reduce_sum(double* local_vals, double* sum_vals, int num_vals,
+reduce_sum(double* local_vals, double* sum_vals, const int& num_vals,
 	   const MPI_Comm& comm)
 {
 #ifdef DAKOTA_HAVE_MPI
@@ -1959,7 +1446,7 @@ reduce_sum(double* local_vals, double* sum_vals, int num_vals,
 
 
 inline void ParallelLibrary::
-reduce_sum_ea(double* local_vals, double* sum_vals, int num_vals)
+reduce_sum_ea(double* local_vals, double* sum_vals, const int& num_vals)
 {
   reduce_sum(local_vals, sum_vals, num_vals,
 	     currPCIter->eaPLIter->hubServerIntraComm);
@@ -1967,7 +1454,7 @@ reduce_sum_ea(double* local_vals, double* sum_vals, int num_vals)
 
 
 inline void ParallelLibrary::
-reduce_sum_a(double* local_vals, double* sum_vals, int num_vals)
+reduce_sum_a(double* local_vals, double* sum_vals, const int& num_vals)
 {
   reduce_sum(local_vals, sum_vals, num_vals,
 	     currPCIter->eaPLIter->serverIntraComm);
@@ -1994,7 +1481,7 @@ inline void ParallelLibrary::wait(MPI_Request& request, MPI_Status& status)
 
 
 inline void ParallelLibrary::
-waitall(int num_recvs, MPI_Request*& recv_reqs)
+waitall(const int& num_recvs, MPI_Request*& recv_reqs)
 {
 #ifdef DAKOTA_HAVE_MPI
   MPI_Status* status_array = new MPI_Status [num_recvs];
@@ -2006,7 +1493,7 @@ waitall(int num_recvs, MPI_Request*& recv_reqs)
 
 
 inline void ParallelLibrary::
-waitsome(int num_sends, MPI_Request*& recv_requests, int& num_recvs,
+waitsome(const int& num_sends, MPI_Request*& recv_requests, int& num_recvs,
 	 int*& index_array, MPI_Status*& status_array)
 {
 #ifdef DAKOTA_HAVE_MPI
@@ -2022,99 +1509,6 @@ inline void ParallelLibrary::free(MPI_Request& request)
 #ifdef DAKOTA_HAVE_MPI
   int err_code = MPI_Request_free(&request);
   check_error("MPI_Request_free", err_code);
-#endif // DAKOTA_HAVE_MPI
-}
-
-
-inline void ParallelLibrary::
-alias_as_server_comm(const ParallelLevel& parent_pl, ParallelLevel& child_pl)
-{
-  // true if servers are created for assignment of distributed work
-  child_pl.messagePass   = false;
-  // important for correct branch in send/recv
-  child_pl.commSplitFlag = false;
-
-  child_pl.ownCommFlag      =  false;
-  child_pl.serverIntraComm  =  parent_pl.serverIntraComm; // same comm
-  child_pl.serverCommRank   =  parent_pl.serverCommRank;
-  child_pl.serverCommSize   =  parent_pl.serverCommSize;
-  child_pl.serverMasterFlag = (parent_pl.serverCommRank == 0);
-
-  child_pl.hubServerIntraComm = MPI_COMM_NULL;
-  // use ctor defaults for child_pl.hubServerCommRank/hubServerCommSize
-}
-
-
-inline void ParallelLibrary::
-copy_as_server_comm(const ParallelLevel& parent_pl, ParallelLevel& child_pl)
-{
-#ifdef DAKOTA_HAVE_MPI
-  if (mpiManager.mpirun_flag() && parent_pl.serverIntraComm != MPI_COMM_NULL) {
-    // servers are not created for assignment of distributed work
-    child_pl.messagePass   = false;
-    // use parent_pl in send/recv (child_pl.hubServerInterComms not defined)
-    child_pl.commSplitFlag = false;
-
-    // deep copy ensures inherited comm context is distinct
-    child_pl.ownCommFlag = true;
-    MPI_Comm_dup(parent_pl.serverIntraComm, &child_pl.serverIntraComm);
-    child_pl.serverCommRank   =  parent_pl.serverCommRank;
-    child_pl.serverCommSize   =  parent_pl.serverCommSize;
-    child_pl.serverMasterFlag = (parent_pl.serverCommRank == 0);
-
-    child_pl.hubServerIntraComm = MPI_COMM_NULL;
-    // use ctor defaults for child_pl.hubServerCommRank/hubServerCommSize
-  }
-  else
-    alias_as_server_comm(parent_pl, child_pl);
-#else
-  alias_as_server_comm(parent_pl, child_pl);
-#endif // DAKOTA_HAVE_MPI
-}
-
-
-inline void ParallelLibrary::
-alias_as_hub_server_comm(const ParallelLevel& parent_pl,
-			 ParallelLevel& child_pl)
-{
-  // single-processor servers are defined for assignment of distributed work
-  child_pl.messagePass   = (parent_pl.serverCommSize > 1);
-  // use parent_pl in send/recv (child_pl.hubServerInterComms not defined)
-  child_pl.commSplitFlag = false;
-
-  child_pl.ownCommFlag = false;
-  child_pl.hubServerIntraComm = parent_pl.serverIntraComm;
-  child_pl.hubServerCommRank  = parent_pl.serverCommRank;
-  child_pl.hubServerCommSize  = parent_pl.serverCommSize;
-
-  child_pl.serverIntraComm = MPI_COMM_SELF;
-  // use ctor defaults for child_pl.serverCommRank/serverCommSize
-}
-
-
-inline void ParallelLibrary::
-copy_as_hub_server_comm(const ParallelLevel& parent_pl, ParallelLevel& child_pl)
-{
-#ifdef DAKOTA_HAVE_MPI
-  if (mpiManager.mpirun_flag() && parent_pl.serverIntraComm != MPI_COMM_NULL) {
-    // single-processor servers are defined for assignment of distributed work
-    child_pl.messagePass   = (parent_pl.serverCommSize > 1);
-    // use parent_pl in send/recv (child_pl.hubServerInterComms not defined)
-    child_pl.commSplitFlag = false;
-
-    // deep copy ensures inherited comm context is distinct
-    child_pl.ownCommFlag = true;
-    MPI_Comm_dup(parent_pl.serverIntraComm, &child_pl.hubServerIntraComm);
-    child_pl.hubServerCommRank = parent_pl.serverCommRank;
-    child_pl.hubServerCommSize = parent_pl.serverCommSize;
-
-    child_pl.serverIntraComm = MPI_COMM_SELF;
-    // use ctor defaults for child_pl.serverCommRank/serverCommSize
-  }
-  else
-    alias_as_hub_server_comm(parent_pl, child_pl);
-#else
-  alias_as_hub_server_comm(parent_pl, child_pl);
 #endif // DAKOTA_HAVE_MPI
 }
 

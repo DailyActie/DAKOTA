@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -27,9 +27,10 @@
 #include <vector>
 #include <string>
 
+using namespace std;
 
-double feval(const std::vector<double>& x, size_t rank, size_t nprocs);
-void   write_data(const std::string& filename, const std::vector<double>& fnvals);
+double feval(const vector<double>& x, size_t rank, size_t nprocs);
+void   write_data(const string& filename, const vector<double>& fnvals);
 
 
 /// Simplest possible, PARALLEL "text_book function" simulator
@@ -54,7 +55,7 @@ int main(int argc, char* argv[])
   time_t rawtime;
   time(&rawtime);
   struct tm* timeinfo = localtime ( &rawtime );
-  std::cout << argv[0] << ": task " << rank+1 << " of " << nprocs << " starting on "
+  cout << argv[0] << ": task " << rank+1 << " of " << nprocs << " starting on "
        << proc_name << " at " << asctime(timeinfo);
   /* cout << "with " << argc-1 << " arg(s):\n";
   // Allow testing without DAKOTA parameters/results files (for now)
@@ -67,13 +68,13 @@ int main(int argc, char* argv[])
   */
 
 
-  std::ifstream fin(argv[1]);  // WJB - ToDo: add FILE OPEN OK assertion
+  ifstream fin(argv[1]);  // WJB - ToDo: add FILE OPEN OK assertion
   size_t num_vars = 0;
-  std::string vars_text;
+  string vars_text;
 
-  // Get the parameter std::vector and ignore the labels
+  // Get the parameter vector and ignore the labels
   fin >> num_vars >> vars_text;
-  std::vector<double> x(num_vars);
+  vector<double> x(num_vars);
 
   for (size_t i=0; i<num_vars; ++i) {
     fin >> x[i];
@@ -85,8 +86,8 @@ int main(int argc, char* argv[])
   fin >> num_fns;
   assert(num_fns == 3 && "SIMPLE text_book: Number of funcs must be exactly 3");
 
-  // Use a std::vector to store the response (1 objective, 2 constraints)
-  std::vector<double> fnvals(num_fns); // f, c1, c2
+  // Use a vector to store the response (1 objective, 2 constraints)
+  vector<double> fnvals(num_fns); // f, c1, c2
 
   // **** c2:
   fnvals[2] = x[1]*x[1] - 0.5*x[0];
@@ -113,7 +114,7 @@ int main(int argc, char* argv[])
 
 
 /// Evaluate the "text_book" function
-double feval(const std::vector<double>& x, size_t rank, size_t nprocs)
+double feval(const vector<double>& x, size_t rank, size_t nprocs)
 {
   double retval    = 0.;
   double local_val = 0.;
@@ -142,21 +143,21 @@ double feval(const std::vector<double>& x, size_t rank, size_t nprocs)
 
 
 /// Write response data to file specified by filename arg
-void write_data(const std::string& filename, const std::vector<double>& fnvals)
+void write_data(const string& filename, const vector<double>& fnvals)
 {
-  std::ofstream fout( filename.c_str() );
+  ofstream fout( filename.c_str() );
 
   // Computed results are output directly to file (the NO_FILTER option
   // is used).  Response tags are now optional; output them for ease of
   // results readability.
   if (!fout) {
     // WJB -- ToDo: rather than return status code -1, throw EXCEPTION
-    std::cerr << "\nError: failure creating " << filename << std::endl;
+    cerr << "\nError: failure creating " << filename << endl;
   }
   else {
     fout.precision(15); // 16 total digits
-    fout.setf(std::ios::scientific);
-    fout.setf(std::ios::right);
+    fout.setf(ios::scientific);
+    fout.setf(ios::right);
 
     fout << "                     " << fnvals[0] << " f\n";
     fout << "                     " << fnvals[1] << " c1\n";

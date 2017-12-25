@@ -1,64 +1,56 @@
-KEYWORD01 environment
-	[ check ]
-	[ output_file STRING ]
-	[ error_file STRING ]
-	[ read_restart STRING
-	  [ stop_restart INTEGER >= 0 ]
-	  ]
-	[ write_restart STRING ]
-	[ pre_run
-	  [ input STRING ]
-	  [ output STRING
-	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    ]
-	  ]
-	[ run
-	  [ input STRING ]
-	  [ output STRING ]
-	  ]
-	[ post_run
-	  [ input STRING
-	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    ]
-	  [ output STRING ]
-	  ]
+KEYWORD01 strategy
 	[ graphics ]
-	[ tabular_data ALIAS tabular_graphics_data
-	  [ tabular_data_file ALIAS tabular_graphics_file STRING ]
-	  [ annotated
-	  |
-	  ( custom_annotated
-	    [ header ]
-	    [ eval_id ]
-	    [ interface_id ]
-	    ]
-	  |
-	  ( freeform
+	[ tabular_graphics_data
+	  [ tabular_graphics_file STRING ]
 	  ]
 	[ output_precision INTEGER >= 0 ]
 	[ results_output
 	  [ results_output_file STRING ]
 	  ]
-	[ top_method_pointer ALIAS method_pointer STRING ]
+	[ iterator_servers INTEGER ]
+	[ iterator_scheduling
+	  master
+	  | peer
+	  ]
+	( hybrid
+	  ( sequential ALIAS uncoupled
+	    method_list STRINGLIST
+	    )
+	  |
+	  ( embedded ALIAS coupled
+	    global_method_pointer STRING
+	    local_method_pointer STRING
+	    [ local_search_probability REAL ]
+	    )
+	  |
+	  ( collaborative
+	    method_list STRINGLIST
+	    )
+	  )
+	|
+	( multi_start
+	  method_pointer STRING
+	  [ random_starts INTEGER
+	    [ seed INTEGER ]
+	    ]
+	  [ starting_points REALLIST ]
+	  )
+	|
+	( pareto_set
+	  method_pointer ALIAS opt_method_pointer STRING
+	  [ random_weight_sets INTEGER
+	    [ seed INTEGER ]
+	    ]
+	  [ weight_sets ALIAS multi_objective_weight_sets REALLIST ]
+	  )
+	|
+	( single_method
+	  [ method_pointer STRING ]
+	  )
 
 KEYWORD12 method
 	[ id_method STRING ]
+	[ model_pointer STRING ]
 	[ output
 	  debug
 	  | verbose
@@ -66,88 +58,16 @@ KEYWORD12 method
 	  | quiet
 	  | silent
 	  ]
+	[ max_iterations INTEGER >= 0 ]
+	[ max_function_evaluations INTEGER >= 0 ]
+	[ speculative ]
+	[ convergence_tolerance REAL ]
+	[ constraint_tolerance REAL ]
+	[ scaling ]
 	[ final_solutions INTEGER >= 0 ]
-	( hybrid
-	  ( sequential ALIAS uncoupled
-	    ( method_name_list STRINGLIST
-	      [ model_pointer_list STRING ]
-	      )
-	    | method_pointer_list STRINGLIST
-	    )
-	  |
-	  ( embedded ALIAS coupled
-	    ( global_method_name STRING
-	      [ global_model_pointer STRING ]
-	      )
-	    | global_method_pointer STRING
-	    ( local_method_name STRING
-	      [ local_model_pointer STRING ]
-	      )
-	    | local_method_pointer STRING
-	    [ local_search_probability REAL ]
-	    )
-	  |
-	  ( collaborative
-	    ( method_name_list STRINGLIST
-	      [ model_pointer_list STRING ]
-	      )
-	    | method_pointer_list STRINGLIST
-	    )
-	  [ iterator_servers INTEGER > 0 ]
-	  [ iterator_scheduling
-	    master
-	    | peer
-	    ]
-	  [ processors_per_iterator INTEGER > 0 ]
-	  )
-	|
-	( multi_start
-	  ( method_name STRING
-	    [ model_pointer STRING ]
-	    )
-	  | method_pointer STRING
-	  [ random_starts INTEGER
-	    [ seed INTEGER ]
-	    ]
-	  [ starting_points REALLIST ]
-	  [ iterator_servers INTEGER > 0 ]
-	  [ iterator_scheduling
-	    master
-	    | peer
-	    ]
-	  [ processors_per_iterator INTEGER > 0 ]
-	  )
-	|
-	( pareto_set
-	  ( method_name ALIAS opt_method_name STRING
-	    [ model_pointer ALIAS opt_model_pointer STRING ]
-	    )
-	  | method_pointer ALIAS opt_method_pointer STRING
-	  [ random_weight_sets INTEGER
-	    [ seed INTEGER ]
-	    ]
-	  [ weight_sets ALIAS multi_objective_weight_sets REALLIST ]
-	  [ iterator_servers INTEGER > 0 ]
-	  [ iterator_scheduling
-	    master
-	    | peer
-	    ]
-	  [ processors_per_iterator INTEGER > 0 ]
-	  )
-	|
-	( branch_and_bound
-	  method_pointer STRING
-	  |
-	  ( method_name STRING
-	    [ model_pointer STRING ]
-	    )
-	  [ scaling ]
-	  )
-	|
 	( surrogate_based_local
-	  method_pointer ALIAS approx_method_pointer STRING
-	  | method_name ALIAS approx_method_name STRING
-	  model_pointer ALIAS approx_model_pointer STRING
+	  approx_method_name STRING
+	  | approx_method_pointer STRING
 	  [ soft_convergence_limit INTEGER ]
 	  [ truth_surrogate_bypass ]
 	  [ trust_region
@@ -180,26 +100,6 @@ KEYWORD12 method
 	  [ constraint_relax
 	    homotopy
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ constraint_tolerance REAL ]
-	  )
-	|
-	( surrogate_based_global
-	  method_pointer ALIAS approx_method_pointer STRING
-	  | method_name ALIAS approx_method_name STRING
-	  model_pointer ALIAS approx_model_pointer STRING
-	  [ replace_points ]
-	  [ max_iterations INTEGER >= 0 ]
-	  )
-	|
-	( dot_frcg
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -209,7 +109,18 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
+	  )
+	|
+	( dot_frcg
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	| dot_mmfd
 	| dot_bfgs
@@ -222,12 +133,6 @@ KEYWORD12 method
 	  | bfgs
 	  | slp
 	  | sqp
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -237,16 +142,9 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( conmin_frcg
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -256,19 +154,12 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	| conmin_mfd
 	|
 	( conmin
 	  frcg
 	  | mfd
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -278,7 +169,6 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( dl_solver STRING
@@ -291,21 +181,12 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( npsol_sqp
 	  [ verify_level INTEGER ]
 	  [ function_precision REAL ]
 	  [ linesearch_tolerance REAL ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -315,7 +196,6 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	| nlssol_sqp
 	|
@@ -325,12 +205,6 @@ KEYWORD12 method
 	  [ verify_level INTEGER ]
 	  [ function_precision REAL ]
 	  [ linesearch_tolerance REAL ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ constraint_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -340,12 +214,9 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( nlpql_sqp
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -355,19 +226,24 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
+	  )
+	|
+	( optdarts
+	  [ seed INTEGER > 0 ]
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	|
 	( optpp_cg
 	  [ max_step REAL ]
 	  [ gradient_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -377,7 +253,6 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( optpp_q_newton
@@ -399,11 +274,6 @@ KEYWORD12 method
 	  [ centering_parameter REAL ]
 	  [ max_step REAL ]
 	  [ gradient_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ linear_inequality_constraint_matrix REALLIST ]
 	  [ linear_inequality_lower_bounds REALLIST ]
 	  [ linear_inequality_upper_bounds REALLIST ]
@@ -413,16 +283,19 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( optpp_pds
 	  [ search_scheme_size INTEGER ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	|
 	( asynch_pattern_search ALIAS coliny_apps
@@ -454,10 +327,6 @@ KEYWORD12 method
 	  [ linear_equality_targets REALLIST ]
 	  [ linear_equality_scale_types STRINGLIST ]
 	  [ linear_equality_scales REALLIST ]
-	  [ constraint_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( mesh_adaptive_search
@@ -466,12 +335,16 @@ KEYWORD12 method
 	  [ history_file STRING ]
 	  [ display_format STRING ]
 	  [ variable_neighborhood_search REAL ]
-	  [ neighbor_order INTEGER > 0 ]
 	  [ display_all_evaluations ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	|
 	( moga
@@ -504,18 +377,6 @@ KEYWORD12 method
 	  [ postprocessor_type
 	    orthogonal_distance REALLIST
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ linear_inequality_constraint_matrix REALLIST ]
-	  [ linear_inequality_lower_bounds REALLIST ]
-	  [ linear_inequality_upper_bounds REALLIST ]
-	  [ linear_inequality_scale_types STRINGLIST ]
-	  [ linear_inequality_scales REALLIST ]
-	  [ linear_equality_constraint_matrix REALLIST ]
-	  [ linear_equality_targets REALLIST ]
-	  [ linear_equality_scale_types STRINGLIST ]
-	  [ linear_equality_scales REALLIST ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ population_size INTEGER >= 0 ]
 	  [ log_file STRING ]
 	  [ print_each_pop ]
@@ -547,8 +408,15 @@ KEYWORD12 method
 	    [ mutation_rate REAL ]
 	    ]
 	  [ seed INTEGER > 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ model_pointer STRING ]
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	|
 	( soga
@@ -573,18 +441,6 @@ KEYWORD12 method
 	      [ num_generations INTEGER >= 0 ]
 	      )
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ linear_inequality_constraint_matrix REALLIST ]
-	  [ linear_inequality_lower_bounds REALLIST ]
-	  [ linear_inequality_upper_bounds REALLIST ]
-	  [ linear_inequality_scale_types STRINGLIST ]
-	  [ linear_inequality_scales REALLIST ]
-	  [ linear_equality_constraint_matrix REALLIST ]
-	  [ linear_equality_targets REALLIST ]
-	  [ linear_equality_scale_types STRINGLIST ]
-	  [ linear_equality_scales REALLIST ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
 	  [ population_size INTEGER >= 0 ]
 	  [ log_file STRING ]
 	  [ print_each_pop ]
@@ -616,8 +472,15 @@ KEYWORD12 method
 	    [ mutation_rate REAL ]
 	    ]
 	  [ seed INTEGER > 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ model_pointer STRING ]
+	  [ linear_inequality_constraint_matrix REALLIST ]
+	  [ linear_inequality_lower_bounds REALLIST ]
+	  [ linear_inequality_upper_bounds REALLIST ]
+	  [ linear_inequality_scale_types STRINGLIST ]
+	  [ linear_inequality_scales REALLIST ]
+	  [ linear_equality_constraint_matrix REALLIST ]
+	  [ linear_equality_targets REALLIST ]
+	  [ linear_equality_scale_types STRINGLIST ]
+	  [ linear_equality_scales REALLIST ]
 	  )
 	|
 	( coliny_pattern_search
@@ -647,11 +510,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( coliny_solis_wets
@@ -667,11 +525,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( coliny_cobyla
@@ -681,11 +534,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( coliny_direct
@@ -702,11 +550,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( coliny_ea
@@ -749,11 +592,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( coliny_beta
@@ -762,11 +600,6 @@ KEYWORD12 method
 	  [ seed INTEGER > 0 ]
 	  [ show_misc_options ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( nl2sol
@@ -779,82 +612,36 @@ KEYWORD12 method
 	  [ initial_trust_radius REAL ]
 	  [ covariance INTEGER ]
 	  [ regression_diagnostics ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ speculative ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( nonlinear_cg
 	  [ misc_options STRINGLIST ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
 	  )
 	|
-	( ncsu_direct
-	  [ solution_target ALIAS solution_accuracy REAL ]
-	  [ min_boxsize_limit REAL ]
-	  [ volume_boxsize_limit REAL ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
-	  )
-	|
-	( genie_opt_darts
-	  | genie_direct
-	  [ seed INTEGER > 0 ]
-	  [ max_function_evaluations INTEGER >= 0 ]
-	  [ scaling ]
-	  [ model_pointer STRING ]
+	( surrogate_based_global
+	  approx_method_name STRING
+	  | approx_method_pointer STRING
+	  [ replace_points ]
 	  )
 	|
 	( efficient_global
-	  [ initial_samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ max_iterations INTEGER >= 0 ]
 	  [ gaussian_process ALIAS kriging
 	    surfpack
 	    | dakota
 	    ]
 	  [ use_derivatives ]
-	  [ import_build_points_file ALIAS import_points_file STRING
+	  [ import_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
+	    | freeform ]
 	    ]
-	  [ model_pointer STRING ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( polynomial_chaos ALIAS nond_polynomial_chaos
-	  [ samples_on_emulator ALIAS samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ fixed_seed ]
-	  [ max_refinement_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ p_refinement
 	    uniform
 	    |
@@ -866,13 +653,13 @@ KEYWORD12 method
 	    ]
 	  [ askey
 	  | wiener ]
-	  ( quadrature_order_sequence INTEGERLIST
+	  ( quadrature_order INTEGERLIST
 	    [ dimension_preference REALLIST ]
 	    [ nested
 	    | non_nested ]
 	    )
 	  |
-	  ( sparse_grid_level_sequence INTEGERLIST
+	  ( sparse_grid_level INTEGERLIST
 	    [ restricted
 	    | unrestricted ]
 	    [ dimension_preference REALLIST ]
@@ -881,18 +668,9 @@ KEYWORD12 method
 	    )
 	  | cubature_integrand INTEGER
 	  |
-	  ( expansion_order_sequence INTEGERLIST
+	  ( expansion_order INTEGERLIST
 	    [ dimension_preference REALLIST ]
-	    [ basis_type
-	      tensor_product
-	      | total_order
-	      |
-	      ( adapted
-		[ advancements INTEGER ]
-		[ soft_convergence_limit INTEGER ]
-		)
-	      ]
-	    ( collocation_points_sequence INTEGERLIST
+	    ( collocation_points INTEGERLIST
 	      | collocation_ratio REAL
 	      [ ratio_order REAL ]
 	      [ ( least_squares
@@ -917,55 +695,37 @@ KEYWORD12 method
 		[ noise_tolerance REALLIST ]
 		[ l2_penalty REAL ]
 		]
-	      [ cross_validation
-		[ noise_only ]
-		]
+	      [ cross_validation ]
 	      [ use_derivatives ]
 	      [ tensor_grid ]
 	      [ reuse_points ALIAS reuse_samples ]
-	      [ max_iterations INTEGER >= 0 ]
-	      [ max_solver_iterations INTEGER >= 0 ]
+	      [ import_points_file STRING
+		[ annotated
+		| freeform ]
+		]
 	      )
 	    |
-	    ( expansion_samples_sequence INTEGERLIST
+	    ( expansion_samples INTEGERLIST
 	      [ reuse_points ALIAS reuse_samples ]
 	      [ incremental_lhs ]
-	      )
-	    [ import_build_points_file ALIAS import_points_file STRING
-	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
+	      [ import_points_file STRING
+		[ annotated
+		| freeform ]
 		]
-	      |
-	      ( freeform
-	      [ active_only ]
-	      ]
+	      )
+	    | expansion_import_file STRING
 	    )
 	  |
 	  ( orthogonal_least_interpolation ALIAS least_interpolation ALIAS oli
-	    collocation_points_sequence INTEGERLIST
-	    [ cross_validation
-	      [ noise_only ]
-	      ]
+	    collocation_points INTEGERLIST
+	    [ cross_validation ]
 	    [ tensor_grid INTEGERLIST ]
 	    [ reuse_points ALIAS reuse_samples ]
-	    [ import_build_points_file ALIAS import_points_file STRING
+	    [ import_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
 	    )
-	  | import_expansion_file STRING
 	  [ variance_based_decomp
 	    [ interaction_order INTEGER > 0 ]
 	    [ drop_tolerance REAL ]
@@ -981,32 +741,13 @@ KEYWORD12 method
 	    import
 	    | adapt_import
 	    | mm_adapt_import
-	    [ refinement_samples INTEGERLIST ]
+	    [ refinement_samples INTEGER ]
 	    ]
-	  [ import_approx_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
-	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    ]
-	  [ export_expansion_file STRING ]
+	  [ fixed_seed ]
 	  [ reliability_levels REALLIST
 	    [ num_reliability_levels INTEGERLIST ]
 	    ]
@@ -1036,15 +777,11 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( stoch_collocation ALIAS nond_stoch_collocation
-	  [ samples_on_emulator ALIAS samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ fixed_seed ]
-	  [ max_refinement_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ ( p_refinement
 	      uniform
 	      |
@@ -1066,9 +803,9 @@ KEYWORD12 method
 	  [ piecewise
 	  | askey
 	  | wiener ]
-	  quadrature_order_sequence INTEGERLIST
+	  quadrature_order INTEGERLIST
 	  |
-	  ( sparse_grid_level_sequence INTEGERLIST
+	  ( sparse_grid_level INTEGERLIST
 	    [ restricted
 	    | unrestricted ]
 	    [ nodal
@@ -1092,31 +829,13 @@ KEYWORD12 method
 	    import
 	    | adapt_import
 	    | mm_adapt_import
-	    [ refinement_samples INTEGERLIST ]
+	    [ refinement_samples INTEGER ]
 	    ]
-	  [ import_approx_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
-	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    ]
+	  [ fixed_seed ]
 	  [ reliability_levels REALLIST
 	    [ num_reliability_levels INTEGERLIST ]
 	    ]
@@ -1146,36 +865,24 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( sampling ALIAS nond_sampling
-	  [ samples ALIAS initial_samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ fixed_seed ]
 	  [ sample_type
-	    lhs
-	    | random
-	    | incremental_lhs
-	    | incremental_random
-	    ]
-	  [ refinement_samples INTEGERLIST ]
-	  [ d_optimal
-	    [ oversample_ratio REAL ]
+	    random
+	    | lhs
+	    |
+	    ( incremental_lhs
+	      | incremental_random
+	      previous_samples INTEGER
+	      )
 	    ]
 	  [ variance_based_decomp
 	    [ drop_tolerance REAL ]
 	    ]
-	  [ backfill ]
-	  [ principal_components
-	    [ percent_variance_explained REAL ]
-	    ]
-	  [ wilks
-	    [ order INTEGER ]
-	    [ confidence_level REAL ]
-	    [ one_sided ]
-	    [ two_sided ]
-	    ]
+	  [ fixed_seed ]
 	  [ reliability_levels REALLIST
 	    [ num_reliability_levels INTEGERLIST ]
 	    ]
@@ -1205,43 +912,14 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
-	  )
-	|
-	( multilevel_sampling ALIAS multilevel_mc
+	  [ samples INTEGER ]
 	  [ seed INTEGER > 0 ]
-	  [ fixed_seed ]
-	  [ pilot_samples INTEGERLIST ]
-	  [ sample_type
-	    lhs
-	    | random
-	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ distribution
-	    cumulative
-	    | complementary
-	    ]
-	  [ probability_levels REALLIST
-	    [ num_probability_levels INTEGERLIST ]
-	    ]
-	  [ gen_reliability_levels REALLIST
-	    [ num_gen_reliability_levels INTEGERLIST ]
-	    ]
-	  [ rng
-	    mt19937
-	    | rnum2
-	    ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( importance_sampling ALIAS nond_importance_sampling
-	  [ samples ALIAS initial_samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  import
+	  [ import
 	  | adapt_import
-	  | mm_adapt_import
-	  [ refinement_samples INTEGERLIST ]
+	  | mm_adapt_import ]
 	  [ response_levels REALLIST
 	    [ num_response_levels INTEGERLIST ]
 	    [ compute
@@ -1253,8 +931,6 @@ KEYWORD12 method
 		]
 	      ]
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -1269,35 +945,19 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( gpais ALIAS gaussian_process_adaptive_importance_sampling
-	  [ build_samples ALIAS samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ samples_on_emulator INTEGER ]
-	  [ import_build_points_file ALIAS import_points_file STRING
+	  [ emulator_samples INTEGER ]
+	  [ import_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
+	    | freeform ]
 	    ]
 	  [ response_levels REALLIST
 	    [ num_response_levels INTEGERLIST ]
@@ -1310,7 +970,6 @@ KEYWORD12 method
 		]
 	      ]
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -1325,13 +984,12 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( adaptive_sampling ALIAS nond_adaptive_sampling
-	  [ initial_samples ALIAS samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ samples_on_emulator INTEGER ]
+	  [ emulator_samples INTEGER ]
 	  [ fitness_metric
 	    predicted_variance
 	    | distance
@@ -1343,29 +1001,14 @@ KEYWORD12 method
 	    | topology
 	    | constant_liar
 	    ]
-	  [ refinement_samples INTEGERLIST ]
-	  [ import_build_points_file ALIAS import_points_file STRING
+	  [ batch_size INTEGER ]
+	  [ import_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
+	    | freeform ]
 	    ]
 	  [ response_levels REALLIST
 	    [ num_response_levels INTEGERLIST ]
@@ -1379,7 +1022,6 @@ KEYWORD12 method
 	      ]
 	    ]
 	  [ misc_options STRINGLIST ]
-	  [ max_iterations INTEGER >= 0 ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -1394,17 +1036,11 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( pof_darts ALIAS nond_pof_darts
-	  build_samples ALIAS samples INTEGER
-	  [ seed INTEGER > 0 ]
-	  [ lipschitz
-	    local
-	    | global
-	    ]
-	  [ samples_on_emulator INTEGER ]
 	  [ response_levels REALLIST
 	    [ num_response_levels INTEGERLIST ]
 	    [ compute
@@ -1430,28 +1066,13 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
-	( rkd_darts ALIAS nond_rkd_darts
-	  build_samples ALIAS samples INTEGER
-	  [ seed INTEGER > 0 ]
-	  [ lipschitz
-	    local
-	    | global
-	    ]
-	  [ samples_on_emulator INTEGER ]
-	  [ response_levels REALLIST
-	    [ num_response_levels INTEGERLIST ]
-	    [ compute
-	      probabilities
-	      | gen_reliabilities
-	      [ system
-		series
-		| parallel
-		]
-	      ]
-	    ]
+	( efficient_subspace ALIAS nond_efficient_subspace
+	  [ emulator_samples INTEGER ]
+	  [ batch_size INTEGER ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -1466,12 +1087,11 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( global_evidence ALIAS nond_global_evidence
-	  [ samples INTEGER ]
-	  [ seed INTEGER > 0 ]
 	  [ sbo
 	    | ego
 	    [ gaussian_process ALIAS kriging
@@ -1479,28 +1099,13 @@ KEYWORD12 method
 	      | dakota
 	      ]
 	    [ use_derivatives ]
-	    [ import_build_points_file ALIAS import_points_file STRING
+	    [ import_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
-	    [ export_approx_points_file ALIAS export_points_file STRING
+	    [ export_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
+	      | freeform ]
 	      ]
 	    ]
 	  | ea
@@ -1530,15 +1135,11 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( global_interval_est ALIAS nond_global_interval_est
-	  [ samples INTEGER ]
-	  [ seed INTEGER > 0 ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
-	  [ max_function_evaluations INTEGER >= 0 ]
 	  [ sbo
 	    | ego
 	    [ gaussian_process ALIAS kriging
@@ -1546,28 +1147,13 @@ KEYWORD12 method
 	      | dakota
 	      ]
 	    [ use_derivatives ]
-	    [ import_build_points_file ALIAS import_points_file STRING
+	    [ import_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
-	    [ export_approx_points_file ALIAS export_points_file STRING
+	    [ export_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
+	      | freeform ]
 	      ]
 	    ]
 	  | ea
@@ -1576,252 +1162,76 @@ KEYWORD12 method
 	    mt19937
 	    | rnum2
 	    ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( bayes_calibration ALIAS nond_bayes_calibration
 	  ( queso
-	    chain_samples ALIAS samples INTEGER
-	    [ seed INTEGER > 0 ]
 	    [ emulator
 	      ( gaussian_process ALIAS kriging
 		surfpack
 		| dakota
-		[ build_samples INTEGER ]
-		[ posterior_adaptive ]
-		[ import_build_points_file ALIAS import_points_file STRING
+		[ emulator_samples INTEGER ]
+		[ import_points_file STRING
 		  [ annotated
-		  |
-		  ( custom_annotated
-		    [ header ]
-		    [ eval_id ]
-		    [ interface_id ]
-		    ]
-		  |
-		  ( freeform
-		  [ active_only ]
+		  | freeform ]
+		  ]
+		[ export_points_file STRING
+		  [ annotated
+		  | freeform ]
 		  ]
 		)
 	      |
 	      ( pce
-		sparse_grid_level_sequence INTEGERLIST
-		|
-		( expansion_order_sequence INTEGERLIST
-		  collocation_ratio REAL
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
-		|
-		( collocation_points_sequence INTEGERLIST
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
+		[ sparse_grid_level INTEGERLIST ]
 		)
 	      |
 	      ( sc
-		sparse_grid_level_sequence INTEGERLIST
+		[ sparse_grid_level INTEGERLIST ]
 		)
-	      [ use_derivatives ]
 	      ]
-	    [ logit_transform ]
-	    [ export_chain_points_file STRING
-	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
+	    [ rejection
+	      standard
+	      | delayed
 	      ]
-	    [ dram
-	    | delayed_rejection
-	    | adaptive_metropolis
-	    | metropolis_hastings
-	    | multilevel ]
+	    [ metropolis
+	      hastings
+	      | adaptive
+	      ]
 	    [ rng
 	      mt19937
 	      | rnum2
 	      ]
-	    [ pre_solve
-	      sqp
-	      | nip
-	      | none
-	      ]
-	    [ proposal_covariance
-	      ( derivatives
-		[ proposal_updates INTEGER ]
-		)
-	      | prior
-	      |
-	      ( values REALLIST
-		diagonal
-		| matrix
-		)
-	      |
-	      ( filename STRING
-		diagonal
-		| matrix
-		)
-	      ]
+	    [ proposal_covariance_scale REALLIST ]
 	    )
 	  |
 	  ( gpmsa
-	    chain_samples ALIAS samples INTEGER
-	    [ seed INTEGER > 0 ]
-	    build_samples INTEGER
-	    [ import_build_points_file ALIAS import_points_file STRING
+	    emulator_samples INTEGER
+	    [ import_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
-	    [ dram
-	    | delayed_rejection
-	    | adaptive_metropolis
-	    | metropolis_hastings
-	    | multilevel ]
+	    [ export_points_file STRING
+	      [ annotated
+	      | freeform ]
+	      ]
+	    [ rejection
+	      standard
+	      | delayed
+	      ]
+	    [ metropolis
+	      hastings
+	      | adaptive
+	      ]
 	    [ rng
 	      mt19937
 	      | rnum2
 	      ]
-	    [ pre_solve
-	      sqp
-	      | nip
-	      | none
-	      ]
-	    [ proposal_covariance
-	      ( derivatives
-		[ proposal_updates INTEGER ]
-		)
-	      | prior
-	      |
-	      ( values REALLIST
-		diagonal
-		| matrix
-		)
-	      |
-	      ( filename STRING
-		diagonal
-		| matrix
-		)
-	      ]
-	    )
-	  |
-	  ( wasabi
-	    [ seed INTEGER > 0 ]
-	    [ emulator
-	      ( gaussian_process ALIAS kriging
-		surfpack
-		| dakota
-		[ build_samples INTEGER ]
-		[ posterior_adaptive ]
-		[ import_build_points_file ALIAS import_points_file STRING
-		  [ annotated
-		  |
-		  ( custom_annotated
-		    [ header ]
-		    [ eval_id ]
-		    [ interface_id ]
-		    ]
-		  |
-		  ( freeform
-		  [ active_only ]
-		  ]
-		)
-	      |
-	      ( pce
-		sparse_grid_level_sequence INTEGERLIST
-		|
-		( expansion_order_sequence INTEGERLIST
-		  collocation_ratio REAL
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
-		|
-		( collocation_points_sequence INTEGERLIST
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
-		)
-	      |
-	      ( sc
-		sparse_grid_level_sequence INTEGERLIST
-		)
-	      [ use_derivatives ]
-	      ]
-	    ( data_distribution
-	      ( gaussian
-		means REALLIST
-		( covariance REALLIST
-		  diagonal
-		  | matrix
-		  )
-		)
-	      | obs_data_filename STRING
-	      )
-	    [ posterior_density_export_filename STRING ]
-	    [ posterior_samples_export_filename STRING ]
-	    [ posterior_samples_import_filename STRING ]
-	    [ generate_posterior_samples
-	      evaluate_posterior_density
-	      ]
+	    [ proposal_covariance_scale REALLIST ]
 	    )
 	  |
 	  ( dream
-	    chain_samples ALIAS samples INTEGER
-	    [ seed INTEGER > 0 ]
 	    [ chains INTEGER >= 3 ]
 	    [ num_cr INTEGER >= 1 ]
 	    [ crossover_chain_pairs INTEGER >= 0 ]
@@ -1831,104 +1241,31 @@ KEYWORD12 method
 	      ( gaussian_process ALIAS kriging
 		surfpack
 		| dakota
-		[ build_samples INTEGER ]
-		[ posterior_adaptive ]
-		[ import_build_points_file ALIAS import_points_file STRING
+		[ emulator_samples INTEGER ]
+		[ import_points_file STRING
 		  [ annotated
-		  |
-		  ( custom_annotated
-		    [ header ]
-		    [ eval_id ]
-		    [ interface_id ]
-		    ]
-		  |
-		  ( freeform
-		  [ active_only ]
+		  | freeform ]
+		  ]
+		[ export_points_file STRING
+		  [ annotated
+		  | freeform ]
 		  ]
 		)
 	      |
 	      ( pce
-		sparse_grid_level_sequence INTEGERLIST
-		|
-		( expansion_order_sequence INTEGERLIST
-		  collocation_ratio REAL
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
-		|
-		( collocation_points_sequence INTEGERLIST
-		  [ posterior_adaptive ]
-		  [ import_build_points_file ALIAS import_points_file STRING
-		    [ annotated
-		    |
-		    ( custom_annotated
-		      [ header ]
-		      [ eval_id ]
-		      [ interface_id ]
-		      ]
-		    |
-		    ( freeform
-		    [ active_only ]
-		    ]
-		  )
+		[ sparse_grid_level INTEGERLIST ]
 		)
 	      |
 	      ( sc
-		sparse_grid_level_sequence INTEGERLIST
+		[ sparse_grid_level INTEGERLIST ]
 		)
-	      [ use_derivatives ]
-	      ]
-	    [ export_chain_points_file STRING
-	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
 	      ]
 	    )
-	  |
-	  ( experimental_design
-	    initial_samples ALIAS samples INTEGER
-	    [ seed INTEGER > 0 ]
-	    [ low_fidelity_model_pointer STRING ]
-	    )
-	  [ standardized_space ]
-	  [ calibrate_error_multipliers
-	    one
-	    | per_experiment
-	    | per_response
-	    | both
-	    [ hyperprior_alphas REALLIST
-	      hyperprior_betas REALLIST
-	      ]
-	    ]
-	  [ burn_in_samples INTEGER ]
-	  [ posterior_stats
-	    [ kl_divergence ]
-	    [ mutual_info ]
-	    ]
-	  [ sub_sampling_period INTEGER ]
-	  [ probability_levels REALLIST
-	    [ num_probability_levels INTEGERLIST ]
-	    ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ model_pointer STRING ]
+	  [ use_derivatives ]
+	  [ likelihood_scale REAL ]
+	  [ calibrate_sigma ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( dace
@@ -1939,8 +1276,6 @@ KEYWORD12 method
 	  | oa_lhs
 	  | box_behnken
 	  | central_composite
-	  [ samples INTEGER ]
-	  [ seed INTEGER > 0 ]
 	  [ main_effects ]
 	  [ quality_metrics ]
 	  [ variance_based_decomp
@@ -1948,12 +1283,11 @@ KEYWORD12 method
 	    ]
 	  [ fixed_seed ]
 	  [ symbols INTEGER ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( fsu_cvt
-	  [ samples INTEGER ]
-	  [ seed INTEGER > 0 ]
 	  [ latinize ]
 	  [ quality_metrics ]
 	  [ variance_based_decomp
@@ -1966,15 +1300,20 @@ KEYWORD12 method
 	    | random
 	    ]
 	  [ num_trials INTEGER ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ model_pointer STRING ]
+	  [ samples INTEGER ]
+	  [ seed INTEGER > 0 ]
 	  )
 	|
 	( psuade_moat
 	  [ partitions INTEGERLIST ]
 	  [ samples INTEGER ]
 	  [ seed INTEGER > 0 ]
-	  [ model_pointer STRING ]
+	  )
+	|
+	( ncsu_direct
+	  [ solution_target ALIAS solution_accuracy REAL ]
+	  [ min_boxsize_limit REAL ]
+	  [ volume_boxsize_limit REAL ]
 	  )
 	|
 	( local_evidence ALIAS nond_local_evidence
@@ -2001,14 +1340,11 @@ KEYWORD12 method
 	    cumulative
 	    | complementary
 	    ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( local_interval_est ALIAS nond_local_interval_est
 	  [ sqp
 	  | nip ]
-	  [ convergence_tolerance REAL ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( local_reliability ALIAS nond_local_reliability
@@ -2029,7 +1365,7 @@ KEYWORD12 method
 		import
 		| adapt_import
 		| mm_adapt_import
-		[ refinement_samples INTEGERLIST ]
+		[ refinement_samples INTEGER ]
 		[ seed INTEGER > 0 ]
 		]
 	      ]
@@ -2049,8 +1385,6 @@ KEYWORD12 method
 	  [ reliability_levels REALLIST
 	    [ num_reliability_levels INTEGERLIST ]
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -2061,37 +1395,21 @@ KEYWORD12 method
 	  [ gen_reliability_levels REALLIST
 	    [ num_gen_reliability_levels INTEGERLIST ]
 	    ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( global_reliability ALIAS nond_global_reliability
-	  [ initial_samples INTEGER ]
-	  x_gaussian_process ALIAS x_kriging
-	  | u_gaussian_process ALIAS u_kriging
-	  [ surfpack
-	  | dakota ]
-	  [ import_build_points_file ALIAS import_points_file STRING
+	  ( x_gaussian_process ALIAS x_kriging
+	    | u_gaussian_process ALIAS u_kriging
+	    [ surfpack
+	    | dakota ]
+	    )
+	  [ import_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    ]
-	  [ export_approx_points_file ALIAS export_points_file STRING
+	  [ export_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
+	    | freeform ]
 	    ]
 	  [ use_derivatives ]
 	  [ seed INTEGER > 0 ]
@@ -2110,8 +1428,6 @@ KEYWORD12 method
 		]
 	      ]
 	    ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ convergence_tolerance REAL ]
 	  [ distribution
 	    cumulative
 	    | complementary
@@ -2122,7 +1438,6 @@ KEYWORD12 method
 	  [ gen_reliability_levels REALLIST
 	    [ num_gen_reliability_levels INTEGERLIST ]
 	    ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( fsu_quasi_mc
@@ -2138,15 +1453,12 @@ KEYWORD12 method
 	  [ sequence_start INTEGERLIST ]
 	  [ sequence_leap INTEGERLIST ]
 	  [ prime_base INTEGERLIST ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ model_pointer STRING ]
 	  )
 	|
 	( vector_parameter_study
 	  final_point REALLIST
 	  | step_vector REALLIST
 	  num_steps INTEGER
-	  [ model_pointer STRING ]
 	  )
 	|
 	( list_parameter_study
@@ -2154,28 +1466,17 @@ KEYWORD12 method
 	  |
 	  ( import_points_file STRING
 	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ eval_id ]
-	      [ interface_id ]
-	      ]
-	    |
-	    ( freeform
-	    [ active_only ]
+	    | freeform ]
 	    )
-	  [ model_pointer STRING ]
 	  )
 	|
 	( centered_parameter_study
 	  step_vector REALLIST
 	  steps_per_variable ALIAS deltas_per_variable INTEGERLIST
-	  [ model_pointer STRING ]
 	  )
 	|
 	( multidim_parameter_study
 	  partitions INTEGERLIST
-	  [ model_pointer STRING ]
 	  )
 	|
 	( richardson_extrap
@@ -2183,9 +1484,6 @@ KEYWORD12 method
 	  | converge_order
 	  | converge_qoi
 	  [ refinement_rate REAL ]
-	  [ convergence_tolerance REAL ]
-	  [ max_iterations INTEGER >= 0 ]
-	  [ model_pointer STRING ]
 	  )
 
 KEYWORD model
@@ -2193,11 +1491,8 @@ KEYWORD model
 	[ variables_pointer STRING ]
 	[ responses_pointer STRING ]
 	[ hierarchical_tagging ]
-	( single ALIAS simulation
+	( single
 	  [ interface_pointer STRING ]
-	  [ solution_level_control STRING
-	    solution_level_cost REALLIST
-	    ]
 	  )
 	|
 	( surrogate
@@ -2225,15 +1520,7 @@ KEYWORD model
 		[ nugget REAL > 0
 		| find_nugget INTEGER ]
 		[ correlation_lengths REALLIST ]
-		[ export_model
-		  [ filename_prefix STRING ]
-		  ( formats
-		    [ text_archive ]
-		    [ binary_archive ]
-		    [ algebraic_file ]
-		    [ algebraic_console ]
-		    )
-		  ]
+		[ export_model_file STRING ]
 		)
 	      )
 	    |
@@ -2243,40 +1530,20 @@ KEYWORD model
 		linear
 		| cubic
 		]
-	      [ export_model
-		[ filename_prefix STRING ]
-		( formats
-		  [ text_archive ]
-		  [ binary_archive ]
-		  )
-		]
+	      [ export_model_file STRING ]
 	      )
 	    |
 	    ( moving_least_squares
-	      [ basis_order ALIAS poly_order INTEGER >= 0 ]
+	      [ poly_order INTEGER ]
 	      [ weight_function INTEGER ]
-	      [ export_model
-		[ filename_prefix STRING ]
-		( formats
-		  [ text_archive ]
-		  [ binary_archive ]
-		  )
-		]
+	      [ export_model_file STRING ]
 	      )
 	    |
 	    ( neural_network
-	      [ max_nodes ALIAS nodes INTEGER ]
+	      [ nodes INTEGER ]
 	      [ range REAL ]
 	      [ random_weight INTEGER ]
-	      [ export_model
-		[ filename_prefix STRING ]
-		( formats
-		  [ text_archive ]
-		  [ binary_archive ]
-		  [ algebraic_file ]
-		  [ algebraic_console ]
-		  )
-		]
+	      [ export_model_file STRING ]
 	      )
 	    |
 	    ( radial_basis
@@ -2284,82 +1551,31 @@ KEYWORD model
 	      [ max_pts INTEGER ]
 	      [ min_partition INTEGER ]
 	      [ max_subsets INTEGER ]
-	      [ export_model
-		[ filename_prefix STRING ]
-		( formats
-		  [ text_archive ]
-		  [ binary_archive ]
-		  [ algebraic_file ]
-		  [ algebraic_console ]
-		  )
-		]
+	      [ export_model_file STRING ]
 	      )
 	    |
 	    ( polynomial
-	      basis_order INTEGER >= 0
-	      | linear
+	      linear
 	      | quadratic
 	      | cubic
-	      [ export_model
-		[ filename_prefix STRING ]
-		( formats
-		  [ text_archive ]
-		  [ binary_archive ]
-		  [ algebraic_file ]
-		  [ algebraic_console ]
-		  )
-		]
+	      [ export_model_file STRING ]
 	      )
-	    [ domain_decomposition
-	      [ cell_type STRING ]
-	      [ support_layers INTEGER ]
-	      [ discontinuity_detection
-		jump_threshold REAL
-		| gradient_threshold REAL
-		]
-	      ]
 	    [ total_points INTEGER
 	    | minimum_points
 	    | recommended_points ]
-	    [ ( dace_method_pointer STRING
-		[ auto_refinement
-		  [ max_iterations INTEGER > 0 ]
-		  [ max_function_evaluations INTEGER > 0 ]
-		  [ convergence_tolerance REAL ]
-		  [ soft_convergence_limit INTEGER >= 0 ]
-		  [ cross_validation_metric STRING
-		    [ folds INTEGER > 0 ]
-		    ]
-		  ]
-		)
-	    | actual_model_pointer STRING ]
+	    [ dace_method_pointer STRING ]
 	    [ reuse_points ALIAS reuse_samples
 	      all
 	      | region
 	      | none
 	      ]
-	    [ import_build_points_file ALIAS import_points_file ALIAS samples_file STRING
+	    [ import_points_file ALIAS samples_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
-	    [ export_approx_points_file ALIAS export_points_file STRING
+	    [ export_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
+	      | freeform ]
 	      ]
 	    [ use_derivatives ]
 	    [ correction
@@ -2371,23 +1587,15 @@ KEYWORD model
 	      | combined
 	      ]
 	    [ metrics ALIAS diagnostics STRINGLIST
-	      [ cross_validation
+	      [ cross_validate
 		[ folds INTEGER
 		| percent REAL ]
 		]
 	      [ press ]
 	      ]
-	    [ import_challenge_points_file ALIAS challenge_points_file STRING
+	    [ challenge_points_file STRING
 	      [ annotated
-	      |
-	      ( custom_annotated
-		[ header ]
-		[ eval_id ]
-		[ interface_id ]
-		]
-	      |
-	      ( freeform
-	      [ active_only ]
+	      | freeform ]
 	      ]
 	    )
 	  |
@@ -2402,7 +1610,8 @@ KEYWORD model
 	    )
 	  |
 	  ( hierarchical
-	    ordered_model_fidelities ALIAS model_fidelity_sequence STRINGLIST
+	    low_fidelity_model_pointer STRING
+	    high_fidelity_model_pointer STRING
 	    ( correction
 	      zeroth_order
 	      | first_order
@@ -2419,57 +1628,11 @@ KEYWORD model
 	    [ optional_interface_responses_pointer STRING ]
 	    ]
 	  ( sub_method_pointer STRING
-	    [ iterator_servers INTEGER > 0 ]
-	    [ iterator_scheduling
-	      master
-	      | peer
-	      ]
-	    [ processors_per_iterator INTEGER > 0 ]
 	    [ primary_variable_mapping STRINGLIST ]
 	    [ secondary_variable_mapping STRINGLIST ]
 	    [ primary_response_mapping REALLIST ]
 	    [ secondary_response_mapping REALLIST ]
 	    )
-	  )
-	|
-	( subspace
-	  actual_model_pointer STRING
-	  [ initial_samples INTEGER ]
-	  [ sample_type
-	    lhs
-	    | random
-	    ]
-	  [ truncation_method
-	    [ bing_li ]
-	    [ constantine ]
-	    [ energy
-	      [ truncation_tolerance REAL ]
-	      ]
-	    ]
-	  [ dimension INTEGER ]
-	  [ bootstrap_samples INTEGER ]
-	  [ build_surrogate
-	    [ refinement_samples INTEGERLIST ]
-	    ]
-	  )
-	|
-	( random_field
-	  [ build_source
-	    rf_data_file STRING
-	    | dace_method_pointer STRING
-	    |
-	    ( analytic_covariance
-	      squared_exponential
-	      | exponential
-	      )
-	    ]
-	  [ expansion_form
-	    karhunen_loeve
-	    | principal_components
-	    ]
-	  [ expansion_bases INTEGER ]
-	  [ truncation_tolerance REAL ]
-	  propagation_model_pointer STRING
 	  )
 
 KEYWORD12 variables
@@ -2498,32 +1661,17 @@ KEYWORD12 variables
 	  [ upper_bounds ALIAS ddv_upper_bounds INTEGERLIST ]
 	  [ descriptors ALIAS ddv_descriptors STRINGLIST ]
 	  ]
-	[ discrete_design_set
-	  [ integer INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values INTEGERLIST
-	    [ categorical STRINGLIST
-	      [ adjacency_matrix INTEGERLIST ]
-	      ]
-	    [ initial_point INTEGERLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ string INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values STRINGLIST
-	    [ adjacency_matrix INTEGERLIST ]
-	    [ initial_point STRINGLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ real INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values REALLIST
-	    [ categorical STRINGLIST
-	      [ adjacency_matrix INTEGERLIST ]
-	      ]
-	    [ initial_point REALLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
+	[ discrete_design_set_integer INTEGER > 0
+	  [ initial_point INTEGERLIST ]
+	  [ num_set_values INTEGERLIST ]
+	  set_values INTEGERLIST
+	  [ descriptors STRINGLIST ]
+	  ]
+	[ discrete_design_set_real INTEGER > 0
+	  [ initial_point REALLIST ]
+	  [ num_set_values INTEGERLIST ]
+	  set_values REALLIST
+	  [ descriptors STRINGLIST ]
 	  ]
 	[ normal_uncertain INTEGER > 0
 	  means ALIAS nuv_means REALLIST
@@ -2604,7 +1752,7 @@ KEYWORD12 variables
 	  [ descriptors ALIAS wuv_descriptors STRINGLIST ]
 	  ]
 	[ histogram_bin_uncertain INTEGER > 0
-	  [ pairs_per_variable ALIAS num_pairs INTEGERLIST ]
+	  [ num_pairs ALIAS huv_num_bin_pairs INTEGERLIST ]
 	  abscissas ALIAS huv_bin_abscissas REALLIST
 	  ordinates ALIAS huv_bin_ordinates REALLIST
 	  | counts ALIAS huv_bin_counts REALLIST
@@ -2640,28 +1788,12 @@ KEYWORD12 variables
 	  [ initial_point INTEGERLIST ]
 	  [ descriptors STRINGLIST ]
 	  ]
-	[ histogram_point_uncertain
-	  [ integer INTEGER > 0
-	    [ pairs_per_variable ALIAS num_pairs INTEGERLIST ]
-	    abscissas INTEGERLIST
-	    counts REALLIST
-	    [ initial_point INTEGERLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ string INTEGER > 0
-	    [ pairs_per_variable ALIAS num_pairs INTEGERLIST ]
-	    abscissas STRINGLIST
-	    counts REALLIST
-	    [ initial_point STRINGLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ real INTEGER > 0
-	    [ pairs_per_variable ALIAS num_pairs INTEGERLIST ]
-	    abscissas REALLIST
-	    counts REALLIST
-	    [ initial_point REALLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
+	[ histogram_point_uncertain INTEGER > 0
+	  [ num_pairs ALIAS huv_num_point_pairs INTEGERLIST ]
+	  abscissas ALIAS huv_point_abscissas REALLIST
+	  counts ALIAS huv_point_counts REALLIST
+	  [ initial_point REALLIST ]
+	  [ descriptors ALIAS huv_point_descriptors STRINGLIST ]
 	  ]
 	[ uncertain_correlation_matrix REALLIST ]
 	[ continuous_interval_uncertain ALIAS interval_uncertain INTEGER > 0
@@ -2680,30 +1812,19 @@ KEYWORD12 variables
 	  [ initial_point INTEGERLIST ]
 	  [ descriptors STRINGLIST ]
 	  ]
-	[ discrete_uncertain_set
-	  [ integer INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values INTEGERLIST
-	    [ set_probabilities ALIAS set_probs REALLIST ]
-	    [ categorical STRINGLIST ]
-	    [ initial_point INTEGERLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ string INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values STRINGLIST
-	    [ set_probabilities ALIAS set_probs REALLIST ]
-	    [ initial_point STRINGLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ real INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values REALLIST
-	    [ set_probabilities ALIAS set_probs REALLIST ]
-	    [ categorical STRINGLIST ]
-	    [ initial_point REALLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
+	[ discrete_uncertain_set_integer INTEGER > 0
+	  [ num_set_values INTEGERLIST ]
+	  set_values INTEGERLIST
+	  [ set_probabilities ALIAS set_probs REALLIST ]
+	  [ initial_point INTEGERLIST ]
+	  [ descriptors STRINGLIST ]
+	  ]
+	[ discrete_uncertain_set_real INTEGER > 0
+	  [ num_set_values INTEGERLIST ]
+	  set_values REALLIST
+	  [ set_probabilities ALIAS set_probs REALLIST ]
+	  [ initial_point REALLIST ]
+	  [ descriptors STRINGLIST ]
 	  ]
 	[ continuous_state INTEGER > 0
 	  [ initial_state ALIAS csv_initial_state REALLIST ]
@@ -2717,27 +1838,17 @@ KEYWORD12 variables
 	  [ upper_bounds ALIAS dsv_upper_bounds INTEGERLIST ]
 	  [ descriptors ALIAS dsv_descriptors STRINGLIST ]
 	  ]
-	[ discrete_state_set
-	  [ integer INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values INTEGERLIST
-	    [ categorical STRINGLIST ]
-	    [ initial_state INTEGERLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ string INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values STRINGLIST
-	    [ initial_state STRINGLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
-	  [ real INTEGER > 0
-	    [ elements_per_variable ALIAS num_set_values INTEGERLIST ]
-	    elements ALIAS set_values REALLIST
-	    [ categorical STRINGLIST ]
-	    [ initial_state REALLIST ]
-	    [ descriptors STRINGLIST ]
-	    ]
+	[ discrete_state_set_integer INTEGER > 0
+	  [ initial_state INTEGERLIST ]
+	  [ num_set_values INTEGERLIST ]
+	  set_values INTEGERLIST
+	  [ descriptors STRINGLIST ]
+	  ]
+	[ discrete_state_set_real INTEGER > 0
+	  [ initial_state REALLIST ]
+	  [ num_set_values INTEGERLIST ]
+	  set_values REALLIST
+	  [ descriptors STRINGLIST ]
 	  ]
 
 KEYWORD12 interface
@@ -2753,17 +1864,18 @@ KEYWORD12 interface
 	    [ results_file STRING ]
 	    [ allow_existing_results ]
 	    [ verbatim ]
-	    [ aprepro ALIAS dprepro ]
-	    [ labeled ]
+	    [ aprepro ]
 	    [ file_tag ]
 	    [ file_save ]
 	    [ work_directory
 	      [ named STRING ]
 	      [ directory_tag ALIAS dir_tag ]
 	      [ directory_save ALIAS dir_save ]
-	      [ link_files STRINGLIST ]
-	      [ copy_files STRINGLIST ]
-	      [ replace ]
+	      [ template_directory STRING
+		| template_files STRINGLIST
+		[ copy ]
+		[ replace ]
+		]
 	      ]
 	    )
 	  |
@@ -2786,9 +1898,6 @@ KEYWORD12 interface
 	  [ deactivate
 	    [ active_set_vector ]
 	    [ evaluation_cache ]
-	    [ strict_cache_equality
-	      [ cache_tolerance REAL ]
-	      ]
 	    [ restart_file ]
 	    ]
 	  ]
@@ -2809,7 +1918,6 @@ KEYWORD12 interface
 	    | static
 	    )
 	  ]
-	[ processors_per_evaluation INTEGER > 0 ]
 	[ analysis_servers INTEGER > 0 ]
 	[ analysis_scheduling
 	  master
@@ -2835,53 +1943,19 @@ KEYWORD12 responses
 	    [ scale_types ALIAS nonlinear_equality_scale_types STRINGLIST ]
 	    [ scales ALIAS nonlinear_equality_scales REALLIST ]
 	    ]
-	  [ scalar_objectives ALIAS num_scalar_objectives INTEGER >= 0 ]
-	  [ field_objectives ALIAS num_field_objectives INTEGER >= 0
-	    lengths INTEGERLIST
-	    [ num_coordinates_per_field INTEGERLIST ]
-	    [ read_field_coordinates ]
-	    ]
 	  )
 	|
 	( calibration_terms ALIAS least_squares_terms ALIAS num_least_squares_terms INTEGER >= 0
-	  [ scalar_calibration_terms INTEGER >= 0 ]
-	  [ field_calibration_terms INTEGER >= 0
-	    lengths INTEGERLIST
-	    [ num_coordinates_per_field INTEGERLIST ]
-	    [ read_field_coordinates ]
-	    ]
 	  [ primary_scale_types ALIAS calibration_term_scale_types ALIAS least_squares_term_scale_types STRINGLIST ]
 	  [ primary_scales ALIAS calibration_term_scales ALIAS least_squares_term_scales REALLIST ]
 	  [ weights ALIAS calibration_weights ALIAS least_squares_weights REALLIST ]
-	  [ ( calibration_data
-	      [ num_experiments INTEGER >= 0 ]
-	      [ num_config_variables INTEGER >= 0 ]
-	      [ variance_type STRINGLIST ]
-	      [ scalar_data_file STRING
-		[ annotated
-		|
-		( custom_annotated
-		  [ header ]
-		  [ exp_id ]
-		  ]
-		|
-		( freeform
-		]
-	      [ interpolate ]
-	      )
-	  |
-	  ( calibration_data_file ALIAS least_squares_data_file STRING
-	    [ annotated
-	    |
-	    ( custom_annotated
-	      [ header ]
-	      [ exp_id ]
-	      ]
-	    |
-	    ( freeform
+	  [ calibration_data_file ALIAS least_squares_data_file STRING
 	    [ num_experiments INTEGER >= 0 ]
+	    [ num_replicates INTEGERLIST ]
+	    [ annotated
+	    | freeform ]
 	    [ num_config_variables INTEGER >= 0 ]
-	    [ variance_type STRINGLIST ]
+	    [ num_std_deviations INTEGER >= 0 ]
 	    ]
 	  [ nonlinear_inequality_constraints ALIAS num_nonlinear_inequality_constraints INTEGER >= 0
 	    [ lower_bounds ALIAS nonlinear_inequality_lower_bounds REALLIST ]
@@ -2895,15 +1969,7 @@ KEYWORD12 responses
 	    [ scales ALIAS nonlinear_equality_scales REALLIST ]
 	    ]
 	  )
-	|
-	( response_functions ALIAS num_response_functions INTEGER >= 0
-	  [ scalar_responses ALIAS num_scalar_responses INTEGER >= 0 ]
-	  [ field_responses ALIAS num_field_responses INTEGER >= 0
-	    lengths INTEGERLIST
-	    [ num_coordinates_per_field INTEGERLIST ]
-	    [ read_field_coordinates ]
-	    ]
-	  )
+	| response_functions ALIAS num_response_functions INTEGER >= 0
 	no_gradients
 	| analytic_gradients
 	|
@@ -2921,7 +1987,7 @@ KEYWORD12 responses
 	  [ interval_type ]
 	  [ forward
 	  | central ]
-	  [ fd_step_size ALIAS fd_gradient_step_size REALLIST ]
+	  [ fd_step_size ALIAS fd_gradient_step_size REALLIST := 0.001 ]
 	  )
 	|
 	( numerical_gradients
@@ -2936,7 +2002,7 @@ KEYWORD12 responses
 	  [ interval_type ]
 	  [ forward
 	  | central ]
-	  [ fd_step_size ALIAS fd_gradient_step_size REALLIST ]
+	  [ fd_step_size ALIAS fd_gradient_step_size REALLIST := 0.001 ]
 	  )
 	no_hessians
 	|

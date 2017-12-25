@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -44,8 +44,7 @@ protected:
   /// constructor
   SurrogateModel(ProblemDescDB& problem_db);
   /// alternate constructor
-  SurrogateModel(ProblemDescDB& problem_db, ParallelLibrary& parallel_lib,
-		 const SharedVariablesData& svd, const SharedResponseData& srd,
+  SurrogateModel(ParallelLibrary& parallel_lib, const SharedVariablesData& svd,
 		 const ActiveSet& set, short output_level);
   /// destructor
   ~SurrogateModel();
@@ -60,11 +59,8 @@ protected:
   /// return responseMode
   short surrogate_response_mode() const;
 
-  /// return the current evaluation id for this Model
-  int derived_evaluation_id() const;
-
-  /// return miPLIndex
-  size_t mi_parallel_level_index() const;
+  /// return deltaCorr
+  DiscrepancyCorrection& discrepancy_correction();
 
   //
   //- Heading: Member functions
@@ -74,8 +70,6 @@ protected:
   /// attributes of the submodel (DataFitSurrModel::actualModel or
   /// HierarchSurrModel::highFidelityModel)
   void check_submodel_compatibility(const Model& sub_model);
-  /// check for consistency in response map keys
-  void check_key(int key1, int key2) const;
 
   /// evaluate whether a rebuild of the approximation should be
   /// forced based on changes in the inactive data
@@ -91,9 +85,6 @@ protected:
   void response_mapping(const Response& actual_response,
                         const Response& approx_response,
                         Response& combined_response);
-  /// aggregate LF and HF response to create a new response with 2x size
-  void aggregate_response(const Response& hf_resp, const Response& lf_resp,
-			  Response& agg_resp);
 
   //
   //- Heading: Data
@@ -103,42 +94,38 @@ protected:
   /// subset that is approximated
   IntSet surrogateFnIndices;
 
+  /// map of surrogate responses used in derived_synchronize() and
+  /// derived_synchronize_nowait() functions
+  IntResponseMap surrResponseMap;
+
+  /// map of raw continuous variables used by apply_correction().
+  /// Model::varsList cannot be used for this purpose since it does
+  /// not contain lower level variables sets from finite differencing.
+  IntVariablesMap rawVarsMap;
+
+  /// map from actualModel/highFidelityModel evaluation ids to
+  /// DataFitSurrModel.hppierarchSurrModel ids
+  IntIntMap truthIdMap;
+  /// map from approxInterface/lowFidelityModel evaluation ids to
+  /// DataFitSurrModel.hppierarchSurrModel ids
+  IntIntMap surrIdMap;
+
+  /// map of approximate responses retrieved in derived_synchronize_nowait()
+  /// that could not be returned since corresponding truth model response
+  /// portions were still pending.
+  IntResponseMap cachedApproxRespMap;
+
   /// an enumeration that controls the response calculation mode in
   /// {DataFit,Hierarch}SurrModel approximate response computations
   /** SurrBasedLocalMinimizer toggles this mode since compute_correction()
       does not back out old corrections. */
   short responseMode;
 
-  /// map from actualModel/highFidelityModel evaluation ids to
-  /// DataFitSurrModel/HierarchSurrModel ids
-  IntIntMap truthIdMap;
-  /// map from approxInterface/lowFidelityModel evaluation ids to
-  /// DataFitSurrModel/HierarchSurrModel ids
-  IntIntMap surrIdMap;
-
-  /// counter for calls to derived_evaluate()/derived_evaluate_nowait();
-  /// used to key response maps from SurrogateModels
-  int surrModelEvalCntr;
-  /// map of surrogate responses returned by derived_synchronize() and
-  /// derived_synchronize_nowait()
-  IntResponseMap surrResponseMap;
-  /// map of approximate responses retrieved in derived_synchronize_nowait()
-  /// that could not be returned since corresponding truth model response
-  /// portions were still pending.
-  IntResponseMap cachedApproxRespMap;
-  /// map of raw continuous variables used by apply_correction().
-  /// Model::varsList cannot be used for this purpose since it does
-  /// not contain lower level variables sets from finite differencing.
-  IntVariablesMap rawVarsMap;
-
   /// number of calls to build_approximation()
   /** used as a flag to automatically build the approximation if one of the
-      derived evaluate functions is called prior to build_approximation(). */
+      derived compute_response functions is called prior to
+      build_approximation(). */
   size_t approxBuilds;
-
-  /// the index of the active metaiterator-iterator parallelism level
-  /// (corresponding to ParallelConfiguration::miPLIters) used at runtime
-  size_t miPLIndex;
 
   /// stores a reference copy of active continuous lower bounds when the
   /// approximation is built; used to detect when a rebuild is required.
@@ -167,14 +154,15 @@ protected:
   /// the approximation is built using a Distinct view; used to detect when
   /// a rebuild is required.
   IntVector referenceIDIVars;
-  /// stores a reference copy of the inactive discrete string variables when
-  /// the approximation is built using a Distinct view; used to detect when
-  /// a rebuild is required.
-  StringMultiArray referenceIDSVars;
   /// stores a reference copy of the inactive discrete real variables when
   /// the approximation is built using a Distinct view; used to detect when
   /// a rebuild is required.
   RealVector referenceIDRVars;
+
+  /// manages construction and application of correction functions that
+  /// are applied to a surrogate model (DataFitSurr or HierarchSurr) in
+  /// order to reproduce high fidelity data.
+  DiscrepancyCorrection deltaCorr;
 
 private:
 
@@ -203,26 +191,8 @@ inline short SurrogateModel::surrogate_response_mode() const
 { return responseMode; }
 
 
-inline size_t SurrogateModel::mi_parallel_level_index() const
-{ return miPLIndex; }
-
-
-inline void SurrogateModel::check_key(int key1, int key2) const
-{
-  if (key1 != key2) {
-    Cerr << "Error: failure in SurrogateModel::check_key().  Keys are not "
-	 << "consistent." << std::endl;
-    abort_handler(MODEL_ERROR);
-  }
-}
-
-
-/** return the SurrogateModel evaluation id counter.  Due to possibly
-    intermittent use of lower level components, this is not the same as
-    approxInterface, actualModel, or orderedModels evaluation counts,
-    which requires a consistent evaluation rekeying process. */
-inline int SurrogateModel::derived_evaluation_id() const
-{ return surrModelEvalCntr; }
+inline DiscrepancyCorrection& SurrogateModel::discrepancy_correction()
+{ return deltaCorr; }
 
 } // namespace Dakota
 

@@ -1,12 +1,9 @@
-#@ On Windows: workdir issue?
-#@ *: DakotaConfig=UNIX
-#@ s0: TimeoutAbsolute=1800
-
 # DAKOTA Input File: dakota_uq_timeseries_ivp_optinterf.in
 # Mixed UQ with aleatory post-processing of optional interface simulation
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'EPISTEMIC'
 
 #################################
@@ -16,8 +13,8 @@ method,
         id_method = 'EPISTEMIC'
         model_pointer = 'EPIST_M'
 	global_interval_est
-	  ego						#s0
-#	  lhs						#s1
+	  ego						#0
+#	  lhs						#1
 	  samples = 100 seed = 1234567 rng rnum2
 	  output verbose
 
@@ -81,7 +78,7 @@ method,
 	  sparse_grid_level = 3
           response_levels = 0.0
           compute probabilities
-	  samples_on_emulator = 10000 seed = 12347 fixed_seed
+	  samples = 10000 seed = 12347 fixed_seed
           cumulative distribution
 
 model,

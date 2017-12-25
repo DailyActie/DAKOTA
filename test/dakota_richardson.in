@@ -1,13 +1,14 @@
-#@ s*: Label=FastTest
-
 # TO DO: define a meaningful verification test.  text_book generates inf's
 #        for test 1 and ~DBL_MIN for test 2.
 
+strategy,
+	single_method
+
 method,
 	richardson_extrap
-	  estimate_order		#s0
-#	  converge_order		#s1
-#	  converge_qoi			#s2
+	  estimate_order		#0
+#	  converge_order		#1
+#	  converge_qoi			#2
 	  refinement_rate = 2.
 	  output verbose
 

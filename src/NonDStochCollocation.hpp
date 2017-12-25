@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,20 +37,13 @@ public:
   //
 
   /// standard constructor
-  NonDStochCollocation(ProblemDescDB& problem_db, Model& model);
+  NonDStochCollocation(Model& model);
   /// alternate constructor
   NonDStochCollocation(Model& model, short exp_coeffs_approach,
-		       const UShortArray& num_int_seq,
-		       const RealVector& dim_pref, short u_space_type,
+		       unsigned short num_int_level, short u_space_type,
 		       bool piecewise_basis, bool use_derivs);
   /// destructor
   ~NonDStochCollocation();
-
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
 
 protected:
 
@@ -73,6 +66,9 @@ private:
   //
   //- Heading: Data
   //
+
+  /// Type of interpolant (from enum in DataMethod.hpp)
+  short sgBasisType;
 
 };
 

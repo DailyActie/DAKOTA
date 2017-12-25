@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -33,18 +33,14 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NonDCalibration(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~NonDCalibration();
+  NonDCalibration(Model& model); ///< standard constructor
+  ~NonDCalibration();            ///< destructor
+
+protected:
 
   //
   //- Heading: Virtual function redefinitions
   //
-  
-  bool resize();
-
-protected:
 
   //void print_results(std::ostream& s);
 
@@ -57,24 +53,22 @@ protected:
 
   /// 1 or numFunctions standard deviations
   RealVector expStdDeviations;
-
-  // TODO: Update from expData to scalarData and handle field data
-
-  /// flag indicating whether there is calibration data present
-  bool calibrationData;
-
+  /// filename from which to read experimental data; optionally
+  /// configuration vars x and standard deviations sigma
+  String expDataFileName;
+  /// whether the data file is in annotated format
+  bool expDataFileAnnotated;
   /// number of experiments to read from data file
   size_t numExperiments;
+  /// number of replicates per experiment
+  IntVector numReplicates;
   /// number of columns in data file which are state variables
   size_t numExpConfigVars;
   /// how many sigmas to read from the data file (1 or numFunctions)
-  StringArray varianceTypesRead;
+  size_t numExpStdDeviationsRead;
 
   /// Container for experimental data to which to calibrate model
   ExperimentData expData;
-
-  /// Total number of calibration terms, after replicates/interpolation
-  size_t numTotalCalibTerms;
 
 private:
 

@@ -57,18 +57,6 @@
 %\setcounter{tocdepth}{1}
 \renewcommand\footrulewidth{0.4pt}
 
-
-\usepackage{xcolor}
-\usepackage{colortbl}
-\usepackage[ruled]{algorithm2e}
-\DeclareMathOperator*{\argmin}{arg\,min}
-\newcommand{\card}[1]{\lvert#1\rvert}
-\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
-\def\RHiLi{\leavevmode\rlap{\hbox to \hsize{\color{blue!20}\leaders\hrule height .8\baselineskip depth .5ex\hfill}}}
-\def\EHiLi{\leavevmode\rlap{\hbox to \hsize{\color{green!20}\leaders\hrule height .8\baselineskip depth .5ex\hfill}}}
-\def\IHiLi{\leavevmode\rlap{\hbox to \hsize{\color{yellow!20}\leaders\hrule height .8\baselineskip depth .5ex\hfill}}}
-\def\SHiLi{\leavevmode\rlap{\hbox to \hsize{\color{red!20}\leaders\hrule height .8\baselineskip depth .5ex\hfill}}}
-
 \begin{document}
 
 \begin{titlepage}
@@ -77,16 +65,19 @@
 \begin{center}
 {\large \DakotaSANDTheory}\\
 {\large Unlimited Release}\\
-{\large \DakotaSANDDate}\\
+%{\large \DakotaSANDDate}\\
 {\large Updated \today}\\
 
 \vspace*{1.5cm}
 {\LARGE Dakota, A Multilevel Parallel Object-Oriented Framework for 
 Design Optimization, Parameter Estimation, Uncertainty Quantification, 
-and Sensitivity Analysis:\\Version \DakotaVersion\space Theory Manual}\\
+and Sensitivity Analysis}\\
+\vspace*{1cm}
+{\LARGE Version \DakotaVersion\space Theory Manual}\\
 \vspace*{1cm}
 
 \DakotaAuthorFormatted
+\vspace*{1cm}
 
 \newpage
 
@@ -109,15 +100,13 @@ and Sensitivity Analysis:\\Version \DakotaVersion\space Theory Manual}\\
 \input{Theory_UQ_Reliability}
 \input{Theory_UQ_StochExp}
 \input{Theory_UQ_Epistemic}
-\input{Theory_UQ_Bayesian}
 \input{Theory_Surrogates}
 \input{Theory_Opt_SurrBased}
-\input{Theory_ActiveSubspace}
 \input{Theory_Opt_UnderUnc}
 % TO DO: add analysis from MAO paper (do not extract anything from User's)
 %\input{Theory_Parallel}
 
 \bibliographystyle{plain}
-\bibliography{../Dakota}
+\bibliography{Theory}
 
 \end{document}

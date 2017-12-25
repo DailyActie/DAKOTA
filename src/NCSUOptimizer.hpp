@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,8 +37,7 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NCSUOptimizer(ProblemDescDB& problem_db, Model& model);
+  NCSUOptimizer(Model& model); ///< standard constructor
 
   /// alternate constructor for instantiations "on the fly"
   NCSUOptimizer(Model& model, const int& max_iter, const int& max_eval,
@@ -46,7 +45,7 @@ public:
 		double solution_target = -DBL_MAX);
 
   /// alternate constructor for Iterator instantiations by name
-  NCSUOptimizer(Model& model);
+  NCSUOptimizer(NoDBBaseConstructor, Model& model);
 
   /// alternate constructor for instantiations "on the fly"
   NCSUOptimizer(const RealVector& var_l_bnds,
@@ -59,10 +58,10 @@ public:
   ~NCSUOptimizer(); ///< destructor
     
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Member functions
   //
 
-  void core_run();
+  void find_optimum();
 
 private:
 

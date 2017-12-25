@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,26 +20,6 @@ namespace Dakota {
 // ------------
 // == operators
 // ------------
-
-
-bool nearby(const RealVector& rv1, const RealVector& rv2, Real rel_tol)
-{
-  // Check for equality in array lengths
-  size_t len = rv1.length();
-  if ( rv2.length() != len )
-    return false;
-	
-  // Check each value (labels are ignored!)
-  for (size_t i=0; i<len; i++)
-    if (rv1[i] == 0.) { // prevent division by 0
-      if (rv2[i] != 0.) //(std::abs(rv2[i]) > abs_tol)
-	return false;
-    }
-    else if ( fabs(1. - rv2[i]/rv1[i]) > rel_tol ) // DBL_EPSILON
-      return false;
-
-  return true;
-}
 
 
 bool operator==(const ShortArray& dsa1, const ShortArray& dsa2)
@@ -70,6 +50,23 @@ bool operator==(const StringArray& dsa1, const StringArray& dsa2)
   size_t i;
   for (i=0; i<len; ++i)
     if ( dsa2[i] != dsa1[i] )
+      return false;
+
+  return true;
+}
+
+
+bool operator==(const SizetArray& sa, SizetMultiArrayConstView smav)
+{
+  // Check for equality in array lengths
+  size_t len = sa.size();
+  if ( smav.size() != len )
+    return false;
+
+  // Check each size_t
+  size_t i;
+  for (i=0; i<len; ++i)
+    if ( smav[i] != sa[i] )
       return false;
 
   return true;

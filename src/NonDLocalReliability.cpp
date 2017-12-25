@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -42,6 +42,7 @@ using OPTPP::NLPGradient;
 static const char rcsId[] = "@(#) $Id: NonDLocalReliability.cpp 4058 2006-10-25 01:39:40Z mseldre $";
 
 namespace Dakota {
+extern Graphics dakota_graphics; // defined in ParallelLibrary.cpp
 extern PRPCache data_pairs; // global container
 
 
@@ -54,9 +55,8 @@ extern PRPCache data_pairs; // global container
 NonDLocalReliability* NonDLocalReliability::nondLocRelInstance(NULL);
 
 
-NonDLocalReliability::
-NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
-  NonDReliability(problem_db, model), 
+NonDLocalReliability::NonDLocalReliability(Model& model):
+  NonDReliability(model),
   initialPtUserSpec(
     probDescDB.get_bool("variables.uncertain.initial_point_flag")),
   warmStartFlag(true), nipModeOverrideFlag(true),
@@ -64,7 +64,7 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
   secondOrderIntType(HOHENRACK), curvatureThresh(1.e-10), warningBits(0)
 {
   // check for suitable gradient and variables specifications
-  if (iteratedModel.gradient_type() == "none") {
+  if (gradientType == "none") {
     Cerr << "\nError: local_reliability requires a gradient specification."
 	 << std::endl;
     abort_handler(-1);
@@ -75,12 +75,43 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
     abort_handler(-1);
   }
 
-  if (mppSearchType) { // default is MV = 0
+  // Map MPP search user specification into mppSearchType
+  const String& mpp_search_type
+    = probDescDB.get_string("method.nond.reliability_search_type");
+  if (mpp_search_type == "mv")
+    mppSearchType = MV;
+  else if (mpp_search_type == "amv_x")
+    mppSearchType = AMV_X;
+  else if (mpp_search_type == "amv_u")
+    mppSearchType = AMV_U;
+  else if (mpp_search_type == "amv_plus_x")
+    mppSearchType = AMV_PLUS_X;
+  else if (mpp_search_type == "amv_plus_u")
+    mppSearchType = AMV_PLUS_U;
+  else if (mpp_search_type == "tana_x")
+    mppSearchType = TANA_X;
+  else if (mpp_search_type == "tana_u")
+    mppSearchType = TANA_U;
+  else if (mpp_search_type == "no_approx")
+    mppSearchType = NO_APPROX;
+  else {
+    Cerr << "Error: bad mpp_search type in local_reliability." << std::endl;
+    abort_handler(-1); 
+  }
+
+  if (mppSearchType) {
 
     // Map MPP search NIP/SQP algorithm specification into an NPSOL/OPT++
     // selection based on configuration availability.
-    unsigned short mpp_optimizer = probDescDB.get_ushort("method.sub_method");
-    if (mpp_optimizer == SUBMETHOD_SQP) {
+#if !defined(HAVE_NPSOL) && !defined(HAVE_OPTPP)
+    Cerr << "Error: this executable not configured with NPSOL or OPT++.\n"
+	 << "       NonDLocalReliability cannot perform MPP search."
+         << std::endl;
+    abort_handler(-1);
+#endif
+    const String& mpp_search_alg
+      = probDescDB.get_string("method.nond.optimization_algorithm");
+    if (mpp_search_alg == "sqp") {
 #ifdef HAVE_NPSOL
       npsolFlag = true;
 #else
@@ -90,7 +121,7 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
       abort_handler(-1);
 #endif
     }
-    else if (mpp_optimizer == SUBMETHOD_NIP) {
+    else if (mpp_search_alg == "nip") {
 #ifdef HAVE_OPTPP
       npsolFlag = false;
 #else
@@ -100,16 +131,11 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
       abort_handler(-1);
 #endif
     }
-    else if (mpp_optimizer == SUBMETHOD_DEFAULT) {
+    else if (mpp_search_alg.empty()) {
 #ifdef HAVE_NPSOL
       npsolFlag = true;
 #elif HAVE_OPTPP
       npsolFlag = false;
-#else
-      Cerr << "\nError: this executable not configured with NPSOL or OPT++.\n"
-	   << "       NonDLocalReliability cannot perform MPP search."
-	   << std::endl;
-      abort_handler(-1);
 #endif
     }
 
@@ -136,20 +162,16 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
   if (mppSearchType == NO_APPROX && npsolFlag) {
     Iterator sub_iterator = iteratedModel.subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	( sub_iterator.method_name() ==  NPSOL_SQP ||
-	  sub_iterator.method_name() == NLSSOL_SQP ||
-	  sub_iterator.uses_method() ==  NPSOL_SQP ||
-	  sub_iterator.uses_method() == NLSSOL_SQP ) )
+	( strends(sub_iterator.method_name(), "sol_sqp") ||
+	  strends(sub_iterator.uses_method(), "sol_sqp") ) )
       sub_iterator.method_recourse();
     ModelList& sub_models = iteratedModel.subordinate_models();
     for (ModelLIter ml_iter = sub_models.begin();
 	 ml_iter != sub_models.end(); ml_iter++) {
       sub_iterator = ml_iter->subordinate_iterator();
       if (!sub_iterator.is_null() && 
-	  ( sub_iterator.method_name() ==  NPSOL_SQP ||
-	    sub_iterator.method_name() == NLSSOL_SQP ||
-	    sub_iterator.uses_method() ==  NPSOL_SQP ||
-	    sub_iterator.uses_method() == NLSSOL_SQP ) )
+	  ( strends(sub_iterator.method_name(), "sol_sqp") ||
+	    strends(sub_iterator.uses_method(), "sol_sqp") ) )
 	sub_iterator.method_recourse();
     }
   }
@@ -159,42 +181,12 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
   // (although the Hessian specification required for 2nd-order integration
   // means that taylorOrder = 2 will be used for MV/AMV/AMV+; taylorOrder = 2
   // may however be used with 1st-order integration).
-  const String& hess_type = iteratedModel.hessian_type();
-  taylorOrder = (hess_type != "none" && mppSearchType <= AMV_PLUS_U) ? 2 : 1;
+  taylorOrder = (hessianType != "none" && mppSearchType <= AMV_PLUS_U) ? 2 : 1;
 
   // assign iterator-specific defaults for approximation-based MPP searches
   if (maxIterations <  0          && // DataMethod default = -1
       mppSearchType >= AMV_PLUS_X && mppSearchType < NO_APPROX) // approx-based
     maxIterations = 25;
-
-  // Map integration specification into integrationOrder.  Second-order
-  // integration requires an MPP search in u-space, and is not warranted for
-  // unconverged MPP's (AMV variants).  In addition, AMV variants only compute
-  // verification function values at u* (no Hessians).  For an AMV-like
-  // approach with 2nd-order integration, use AMV+ with max_iterations = 1.
-  const String& integration_method
-    = probDescDB.get_string("method.nond.reliability_integration");
-  if (integration_method.empty() || integration_method == "first_order")
-    integrationOrder = 1;
-  else if (integration_method == "second_order") {
-    if (hess_type == "none") {
-      Cerr << "\nError: second-order integration requires Hessian "
-	   << "specification." << std::endl;
-      abort_handler(-1);
-    }
-    else if (mppSearchType <= AMV_U) {
-      Cerr << "\nError: second-order integration only supported for fully "
-	   << "converged MPP methods." << std::endl;
-      abort_handler(-1);
-    }
-    else
-      integrationOrder = 2;
-  }
-  else {
-    Cerr << "Error: bad integration selection in NonDLocalReliability."
-	 << std::endl;
-    abort_handler(-1);
-  }
 
   // The model of the limit state in u-space (uSpaceModel) is constructed here
   // one time.  The RecastModel for the RIA/PMA formulations varies with the
@@ -207,7 +199,6 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
   // prior to the u'u = beta^2 constraint enforcement bringing it back.  A
   // large excursion can cause overflow; a medium excursion can cause poor 
   // performance since far-field info is introduced into the BFGS Hessian.
-  short recast_resp_order = 3; // grad-based quasi-Newton opt on mppModel
   if (mppSearchType ==  AMV_X || mppSearchType == AMV_PLUS_X ||
       mppSearchType == TANA_X) { // Recast( DataFit( iteratedModel ) )
 
@@ -222,21 +213,21 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
     int samples = 0, seed = 0;
     Iterator dace_iterator;
     //const Variables& curr_vars = iteratedModel.current_variables();
-    ActiveSet surr_set = iteratedModel.current_response().active_set(); // copy
-    surr_set.request_values(3); // surrogate gradient evals
     g_hat_x_model.assign_rep(new DataFitSurrModel(dace_iterator, iteratedModel,
-      surr_set, approx_type, approx_order, corr_type, corr_order, data_order,
+      //curr_vars.view(), curr_vars.variables_components(),
+      //iteratedModel.current_response().active_set(),
+      approx_type, approx_order, corr_type, corr_order, data_order,
       outputLevel, sample_reuse), false);
 
     // transform g_hat_x_model from x-space to u-space
-    transform_model(g_hat_x_model, uSpaceModel, true); // truncated dist bounds
+    transform_model(g_hat_x_model, uSpaceModel, true); // globally bounded
   }
   else if (mppSearchType ==  AMV_U || mppSearchType == AMV_PLUS_U ||
 	   mppSearchType == TANA_U) { // DataFit( Recast( iteratedModel ) )
 
     // Recast g(x) to G(u)
     Model g_u_model;
-    transform_model(iteratedModel, g_u_model, true); // truncated dist bounds
+    transform_model(iteratedModel, g_u_model, true); // globally bounded
 
     // Construct G-hat(u) using a local/multipoint approximation over the
     // uncertain variables (using the same view as iteratedModel/g_u_model).
@@ -248,34 +239,23 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
     int samples = 0, seed = 0;
     Iterator dace_iterator;
     //const Variables& g_u_vars = g_u_model.current_variables();
-    ActiveSet surr_set = g_u_model.current_response().active_set(); // copy
-    surr_set.request_values(3); // surrogate gradient evals
     uSpaceModel.assign_rep(new DataFitSurrModel(dace_iterator, g_u_model,
-      surr_set, approx_type, approx_order, corr_type, corr_order, data_order,
+      //g_u_vars.view(), g_u_vars.variables_components(),
+      //g_u_model.current_response().active_set(),
+      approx_type, approx_order, corr_type, corr_order, data_order,
       outputLevel, sample_reuse), false);
   }
-  else if (mppSearchType == NO_APPROX) { // Recast( iteratedModel )
+  else if (mppSearchType == NO_APPROX) // Recast( iteratedModel )
     // Recast g(x) to G(u)
-    transform_model(iteratedModel, uSpaceModel, true); // truncated dist bounds
-    // detect PMA2 condition and augment mppModel data requirements
-    bool pma2_flag = false;
-    if (integrationOrder == 2)
-      for (size_t i=0; i<numFunctions; ++i)
-	if (!requestedProbLevels[i].empty() ||
-	    !requestedGenRelLevels[i].empty())
-	  { pma2_flag = true; break; }
-    if (pma2_flag) // mirrors PMA2_set_mapping()
-      recast_resp_order |= 4;
-  }
+    transform_model(iteratedModel, uSpaceModel, true); // globally bounded
 
   // configure a RecastModel with one objective and one equality constraint
   // using the alternate minimalist constructor
   if (mppSearchType) {
-    SizetArray recast_vars_comps_total;  // default: empty; no change in size
-    BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relax
+    SizetArray recast_vars_comps_total; // default: empty; no change in size
     mppModel.assign_rep(
-      new RecastModel(uSpaceModel, recast_vars_comps_total, all_relax_di,
-		      all_relax_dr, 1, 1, 0, recast_resp_order), false);
+      new RecastModel(uSpaceModel, recast_vars_comps_total, 1, 1, 0),
+      false);
     RealVector nln_eq_targets(1, false); nln_eq_targets = 0.;
     mppModel.nonlinear_eq_constraint_targets(nln_eq_targets);
 
@@ -317,89 +297,95 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
       mppOptimizer.assign_rep(new SNLLOptimizer("optpp_q_newton", mppModel),
 	false);
 #endif
+
+    // Strategy::init_communicators() initializes the parallel configuration 
+    // for NonDLocalReliability + iteratedModel using maxConcurrency (defined
+    // from the derivative concurrency in the responses specification).  For
+    // FORM/SORM, the NPSOL/OPT++ concurrency is the same, but for approximate
+    // methods, the concurrency is dictated by the gradType/hessType logic in
+    // the instantiate on-the-fly DataFitSurrModel constructor.
+    uSpaceModel.init_communicators(maxConcurrency);
+    mppModel.init_communicators(mppOptimizer.maximum_concurrency());
   }
 
-  // integration refinement is only active for RIA mappings --> prevent
-  // importanceSampler definition and PDF estimation if no RIA.
-  if (integrationRefinement) {
-    bool no_ria_override = true;
-    for (size_t i=0; i<numFunctions; ++i)
-      if (!requestedRespLevels[i].empty())
-	{ no_ria_override = false; break; }
-    if (no_ria_override) {
-      Cerr << "\nWarning: probability_refinement specification is ignored in "
-	   << "the absence of response_level mappings.\n";
-      integrationRefinement = NO_INT_REFINE;
+  // Map integration specification into integrationOrder.  Second-order
+  // integration requires an MPP search in u-space, and is not warranted for
+  // unconverged MPP's (AMV variants).  In addition, AMV variants only compute
+  // verification function values at u* (no Hessians).  For an AMV-like
+  // approach with 2nd-order integration, use AMV+ with max_iterations = 1.
+  const String& integration_method
+    = probDescDB.get_string("method.nond.reliability_integration");
+  if (integration_method.empty() || integration_method == "first_order")
+    integrationOrder = 1;
+  else if (integration_method == "second_order") {
+    if (hessianType == "none") {
+      Cerr << "\nError: second-order integration requires Hessian "
+	   << "specification." << std::endl;
+      abort_handler(-1);
     }
+    else if (mppSearchType <= AMV_U) {
+      Cerr << "\nError: second-order integration only supported for fully "
+	   << "converged MPP methods." << std::endl;
+      abort_handler(-1);
+    }
+    else
+      integrationOrder = 2;
+  }
+  else {
+    Cerr << "Error: bad integration selection in NonDLocalReliability."
+	 << std::endl;
+    abort_handler(-1);
   }
 
-  if (integrationRefinement) {
+  const String& integration_refine
+    = probDescDB.get_string("method.nond.integration_refinement");
+  if (!integration_refine.empty()) {
+    for (size_t i=0; i<numFunctions; i++) {
+      if (!requestedProbLevels[i].empty() || !requestedRelLevels[i].empty() ||
+	  !requestedGenRelLevels[i].empty()) {
+	Cerr << "\nError: importance sampling methods only supported for RIA."
+	     << "\n\n";
+	abort_handler(-1);
+      }
+    }
+    if (integration_refine == "is")
+      integrationRefinement = IS;
+    else if (integration_refine == "ais")
+      integrationRefinement = AIS;
+    else if (integration_refine == "mmais")
+      integrationRefinement = MMAIS;
+
     // integration refinement requires an MPP, but it may be unconverged (AMV)
-    if (!mppSearchType) {
+    if (mppSearchType) {
+      // For NonDLocal, integration refinement is applied to the original model
+      int refine_samples = probDescDB.get_int("method.nond.refinement_samples"),
+	  refine_seed    = probDescDB.get_int("method.random_seed");
+      String sample_type, rng; // empty strings: use defaults
+
+      // flags control if/when transformation is needed in importanceSampler
+      bool x_data_flag = false, x_model_flag = true, bounded_model = false,
+	   vary_pattern = true;
+
+      importanceSampler.assign_rep(
+	new NonDAdaptImpSampling(iteratedModel, sample_type, refine_samples,
+	refine_seed, rng, vary_pattern, integrationRefinement, cdfFlag,
+	x_data_flag, x_model_flag, bounded_model), false);
+
+      iteratedModel.init_communicators(importanceSampler.maximum_concurrency());
+    }
+    else {
       Cerr << "\nError: integration refinement only supported for MPP methods."
 	   << std::endl;
       abort_handler(-1);
     }
-
-    // For NonDLocal, integration refinement is applied to the original model
-    int refine_samples = 1000; // context-specific default
-    const IntVector& db_refine_samples = 
-      probDescDB.get_iv("method.nond.refinement_samples");
-    if (db_refine_samples.length() == 1)
-      refine_samples = db_refine_samples[0];
-    else if (db_refine_samples.length() > 1) {
-      Cerr << "\nError (NonDLocalReliability): refinement_samples must be "
-           << "length 1 if specified." << std::endl;
-      abort_handler(PARSE_ERROR);
-    }
-    int refine_seed    = probDescDB.get_int("method.random_seed");
-   
-    unsigned short sample_type = SUBMETHOD_DEFAULT;
-    String rng; // empty string: use default
-
-    // Note: truncated distribution bounds in transform_model() can be true
-    // (to bound an optimizer search) with AIS use_model_bounds = false
-    // (AIS will ignore these global bounds); extreme values are needed
-    // to define bounds for outer PDF bins.
-    bool x_model_flag = false, use_model_bounds = false, vary_pattern = true,
-      track_extreme = pdfOutput;
-
-    // AIS is performed in u-space WITHOUT a surrogate: pass a truth u-space
-    // model when available, construct one when not.
-    NonDAdaptImpSampling* import_sampler_rep = NULL;
-    switch (mppSearchType) {
-    case AMV_X: case AMV_PLUS_X: case TANA_X: {
-      Model g_u_model;
-      transform_model(iteratedModel, g_u_model); // original dist bounds
-      import_sampler_rep = new NonDAdaptImpSampling(g_u_model, sample_type,
-	refine_samples, refine_seed, rng, vary_pattern, integrationRefinement,
-	cdfFlag, x_model_flag, use_model_bounds, track_extreme);
-      break;
-    }
-    case AMV_U: case AMV_PLUS_U: case TANA_U:
-      import_sampler_rep = new NonDAdaptImpSampling(uSpaceModel.truth_model(),
-	sample_type, refine_samples, refine_seed, rng, vary_pattern,
-	integrationRefinement, cdfFlag, x_model_flag, use_model_bounds,
-	track_extreme);
-      break;
-    case NO_APPROX:
-      import_sampler_rep = new NonDAdaptImpSampling(uSpaceModel, sample_type,
-	refine_samples, refine_seed, rng, vary_pattern, integrationRefinement,
-	cdfFlag, x_model_flag, use_model_bounds, track_extreme);
-      break;
-    }
-    importanceSampler.assign_rep(import_sampler_rep, false);
-    // set up the x-space data within the importance sampler
-    import_sampler_rep->initialize_random_variables(natafTransform);
   }
 
-  // Size the output arrays, augmenting sizing in NonDReliability.  Relative to
-  // other NonD methods, the output storage for reliability methods is greater
-  // since there may be differences between requested and computed levels for
-  // the same level type (the request is not always achieved) and since
-  // probability and reliability are carried along in parallel (due to their
-  // direct correspondence).
-  computedRelLevels.resize(numFunctions); // others sized in NonDReliability
+  // Size the output arrays.  Relative to sampling methods, the output storage
+  // for reliability methods is more substantial since there may be differences
+  // between requested and computed levels for the same measure (the request is
+  // not always achieved) and since probability and reliability are carried
+  // along in parallel (due to their direct correspondence).
+  computedRelLevels.resize(numFunctions);
   for (size_t i=0; i<numFunctions; i++) {
     size_t num_levels = requestedRespLevels[i].length() + 
       requestedProbLevels[i].length() + requestedRelLevels[i].length() +
@@ -418,7 +404,7 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
   if (taylorOrder == 2 || integrationOrder == 2) {
     fnHessX.shapeUninitialized(numUncertainVars);
     fnHessU.shapeUninitialized(numUncertainVars);
-    if (hess_type == "quasi") {
+    if (hessianType == "quasi") {
       // Note: fnHess=0 in both spaces is not self-consistent for nonlinear
       // transformations.  However, the point is to use a first-order
       // approximation in either space prior to curvature accumulation.
@@ -431,70 +417,20 @@ NonDLocalReliability(ProblemDescDB& problem_db, Model& model):
 
 
 NonDLocalReliability::~NonDLocalReliability()
-{ }
-
-
-void NonDLocalReliability::derived_init_communicators(ParLevLIter pl_iter)
 {
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
   if (mppSearchType) {
-    // uSpaceModel, mppOptimizer, and importanceSampler use NoDBBaseConstructor,
-    // so no need to manage DB list nodes at this level
-
-    // maxEvalConcurrency defined from the derivative concurrency in the
-    // responses specification.  For FORM/SORM, the NPSOL/OPT++ concurrency
-    // is the same, but for approximate methods, the concurrency is dictated
-    // by the gradType/hessType logic in the instantiate on-the-fly
-    // DataFitSurrModel constructor.
-    uSpaceModel.init_communicators(pl_iter, maxEvalConcurrency);
-    // TO DO: distinguish gradient concurrency for truth vs. surrogate?
-    //        (probably doesn't matter for surrogate)
-
-    mppOptimizer.init_communicators(pl_iter);
-
+    mppModel.free_communicators(mppOptimizer.maximum_concurrency());
+    uSpaceModel.free_communicators(maxConcurrency);
     if (integrationRefinement)
-      importanceSampler.init_communicators(pl_iter);
+      iteratedModel.free_communicators(importanceSampler.maximum_concurrency());
   }
 }
 
 
-void NonDLocalReliability::derived_set_communicators(ParLevLIter pl_iter)
-{
-  NonD::derived_set_communicators(pl_iter);
-
-  if (mppSearchType) {
-    uSpaceModel.set_communicators(pl_iter, maxEvalConcurrency);
-    mppOptimizer.set_communicators(pl_iter);
-    if (integrationRefinement)
-      importanceSampler.set_communicators(pl_iter);
-  }
-}
-
-
-void NonDLocalReliability::derived_free_communicators(ParLevLIter pl_iter)
-{
-  if (mppSearchType) {
-    if (integrationRefinement)
-      importanceSampler.free_communicators(pl_iter);
-    mppOptimizer.free_communicators(pl_iter);
-    uSpaceModel.free_communicators(pl_iter, maxEvalConcurrency);
-  }
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-}
-
-
-void NonDLocalReliability::core_run()
+void NonDLocalReliability::quantify_uncertainty()
 {
   if (mppSearchType) mpp_search();
   else               mean_value();
-
-  // post-process level mappings to define PDFs (using prob_refined and
-  // all_levels_computed modes)
-  if (pdfOutput && integrationRefinement) {
-    NonDAdaptImpSampling* import_sampler_rep
-      = (NonDAdaptImpSampling*)importanceSampler.iterator_rep();
-    compute_densities(import_sampler_rep->extreme_values(), true, true);
-  } // else no extreme values to define outer PDF bins
 
   numRelAnalyses++;
 }
@@ -511,91 +447,50 @@ void NonDLocalReliability::mean_value()
   initial_taylor_series();
 
   // initialize arrays
-  bool correlation_flag = natafTransform.x_correlation();
-  size_t num_imp_fact = (correlation_flag) ?
-    (numUncertainVars * (numUncertainVars+1)) / 2 : numUncertainVars;
-  impFactor.shapeUninitialized(num_imp_fact, numFunctions);
+  impFactor.shapeUninitialized(numUncertainVars, numFunctions);
   statCount = 0;
   initialize_final_statistics_gradients();
 
-  // local reliability data aren't output to tabular, so send directly
-  // to graphics window only
-  Graphics& dakota_graphics = parallelLib.output_manager().graphics();
-
   // loop over response functions
-  size_t i, j, cntr;
+  size_t i;
   const ShortArray& final_asv = finalStatistics.active_set_request_vector();
   for (respFnCount=0; respFnCount<numFunctions; respFnCount++) {
-    size_t rl_len = requestedRespLevels[respFnCount].length(),
-           pl_len = requestedProbLevels[respFnCount].length(),
-           bl_len = requestedRelLevels[respFnCount].length(),
-           gl_len = requestedGenRelLevels[respFnCount].length(),
-        total_lev = rl_len + pl_len + bl_len + gl_len;
-
     Real& mean    = momentStats(0,respFnCount);
     Real& std_dev = momentStats(1,respFnCount);
-
-    RealVector dg_ds_meanx;
-    bool need_dg_ds = (final_asv[statCount] & 2); // mean stat
-    if (!need_dg_ds)
-      for (i=0, j=statCount+2; i<total_lev; ++i, ++j)
-	if (final_asv[j] & 2)
-	  { need_dg_ds = true; break; }
-    if (need_dg_ds) {
-      RealVector fn_grad_mean_x(Teuchos::View, fnGradsMeanX[respFnCount],
-				numUncertainVars);
-      // evaluate dg/ds at the variable means and store in finalStatistics
-      dg_ds_eval(ranVarMeansX, fn_grad_mean_x, dg_ds_meanx);
-    }
 
     // approximate response means already computed
     finalStatistics.function_value(mean, statCount);
     // sensitivity of response mean
-    if (final_asv[statCount] & 2)
-      finalStatistics.function_gradient(dg_ds_meanx, statCount);
-    ++statCount;
+    if (final_asv[statCount] & 2) {
+      RealVector fn_grad_mean_x(numUncertainVars, false);
+      for (i=0; i<numUncertainVars; i++)
+	fn_grad_mean_x[i] = fnGradsMeanX(i,respFnCount);
+      // evaluate dg/ds at the variable means and store in finalStatistics
+      RealVector final_stat_grad;
+      dg_ds_eval(natafTransform.x_means(), fn_grad_mean_x, final_stat_grad);
+      finalStatistics.function_gradient(final_stat_grad, statCount);
+    }
+    statCount++;
 
     // approximate response std deviations already computed
     finalStatistics.function_value(std_dev, statCount);
     // sensitivity of response std deviation
     if (final_asv[statCount] & 2) {
       // Differentiating the first-order second-moment expression leads to
-      // 2nd-order d^2g/dxds sensitivities which are:
-      // > awkward to compute (nonstandard DVV w/ active + inactive vars)
-      // > a higher-order term that we will neglect for simplicity
-      Cerr << "Warning: response std deviation sensitivity is zero for MVFOSM."
+      // 2nd-order d^2g/dxds sensitivities which would be awkward to compute
+      // (nonstandard DVV containing active and inactive vars)
+      Cerr << "Error: response std deviation sensitivity not yet supported."
            << std::endl;
-      RealVector final_stat_grad(numUncertainVars); // init to 0.
-      finalStatistics.function_gradient(final_stat_grad, statCount);
+      abort_handler(-1);
     }
-    ++statCount;
+    statCount++;
 
-    // If response std_dev is non-zero, compute importance factors.  Traditional
-    // impFactors correspond to the diagonal terms in the computation of the
-    // response variance, normalized by the total response variance.  If inputs
-    // are correlated, then off-diagonal contributions to the output variance
-    // are present and "two-way importance factors" are appended to the end of
-    // the impFactors matrix.  These two-way factors are not the same as Sobol'
-    // interaction indices since the Taylor series basis is not orthogonal; as
-    // a result, two-way factors (unlike univariate factors) can be negative.
-    if (std_dev > Pecos::SMALL_NUMBER) {
-      Real* imp_fact = impFactor[respFnCount];
-      Real* fn_grad  = fnGradsMeanX[respFnCount];
-      if (correlation_flag) {
-	const Pecos::RealSymMatrix& x_corr_mat
-	  = natafTransform.x_correlation_matrix();
-	Real resp_var = std_dev * std_dev, terms_i;
-	for (i=0, cntr=numUncertainVars; i<numUncertainVars; ++i) {
-	  imp_fact[i] = std::pow(ranVarStdDevsX[i] / std_dev * fn_grad[i], 2);
-	  terms_i = 2. * ranVarStdDevsX[i] * fn_grad[i] / resp_var;
-	  for (j=0; j<i; ++j, ++cntr) // collect both off diagonal terms
-	    imp_fact[cntr]
-	      = terms_i * ranVarStdDevsX[j] * x_corr_mat(i,j) * fn_grad[j];
-	}
-      }
-      else
-	for (i=0; i<numUncertainVars; ++i)
-	  imp_fact[i] = std::pow(ranVarStdDevsX[i] / std_dev * fn_grad[i], 2);
+    // if inputs are uncorrelated, compute importance factors
+    if (!natafTransform.x_correlation() && std_dev > Pecos::SMALL_NUMBER) {
+      const Pecos::RealVector& x_std_devs = natafTransform.x_std_deviations();
+      for (i=0; i<numUncertainVars; i++)
+        impFactor(i,respFnCount) = std::pow(x_std_devs[i] / std_dev *
+					    fnGradsMeanX(i,respFnCount), 2);
     }
 
     // compute probability/reliability levels for requested response levels and
@@ -603,6 +498,10 @@ void NonDLocalReliability::mean_value()
     // For failure defined as g<0, beta is simply mean/sigma.  This is extended
     // to compute general cumulative probabilities for g<z or general
     // complementary cumulative probabilities for g>z.
+    size_t rl_len = requestedRespLevels[respFnCount].length(),
+           pl_len = requestedProbLevels[respFnCount].length(),
+           bl_len = requestedRelLevels[respFnCount].length(),
+           gl_len = requestedGenRelLevels[respFnCount].length();
     for (levelCount=0; levelCount<rl_len; levelCount++) {
       // computed = requested in MV case since no validation fn evals
       Real z = computedRespLevels[respFnCount][levelCount]
@@ -633,34 +532,16 @@ void NonDLocalReliability::mean_value()
       }
       switch (respLevelTarget) {
       case PROBABILITIES:
-	finalStatistics.function_value(p, statCount);
-	if (final_asv[statCount] & 2) {
-	  // dsigma/ds contains H.O.T. and taken to be 0.
-	  // beta_cdf  = (mu - z-bar) / sigma -> dbeta/ds =  1/sigma dmu/ds
-	  // beta_ccdf = (z-bar - mu) / sigma -> dbeta/ds = -1/sigma dmu/ds
-	  // dp_cdf/ds  = -phi(-beta) dbeta/ds = -phi(-beta)/sigma dmu/ds
-	  // dp_ccdf/ds = -phi(-beta) dbeta/ds =  phi(-beta)/sigma dmu/ds
-	  RealVector final_stat_grad(dg_ds_meanx); // deep copy
-	  Real phi_m_beta = Pecos::NormalRandomVariable::std_pdf(-beta);
-	  if (cdfFlag) final_stat_grad.scale(-phi_m_beta/std_dev);
-	  else         final_stat_grad.scale( phi_m_beta/std_dev);
-	  finalStatistics.function_gradient(final_stat_grad, statCount);
-	}
-	break;
+	finalStatistics.function_value(p, statCount);    break;
       case RELIABILITIES: case GEN_RELIABILITIES:
-	finalStatistics.function_value(beta, statCount);
-	if (final_asv[statCount] & 2) {
-	  // dsigma/ds contains H.O.T. and taken to be 0.
-	  // beta_cdf  = (mu - z-bar) / sigma -> dbeta/ds =  1/sigma dmu/ds
-	  // beta_ccdf = (z-bar - mu) / sigma -> dbeta/ds = -1/sigma dmu/ds
-	  RealVector final_stat_grad(dg_ds_meanx); // deep copy
-	  if (cdfFlag) final_stat_grad.scale( 1./std_dev);
-	  else         final_stat_grad.scale(-1./std_dev);
-	  finalStatistics.function_gradient(final_stat_grad, statCount);
-	}
-	break;
+	finalStatistics.function_value(beta, statCount); break;
       }
-      ++statCount;
+      if (final_asv[statCount] & 2) {
+	Cerr << "Error: response probability/reliability/gen_reliability level "
+	     << "sensitivity not supported for Mean Value." << std::endl;
+	abort_handler(-1);
+      }
+      statCount++;
       // Update specialty graphics
       if (!subIteratorFlag)
 	dakota_graphics.add_datapoint(respFnCount, z, p);
@@ -676,9 +557,12 @@ void NonDLocalReliability::mean_value()
       Real z = computedRespLevels[respFnCount][levelCount] = (cdfFlag)
         ? mean - beta * std_dev : mean + beta * std_dev;
       finalStatistics.function_value(z, statCount);
-      if (final_asv[statCount] & 2)
-	finalStatistics.function_gradient(dg_ds_meanx, statCount);
-      ++statCount;
+      if (final_asv[statCount] & 2) {
+	Cerr << "Error: response level sensitivity not supported for Mean "
+	     << "Value." << std::endl;
+	abort_handler(-1);
+      }
+      statCount++;
       // Update specialty graphics
       if (!subIteratorFlag)
 	dakota_graphics.add_datapoint(respFnCount, z, p);
@@ -695,9 +579,12 @@ void NonDLocalReliability::mean_value()
       Real z = computedRespLevels[respFnCount][levelCount] = (cdfFlag)
         ? mean - beta * std_dev	: mean + beta * std_dev;
       finalStatistics.function_value(z, statCount);
-      if (final_asv[statCount] & 2)
-	finalStatistics.function_gradient(dg_ds_meanx, statCount);
-       ++statCount;
+      if (final_asv[statCount] & 2) {
+	Cerr << "Error: response level sensitivity not supported for Mean "
+	     << "Value." << std::endl;
+	abort_handler(-1);
+      }
+      statCount++;
       // Update specialty graphics
       if (!subIteratorFlag)
 	dakota_graphics.add_datapoint(respFnCount, z, p);
@@ -718,7 +605,7 @@ void NonDLocalReliability::mpp_search()
   // Since the uncertain variable distributions (means, std devs, correlations)
   // may change among NonDLocalReliability invocations (e.g., RBDO with design
   // variable insertion), this code block is performed on every invocation.
-  transform_correlations();
+  natafTransform.transform_correlations();
 
   // initialize initialPtUSpec on first reliability analysis; needs to precede
   // iteratedModel.continuous_variables() assignment in initial_taylor_series()
@@ -751,7 +638,7 @@ void NonDLocalReliability::mpp_search()
   // multiple response functions.
   size_t i;
   const ShortArray& final_asv = finalStatistics.active_set_request_vector();
-  for (respFnCount=0; respFnCount<numFunctions; ++respFnCount) {
+  for (respFnCount=0; respFnCount<numFunctions; respFnCount++) {
 
     // approximate response means already computed
     finalStatistics.function_value(momentStats(0,respFnCount), statCount);
@@ -762,10 +649,10 @@ void NonDLocalReliability::mpp_search()
 	fn_grad_mean_x[i] = fnGradsMeanX(i,respFnCount);
       // evaluate dg/ds at the variable means and store in finalStatistics
       RealVector final_stat_grad;
-      dg_ds_eval(ranVarMeansX, fn_grad_mean_x, final_stat_grad);
+      dg_ds_eval(natafTransform.x_means(), fn_grad_mean_x, final_stat_grad);
       finalStatistics.function_gradient(final_stat_grad, statCount);
     }
-    ++statCount;
+    statCount++;
 
     // approximate response std deviations already computed
     finalStatistics.function_value(momentStats(1,respFnCount), statCount);
@@ -777,11 +664,8 @@ void NonDLocalReliability::mpp_search()
       Cerr << "Error: response std deviation sensitivity not yet supported."
            << std::endl;
       abort_handler(-1);
-      // TO DO: back out from RIA/PMA equations (use closest level to mean?):
-      // RIA: dsigma/ds = (dmean/ds - sigma dbeta_cdf/ds) / beta_cdf
-      // PMA: dsigma/ds = (dmean/ds - dz/ds) / beta_cdf
     }
-    ++statCount;
+    statCount++;
 
     // The most general case is to allow a combination of response, probability,
     // reliability, and generalized reliability level specifications for each
@@ -799,7 +683,7 @@ void NonDLocalReliability::mpp_search()
       initialize_level_data();
 
     // Loop over response/probability/reliability levels
-    for (levelCount=0; levelCount<num_levels; ++levelCount) {
+    for (levelCount=0; levelCount<num_levels; levelCount++) {
 
       // The rl_len response levels are performed first using the RIA
       // formulation, followed by the pl_len probability levels and the
@@ -877,7 +761,7 @@ void NonDLocalReliability::mpp_search()
 	  secondary_resp_map[0].resize(1);
 	  secondary_resp_map[0][0] = respFnCount;
 	  nonlinear_resp_map[1] = BoolDeque(1, false);
-	  mpp_model_rep->init_maps(vars_map, false, NULL, NULL,
+	  mpp_model_rep->initialize(vars_map, false, NULL, NULL,
 	    primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	    RIA_objective_eval, RIA_constraint_eval);
 	}
@@ -892,11 +776,11 @@ void NonDLocalReliability::mpp_search()
 	  // 2nd-order PMA, we utilize curvature of the surrogate (if any)
 	  // to update beta* 
 	  if (pma2_flag)
-	    mpp_model_rep->init_maps(vars_map, false, NULL, PMA2_set_mapping,
+	    mpp_model_rep->initialize(vars_map, false, NULL, PMA2_set_mapping,
 	      primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	      PMA_objective_eval, PMA2_constraint_eval);
 	  else
-	    mpp_model_rep->init_maps(vars_map, false, NULL, NULL,
+	    mpp_model_rep->initialize(vars_map, false, NULL, NULL,
 	      primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	      PMA_objective_eval, PMA_constraint_eval);	    
 	}
@@ -904,9 +788,8 @@ void NonDLocalReliability::mpp_search()
 
         // Execute MPP search and retrieve u-space results
         Cout << "\n>>>>> Initiating search for most probable point (MPP)\n";
-	ParLevLIter pl_iter
-	  = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-	mppOptimizer.run(pl_iter);
+	// no summary output since on-the-fly constructed:
+	mppOptimizer.run_iterator(Cout);
         const Variables& vars_star = mppOptimizer.variables_results();
         const Response&  resp_star = mppOptimizer.response_results();
 	const RealVector& fns_star = resp_star.function_values();
@@ -936,7 +819,7 @@ void NonDLocalReliability::mpp_search()
       // Update response/probability/reliability level data
       update_level_data();
 
-      ++statCount;
+      statCount++;
     } // end loop over levels
   } // end loop over response fns
 
@@ -960,11 +843,10 @@ void NonDLocalReliability::mpp_search()
 void NonDLocalReliability::initial_taylor_series()
 {
   bool init_ts_flag = (mppSearchType < NO_APPROX); // updated below
-  const String& hess_type = iteratedModel.hessian_type();
   size_t i, j, k;
   ShortArray asrv(numFunctions, 0);
   short mode = 3;
-  if (taylorOrder == 2 && hess_type != "quasi") // no data yet in quasiHess
+  if (taylorOrder == 2 && hessianType != "quasi") // no data yet in quasiHess
     mode |= 4;
 
   const ShortArray& final_asv = finalStatistics.active_set_request_vector();
@@ -999,9 +881,6 @@ void NonDLocalReliability::initial_taylor_series()
     break;
   }
 
-  ranVarMeansX   = natafTransform.x_means();
-  ranVarStdDevsX = natafTransform.x_std_deviations();
-
   momentStats.shape(2, numFunctions); // init to 0
   if (init_ts_flag) {
     bool correlation_flag = natafTransform.x_correlation();
@@ -1010,25 +889,25 @@ void NonDLocalReliability::initial_taylor_series()
     Cout << "\n>>>>> Evaluating response at mean values\n";
     if (mppSearchType && mppSearchType < NO_APPROX)
       uSpaceModel.component_parallel_mode(TRUTH_MODEL);
-    iteratedModel.continuous_variables(ranVarMeansX);
+    iteratedModel.continuous_variables(natafTransform.x_means());
     activeSet.request_vector(asrv);
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response& curr_resp = iteratedModel.current_response();
     fnValsMeanX       = curr_resp.function_values();
     fnGradsMeanX      = curr_resp.function_gradients();
     if (mode & 4)
       fnHessiansMeanX = curr_resp.function_hessians();
 
-    /*
     // compute the covariance matrix from the correlation matrix
     RealSymMatrix covariance;
+    const Pecos::RealVector& x_std_devs = natafTransform.x_std_deviations();
     if (correlation_flag) {
       covariance.shapeUninitialized(numUncertainVars);
       const Pecos::RealSymMatrix& x_corr_mat
 	= natafTransform.x_correlation_matrix();
       for (i=0; i<numUncertainVars; i++) {
 	for (j=0; j<=i; j++) {
-	  covariance(i,j) = ranVarStdDevsX[i]*ranVarStdDevsX[j]*x_corr_mat(i,j);
+	  covariance(i,j) = x_std_devs[i]*x_std_devs[j]*x_corr_mat(i,j);
 	  //if (i != j)
 	  //  covariance(j,i) = covariance(i,j);
 	}
@@ -1037,9 +916,8 @@ void NonDLocalReliability::initial_taylor_series()
     else {
       covariance.shape(numUncertainVars); // inits to 0
       for (i=0; i<numUncertainVars; i++)
-	covariance(i,i) = std::pow(ranVarStdDevsX[i], 2);
+	covariance(i,i) = std::pow(x_std_devs[i], 2);
     }
-    */
 
     // MVFOSM computes a first-order mean, which is just the response evaluated
     // at the input variable means.  If Hessian data is available, compute a
@@ -1048,27 +926,21 @@ void NonDLocalReliability::initial_taylor_series()
     // variable correlations.  Second-order variance requires skewness/kurtosis
     // of the inputs and is not practical.  NOTE: if fnGradsMeanX is zero, then
     // std_dev will be zero --> bad for MV CDF estimates.
-    bool t2nq = (taylorOrder == 2 && hess_type != "quasi"); // 2nd-order mean
-    const Pecos::RealSymMatrix& x_corr_mat
-      = natafTransform.x_correlation_matrix();
+    bool t2nq = (taylorOrder == 2 && hessianType != "quasi"); // 2nd-order mean
     for (i=0; i<numFunctions; ++i) {
       if (asrv[i]) {
 	Real& mean = momentStats(0,i); Real& std_dev = momentStats(1,i);
 	mean = fnValsMeanX[i]; // first-order mean
 	Real v1 = 0., v2 = 0.;
 	for (j=0; j<numUncertainVars; ++j) {
-	  Real fn_grad_ji = fnGradsMeanX(j,i);
 	  if (correlation_flag)
 	    for (k=0; k<numUncertainVars; ++k) {
-	      Real cov_jk = ranVarStdDevsX[j] * ranVarStdDevsX[k] 
-		          * x_corr_mat(j,k);//covariance(j,k);
-	      if (t2nq) v1 += cov_jk * fnHessiansMeanX[i](j,k);
-	      v2 += cov_jk * fn_grad_ji * fnGradsMeanX(k,i);
+	      if (t2nq) v1 += covariance(j,k)*fnHessiansMeanX[i](j,k);
+	      v2 += covariance(j,k) * fnGradsMeanX(j,i) * fnGradsMeanX(k,i);
 	    }
 	  else {
-	    Real cov_jj = ranVarStdDevsX[j]*ranVarStdDevsX[j];//covariance(j,j);
-	    if (t2nq) v1 += cov_jj * fnHessiansMeanX[i](j,j);
-	    v2 += cov_jj * std::pow(fn_grad_ji, 2);
+	    if (t2nq) v1 += covariance(j,j)*fnHessiansMeanX[i](j,j);
+	    v2 += covariance(j,j) * std::pow(fnGradsMeanX(j,i), 2);
 	  }
 	}
 	if (t2nq) mean += v1/2.;
@@ -1107,7 +979,7 @@ void NonDLocalReliability::initialize_class_data()
 
   // define ranVarMeansU for use in the transformed AMV option
   //if (mppSearchType == AMV_U)
-  natafTransform.trans_X_to_U(ranVarMeansX, ranVarMeansU);
+  natafTransform.trans_X_to_U(natafTransform.x_means(), ranVarMeansU);
   // must follow transform_correlations()
 
   /*
@@ -1125,14 +997,22 @@ void NonDLocalReliability::initialize_class_data()
     if (!requestedRespLevels[i].empty() || !requestedProbLevels[i].empty() ||
 	!requestedRelLevels[i].empty()  || !requestedGenRelLevels[i].empty())
       activeSet.request_value(1, i); // only fn vals needed at median unc vars
-  iteratedModel.evaluate(activeSet);
+  iteratedModel.compute_response(activeSet);
   medianFnVals = iteratedModel.current_response().function_values();
   */
 
   // now that vars/labels/bounds/targets have flowed down at run-time from any
   // higher level recursions, propagate them up the instantiate-on-the-fly
   // Model recursion so that they are correct when they propagate back down.
-  mppModel.update_from_subordinate_model(); // depth = max
+  mppModel.update_from_subordinate_model(); // recurse_flag = true
+
+  // set up the x-space data within the importance sampler
+  if (integrationRefinement) { // IS/AIS/MMAIS
+    // rep needed for access to functions not mapped to Iterator level
+    NonDAdaptImpSampling* importance_sampler_rep
+      = (NonDAdaptImpSampling*)importanceSampler.iterator_rep();
+    importance_sampler_rep->initialize_random_variables(natafTransform);
+  }
 }
 
 
@@ -1223,7 +1103,7 @@ void NonDLocalReliability::initialize_level_data()
       short mode = (taylorOrder == 2) ? 7 : 3;
       activeSet.request_values(0); activeSet.request_value(mode, respFnCount);
 
-      iteratedModel.evaluate(activeSet);
+      iteratedModel.compute_response(activeSet);
       const Response& curr_resp = iteratedModel.current_response();
       computedRespLevel = curr_resp.function_value(respFnCount);
       fnGradX = curr_resp.function_gradient_copy(respFnCount);
@@ -1386,9 +1266,9 @@ void NonDLocalReliability::initialize_mpp_search_data()
 	computedRelLevels[respFnCount][levelCount-1];
       // Note: scaling is applied to mppU, so we want best est of new beta.
       // Don't allow excessive init pt scaling if secant Hessian updating.
-      Real high_tol = 1.e+3,
-	low_tol = ( ( taylorOrder == 2 || integrationOrder == 2 ) &&
-		    iteratedModel.hessian_type() == "quasi" ) ? 1.e-3 : 1.e-10;
+      Real low_tol = ( ( taylorOrder == 2 || integrationOrder == 2) &&
+		       hessianType == "quasi") ? 1.e-3 : 1.e-10,
+	high_tol = 1.e+3;
       if ( std::abs(prev_bl) > low_tol && std::abs(prev_bl) < high_tol &&
 	   std::abs(requestedTargetLevel) > low_tol &&
 	   std::abs(requestedTargetLevel) < high_tol ) {
@@ -1454,7 +1334,7 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
     uSpaceModel.component_parallel_mode(TRUTH_MODEL);
     activeSet.request_values(0); activeSet.request_value(1, respFnCount);
     iteratedModel.continuous_variables(mostProbPointX);
-    iteratedModel.evaluate(activeSet); 
+    iteratedModel.compute_response(activeSet); 
     computedRespLevel
       = iteratedModel.current_response().function_value(respFnCount);
     break;
@@ -1503,7 +1383,7 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
     activeSet.request_values(0);
     activeSet.request_value(mode, respFnCount);
     iteratedModel.continuous_variables(mostProbPointX);
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response& curr_resp = iteratedModel.current_response();
     computedRespLevel = curr_resp.function_value(respFnCount);
 #ifdef MPP_CONVERGE_RATE
@@ -1569,10 +1449,10 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
       ShortArray search_asv(numFunctions, 0);
       search_asv[respFnCount] = 2;
       search_set.request_vector(search_asv);
-      PRPCacheHIter cache_it = lookup_by_val(data_pairs,
-	iteratedModel.interface_id(), search_vars, search_set);
-      if (cache_it != data_pairs.get<hashed>().end()) {
-	fnGradX = cache_it->response().function_gradient_copy(respFnCount);
+      Response desired_resp;
+      if( lookup_by_val(data_pairs, iteratedModel.interface_id(), search_vars,
+			search_set, desired_resp) ) {
+	fnGradX = desired_resp.function_gradient_copy(respFnCount);
 	found_mode |= 2;
       }
     }
@@ -1589,10 +1469,10 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
       ShortArray search_asv(numFunctions, 0);
       search_asv[respFnCount] = 4;
       search_set.request_vector(search_asv);
-      PRPCacheHIter cache_it = lookup_by_val(data_pairs,
-	iteratedModel.interface_id(), search_vars, search_set);
-      if (cache_it != data_pairs.get<hashed>().end()) {
-        fnHessX = cache_it->response().function_hessian(respFnCount);
+      Response desired_resp;
+      if( lookup_by_val(data_pairs, iteratedModel.interface_id(), search_vars,
+			search_set, desired_resp) ) {
+        fnHessX = desired_resp.function_hessian(respFnCount);
 	found_mode |= 4;
       }
     }
@@ -1603,7 +1483,7 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
       iteratedModel.continuous_variables(mostProbPointX);
       activeSet.request_values(0);
       activeSet.request_value(remaining_mode, respFnCount);
-      iteratedModel.evaluate(activeSet);
+      iteratedModel.compute_response(activeSet);
       const Response& curr_resp = iteratedModel.current_response();
       if (remaining_mode & 2)
 	fnGradX = curr_resp.function_gradient_copy(respFnCount);
@@ -1639,10 +1519,6 @@ update_mpp_search_data(const Variables& vars_star, const Response& resp_star)
     finalStatistics, warm start, and graphics data. */
 void NonDLocalReliability::update_level_data()
 {
-  // local reliability data aren't output to tabular, so send directly
-  // to graphics window only
-  Graphics& dakota_graphics = parallelLib.output_manager().graphics();
-
   bool ria_flag = (levelCount < requestedRespLevels[respFnCount].length());
 
   // Update computed Resp/Prob/Rel/GenRel levels arrays.  finalStatistics
@@ -1697,11 +1573,12 @@ void NonDLocalReliability::update_level_data()
       Real factor = (cdfFlag) ? 1./norm_grad_u : -1./norm_grad_u;
       if (integrationOrder == 2 && respLevelTarget != RELIABILITIES) {
 	factor *= dp2_dbeta_factor(computedRelLevel, cdfFlag);
-	if (respLevelTarget == GEN_RELIABILITIES) // for 2nd-order dbeta*/ds
-	  factor /= -Pecos::NormalRandomVariable::std_pdf(-computedGenRelLevel);
+	// factor for second-order dbeta*/ds
+	if (respLevelTarget == GEN_RELIABILITIES)
+	  factor *= -1. / Pecos::phi(-computedGenRelLevel);
       }
-      else if (respLevelTarget == PROBABILITIES)  // for 1st-order dp/ds
-	factor *= -Pecos::NormalRandomVariable::std_pdf(-computedRelLevel);
+      else if (respLevelTarget == PROBABILITIES) // factor for first-order dp/ds
+	factor *= -Pecos::phi(-computedRelLevel);
 
       // apply factor:
       size_t i, num_final_grad_vars
@@ -1753,7 +1630,7 @@ void NonDLocalReliability::update_limit_state_surrogate()
   ActiveSet set;//(numFunctions, numUncertainVars);
   set.request_vector(asv);
   set.derivative_vector(iteratedModel.continuous_variable_ids());
-  Response response(SIMULATION_RESPONSE, set);
+  Response response(set);
   response.function_value(computedRespLevel, respFnCount);
   if (x_space) {
     response.function_gradient(fnGradX, respFnCount);
@@ -1804,18 +1681,18 @@ update_pma_maximize(const RealVector& mpp_u, const RealVector& fn_grad_u,
 
 void NonDLocalReliability::assign_mean_data()
 {
-  mostProbPointX = ranVarMeansX;
+  const Pecos::RealVector& x_means = natafTransform.x_means();
+  mostProbPointX = x_means;
   mostProbPointU = ranVarMeansU;
   computedRespLevel = fnValsMeanX(respFnCount);
   for (size_t i=0; i<numUncertainVars; i++)
     fnGradX[i] = fnGradsMeanX(i,respFnCount);
   SizetMultiArrayConstView cv_ids = iteratedModel.continuous_variable_ids();
   SizetArray x_dvv; copy_data(cv_ids, x_dvv);
-  natafTransform.trans_grad_X_to_U(fnGradX, fnGradU, ranVarMeansX,
-				   x_dvv, cv_ids);
-  if (taylorOrder == 2 && iteratedModel.hessian_type() != "quasi") {
+  natafTransform.trans_grad_X_to_U(fnGradX, fnGradU, x_means, x_dvv, cv_ids);
+  if (taylorOrder == 2 && hessianType != "quasi") {
     fnHessX = fnHessiansMeanX[respFnCount];
-    natafTransform.trans_hess_X_to_U(fnHessX, fnHessU, ranVarMeansX, fnGradX,
+    natafTransform.trans_hess_X_to_U(fnHessX, fnHessU, x_means, fnGradX,
 				     x_dvv, cv_ids);
     curvatureDataAvailable = true; kappaUpdated = false;
   }
@@ -1960,7 +1837,7 @@ PMA_objective_eval(const Variables& sub_model_vars,
   }
   if (asv_val & 4) { // d^2G/du^2: no additional transformation needed
     Cout << "PMA_objective_eval(): sub-model Hessian:\n";
-    write_data(Cout, fn_hess_u);
+    write_data(Cout, fn_hess_u, true, true, true);
   }
 #endif // DEBUG
 }
@@ -2062,7 +1939,7 @@ PMA2_constraint_eval(const Variables& sub_model_vars,
     //                 (term in brackets computed in dp2_dbeta_factor())
     //   dbeta*/du_i = -1/phi(-beta*) * dp_2/du (in factor below)
     Real factor = -nondLocRelInstance->dp2_dbeta_factor(comp_rel, cdf)
-      / comp_rel / Pecos::NormalRandomVariable::std_pdf(-comp_gen_rel);
+                / comp_rel / Pecos::phi(-comp_gen_rel);
     size_t i, num_vars = u.length();
     RealVector grad_f = recast_response.function_gradient_view(1);
     for (i=0; i<num_vars; ++i)
@@ -2172,7 +2049,7 @@ dg_ds_eval(const RealVector& x_vars, const RealVector& fn_grad_x,
     }
     inactive_grad_set.derivative_vector(filtered_final_dvv);
     */
-    iteratedModel.evaluate(inactive_grad_set);
+    iteratedModel.compute_response(inactive_grad_set);
     const Response& curr_resp = iteratedModel.current_response();
     if (secondaryACVarMapTargets.empty())
       final_stat_grad = curr_resp.function_gradient_copy(respFnCount);
@@ -2254,8 +2131,7 @@ probability(Real beta, bool cdf_flag, const RealVector& mpp_u,
     bool apply_correction = true;
     Real psi_m_beta;
     if (secondOrderIntType != BREITUNG)
-      psi_m_beta = Pecos::NormalRandomVariable::std_pdf(-beta_corr)
-	         / Pecos::NormalRandomVariable::std_cdf(-beta_corr);
+      psi_m_beta = Pecos::phi(-beta_corr) / Pecos::Phi(-beta_corr);
     Real kterm = (secondOrderIntType == BREITUNG) ? beta_corr : psi_m_beta;
     int i, num_kappa = numUncertainVars - 1;
     for (i=0; i<num_kappa; i++) {
@@ -2279,8 +2155,7 @@ probability(Real beta, bool cdf_flag, const RealVector& mpp_u,
 	p_corr /= std::sqrt(1. + ktk);
 	if (secondOrderIntType == HONG) {
 	  Real hterm = num_kappa * kappa[i] / 2. / (1. + ktk);
-	  C1 += Pecos::NormalRandomVariable::std_cdf(-beta_corr-hterm)
-	     /  Pecos::NormalRandomVariable::std_cdf(-beta_corr)
+	  C1 += Pecos::Phi(-beta_corr-hterm) / Pecos::Phi(-beta_corr)
 	     *  exp(psi_m_beta*hterm);
 	}
       }
@@ -2306,17 +2181,15 @@ probability(Real beta, bool cdf_flag, const RealVector& mpp_u,
     }
   }
 
-  if (integrationRefinement &&                                  // IS/AIS/MMAIS
-      levelCount < requestedRespLevels[respFnCount].length()) { // RIA only
+  if (integrationRefinement) { // IS/AIS/MMAIS
     // rep needed for access to functions not mapped to Iterator level
-    NonDAdaptImpSampling* import_sampler_rep
+    NonDAdaptImpSampling* importance_sampler_rep
       = (NonDAdaptImpSampling*)importanceSampler.iterator_rep();
-    bool x_data_flag = false;
-    import_sampler_rep->
-      initialize(mpp_u, x_data_flag, respFnCount, p, requestedTargetLevel);
-    ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-    importanceSampler.run(pl_iter);
-    p = import_sampler_rep->final_probability();
+    importance_sampler_rep->
+      initialize(mpp_u, respFnCount, p, requestedTargetLevel);
+    // no summary output since on-the-fly constructed:
+    importanceSampler.run_iterator(Cout);
+    p = importance_sampler_rep->get_probability();
     if (outputLevel > NORMAL_OUTPUT)
       Cout << " refined = " << std::setw(wpp7) << p;
   }
@@ -2375,8 +2248,7 @@ Real NonDLocalReliability::dp2_dbeta_factor(Real beta, bool cdf_flag)
       // --> dPsi/dbeta(-beta_corr)
       //       = -Psi(-beta_corr) (-beta_corr + Psi(-beta_corr) )
       //       =  Psi(-beta_corr) ( beta_corr - Psi(-beta_corr) )
-      kterm = Pecos::NormalRandomVariable::std_pdf(-beta_corr)
-	    / Pecos::NormalRandomVariable::std_cdf(-beta_corr); // psi_m_beta
+      kterm = Pecos::phi(-beta_corr) / Pecos::Phi(-beta_corr); // psi_m_beta
       dpsi_m_beta_dbeta = kterm*(beta_corr - kterm); // orig (kterm + beta_corr)
       break;
     }
@@ -2405,8 +2277,7 @@ Real NonDLocalReliability::dp2_dbeta_factor(Real beta, bool cdf_flag)
       // verify p_corr within (0,1) for consistency with probability()
       Real p1_corr = probability(beta_corr), p2_corr = p1_corr * prod2;
       if (p2_corr >= 0. && p2_corr <= 1.) // factor for second-order dp/ds:
-	return p1_corr * sum
-	  - Pecos::NormalRandomVariable::std_pdf(-beta_corr) * prod2;
+	return p1_corr * sum - Pecos::phi(-beta_corr) * prod2;
     }
 
     // if not returned, then there was an exception
@@ -2414,7 +2285,7 @@ Real NonDLocalReliability::dp2_dbeta_factor(Real beta, bool cdf_flag)
     warningBits |= 2; // second warning in output summary
   }
 
-  return -Pecos::NormalRandomVariable::std_pdf(-beta);
+  return -Pecos::phi(-beta);
 }
 
 
@@ -2534,8 +2405,7 @@ reliability_residual(const Real& p, const Real& beta,
   // this case.
   Real psi_m_beta;
   if (secondOrderIntType != BREITUNG)
-    psi_m_beta = Pecos::NormalRandomVariable::std_pdf(-beta)
-               / Pecos::NormalRandomVariable::std_cdf(-beta);
+    psi_m_beta = Pecos::phi(-beta) / Pecos::Phi(-beta);
   Real kterm = (secondOrderIntType == BREITUNG) ? beta : psi_m_beta;
   for (i=0; i<num_kappa; i++)
     if (1. + kterm * kappa[i] <= curvatureThresh) {
@@ -2555,15 +2425,14 @@ reliability_residual(const Real& p, const Real& beta,
     prod *= std::sqrt(1. + ktk);
     if (secondOrderIntType == HONG) {
       Real hterm = num_kappa * kappa[i] / 2. / (1. + ktk);
-      C1 += Pecos::NormalRandomVariable::std_cdf(-beta - hterm)
-	 /  Pecos::NormalRandomVariable::std_cdf(-beta)
+      C1 += Pecos::Phi(-beta - hterm) / Pecos::Phi(-beta)
 	 *  exp(psi_m_beta * hterm);
     }
   }
   if (secondOrderIntType == HONG)
-    res = p * prod - C1 * Pecos::NormalRandomVariable::std_cdf(-beta);
+    res = p * prod - C1 * Pecos::Phi(-beta);
   else
-    res = p * prod - Pecos::NormalRandomVariable::std_cdf(-beta);
+    res = p * prod - Pecos::Phi(-beta);
 
   return false;
 }
@@ -2576,8 +2445,7 @@ reliability_residual_derivative(const Real& p, const Real& beta,
   int i, j, num_kappa = numUncertainVars - 1;
   Real psi_m_beta, dpsi_m_beta_dbeta;
   if (secondOrderIntType != BREITUNG) {
-    psi_m_beta = Pecos::NormalRandomVariable::std_pdf(-beta)
-               / Pecos::NormalRandomVariable::std_cdf(-beta);
+    psi_m_beta = Pecos::phi(-beta) / Pecos::Phi(-beta);
     dpsi_m_beta_dbeta = psi_m_beta*(beta + psi_m_beta);
   }
 
@@ -2601,7 +2469,7 @@ reliability_residual_derivative(const Real& p, const Real& beta,
     //dres_dbeta = p * sum + C1 * phi(-beta) - Phi(-beta) * dC1_dbeta;
   }
   else
-    dres_dbeta = p * sum + Pecos::NormalRandomVariable::std_pdf(-beta);
+    dres_dbeta = p * sum + Pecos::phi(-beta);
 
   return dres_dbeta;
 }
@@ -2699,7 +2567,7 @@ principal_curvatures(const RealVector& mpp_u, const RealVector& fn_grad_u,
 
 void NonDLocalReliability::print_results(std::ostream& s)
 {
-  size_t i, j, k, cntr, width = write_precision+7;
+  size_t i, j, width = write_precision+7;
   StringMultiArrayConstView uv_labels
     = iteratedModel.continuous_variable_labels();
   const StringArray& fn_labels = iteratedModel.response_labels();
@@ -2722,42 +2590,28 @@ void NonDLocalReliability::print_results(std::ostream& s)
     s << "-----------------------------------------------------------------\n";
   }
 
-  // output MV-specific statistics
-  if (!mppSearchType)
-    for (i=0; i<numFunctions; i++) {
+  for (i=0; i<numFunctions; i++) {
+
+    // output MV-specific statistics
+    if (!mppSearchType) {
       s << "MV Statistics for " << fn_labels[i] << ":\n";
       // approximate response means and std deviations and importance factors
       Real& std_dev = momentStats(1,i);
       s << "  Approximate Mean Response                  = " << std::setw(width)
 	<< momentStats(0,i) << "\n  Approximate Standard Deviation of Response"
 	<< " = " << std::setw(width)<< std_dev << '\n';
-      if (std_dev < Pecos::SMALL_NUMBER)
+      if (natafTransform.x_correlation() || std_dev < Pecos::SMALL_NUMBER)
 	s << "  Importance Factors not available.\n";
-      else {
-	Real* imp_fact_i = impFactor[i];
+      else
 	for (j=0; j<numUncertainVars; j++)
-	  s << "  Importance Factor for " << std::setiosflags(std::ios::left)
-	    << std::setw(20) << uv_labels[j].data() << " = "
+	  s << "  Importance Factor for variable "
+	    << std::setiosflags(std::ios::left) << std::setw(11)
+	    << uv_labels[j].data() << " = "
 	    << std::resetiosflags(std::ios::adjustfield)
-	    << std::setw(width) << imp_fact_i[j] << '\n';
-
-	if (natafTransform.x_correlation())
-	  for (j=0, cntr=numUncertainVars; j<numUncertainVars; ++j)
-	    for (k=0; k<j; ++k, ++cntr)
-	      s << "  Importance Factor for "
-		<< std::setiosflags(std::ios::left) << std::setw(10)
-		<< uv_labels[k].data() << std::setw(10) << uv_labels[j].data()
-		<< " = " << std::resetiosflags(std::ios::adjustfield)
-		<< std::setw(width) << imp_fact_i[cntr] << '\n';
-      }
+	    << std::setw(width) << impFactor(j,i) << '\n';
     }
 
-  // output PDFs (defined if pdfOutput and integrationRefinement)
-  print_densities(s);
-
-  // output CDF/CCDF level mappings (replaces NonD::print_level_mappings())
-  for (i=0; i<numFunctions; i++) {
-
+    // output CDF/CCDF response/probability pairs
     size_t num_levels = computedRespLevels[i].length();
     if (num_levels) {
       if (!mppSearchType && momentStats(1,i) < Pecos::SMALL_NUMBER)
@@ -2779,6 +2633,8 @@ void NonDLocalReliability::print_results(std::ostream& s)
     }
   }
 
+  //s << "Final statistics:\n" << finalStatistics;
+
   s << "-----------------------------------------------------------------"
     << std::endl;
 }
@@ -2790,8 +2646,10 @@ void NonDLocalReliability::method_recourse()
        << "detected method conflict.\n\n";
   if (mppSearchType && npsolFlag) {
 #ifdef HAVE_OPTPP
+    mppModel.free_communicators(mppOptimizer.maximum_concurrency());
     mppOptimizer.assign_rep(
       new SNLLOptimizer("optpp_q_newton", mppModel), false);
+    mppModel.init_communicators(mppOptimizer.maximum_concurrency());
 #else
     Cerr << "\nError: method recourse not possible in NonDLocalReliability "
 	 << "(OPT++ NIP unavailable).\n";

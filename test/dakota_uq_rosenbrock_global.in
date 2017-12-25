@@ -1,17 +1,14 @@
-#@ s0: TimeoutDelay=600
-#@ s1: TimeoutDelay=600
-
 # DAKOTA INPUT FILE : dakota_uq_rosenbrock_global.in
 
-environment,
-	#graphics
+# timeout overrides: 0=TD180, 1=TD300
+
+strategy,
+	single_method #graphics
 
 method,
 	global_reliability
-	  x_gaussian_process dakota   #s0
-#	  x_gaussian_process surfpack #s1
-    # explicit default:
-#   initial_samples = 6         #s1 
+	  x_gaussian_process dakota   #0
+#	  x_gaussian_process surfpack #1
 #	  u_gaussian_process
 	  response_levels = .5 1. 5. 10. 50. 100. 500. 1000.
 	  seed = 123457

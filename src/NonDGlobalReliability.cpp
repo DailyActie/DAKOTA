@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -19,7 +19,7 @@
 //#include "DDACEDesignCompExp.hpp"
 //#include "FSUDesignCompExp.hpp"
 #include "NonDAdaptImpSampling.hpp"
-//#ifdef HAVE_ACRO
+//#ifdef DAKOTA_COLINY
 //#include "COLINOptimizer.hpp"
 //#endif
 #include "RecastModel.hpp"
@@ -69,20 +69,24 @@ NonDGlobalReliability* NonDGlobalReliability::nondGlobRelInstance(NULL);
 
 using std::setw;
 
-NonDGlobalReliability::
-NonDGlobalReliability(ProblemDescDB& problem_db, Model& model): 
-  NonDReliability(problem_db, model),
-  meritFunctionType(AUGMENTED_LAGRANGIAN_MERIT), dataOrder(1)
+NonDGlobalReliability::NonDGlobalReliability(Model& model): 
+  NonDReliability(model), meritFunctionType(AUGMENTED_LAGRANGIAN_MERIT),
+  dataOrder(1)
 {
-  if (mppSearchType < EGRA_X) {
+  const String& mpp_search
+    = probDescDB.get_string("method.nond.reliability_search_type");
+  if (mpp_search == "egra_x")
+    mppSearchType = EGRA_X;
+  else if (mpp_search == "egra_u")
+    mppSearchType = EGRA_U;
+  else {
     Cerr << "Error: only x-space and u-space EGRA are currently supported in "
 	 << "global_reliability."<< std::endl;
     abort_handler(-1); 
   }
 
-  // standard reliability indices are not defined and should be precluded
-  // via the input spec.  requestedRelLevels is default sized in NonD and
-  // cannot be used for the empty() test below.
+  // standard reliability indices are not defined and should be precluded via
+  // the input spec.  requestedRelLevels cannot be used for empty() tests.
   if (!probDescDB.get_rva("method.nond.reliability_levels").empty() ||
       respLevelTarget == RELIABILITIES) {
     Cerr << "Error: reliability indices are not defined for global reliability "
@@ -91,9 +95,8 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
   }
 
   // requestedProbLevels & requestedGenRelLevels are not yet supported
-  // since PMA EGRA requires additional R&D.  Note: requestedProbLevels and
-  // requestedGenRelLevels are default sized in NonD and cannot be used for
-  // the empty() tests below.
+  // since PMA EGRA is currently a research issue.  requestedProbLevels
+  // and requestedGenRelLevels cannot be used for empty() tests.
   if (!probDescDB.get_rva("method.nond.probability_levels").empty() ||
       !probDescDB.get_rva("method.nond.gen_reliability_levels").empty()) {
     Cerr << "Error: Inverse reliability mappings not currently supported in "
@@ -109,14 +112,12 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
   }
 #endif // DAKOTA_F90
 
-  // Size the output arrays, augmenting sizing in NonDReliability.  Relative to
-  // other NonD methods, the output storage for reliability methods is greater
-  // since there may be differences between requested and computed levels for
-  // the same level type (the request is not always achieved) and since
-  // probability and reliability are carried along in parallel (due to their
-  // direct correspondence).  Relative to NonDLocalReliability, RelLevels are
-  // ignored since probabilities are estimated directly from MMAIS.
-  size_t i;
+  // Size the output arrays.  Relative to sampling methods, the output storage
+  // for reliability methods is more substantial since there may be differences
+  // between requested and computed levels for the same measure (the request is
+  // not always achieved) and since probability and reliability are carried
+  // along in parallel (due to their direct correspondence).
+  size_t i, j;
   for (i=0; i<numFunctions; i++) {
     size_t num_levels = requestedRespLevels[i].length() + 
       requestedProbLevels[i].length() + requestedGenRelLevels[i].length();
@@ -130,10 +131,10 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
   
   // Always build a global Gaussian process model.  No correction is needed.
   String approx_type = "global_kriging";
-  if (probDescDB.get_short("method.nond.emulator") == GP_EMULATOR)
+  if (probDescDB.get_short("method.nond.emulator") == GAUSSIAN_PROCESS)
     approx_type = "global_gaussian";
 
-  unsigned short sample_type = SUBMETHOD_DEFAULT;
+  String sample_type;
   UShortArray approx_order; // not used for GP/kriging
   short corr_order = -1, corr_type = NO_CORRECTION,
     active_view = iteratedModel.current_variables().view().first;
@@ -143,41 +144,40 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
 	   << "when derivatives present; use kriging instead." << std::endl;
       abort_handler(-1);
     }
-    if (iteratedModel.gradient_type() != "none") dataOrder |= 2;
-    if (iteratedModel.hessian_type()  != "none") dataOrder |= 4;
+    if (gradientType != "none") dataOrder |= 2;
+    if (hessianType  != "none") dataOrder |= 4;
   }
   String sample_reuse
     = (active_view == RELAXED_ALL || active_view == MIXED_ALL) ? "all" : "none";
 
-  int db_samples = probDescDB.get_int("method.samples");  
-  int samples = (db_samples > 0) ? db_samples : 
-    (numContinuousVars+1)*(numContinuousVars+2)/2;
-
-  int lhs_seed = probDescDB.get_int("method.random_seed");
+  // Use a hardwired minimal initial samples
+  int samples  = (numContinuousVars+1)*(numContinuousVars+2)/2,
+      lhs_seed = probDescDB.get_int("method.random_seed");
   const String& rng = probDescDB.get_string("method.random_number_generator");
   bool vary_pattern = false; // for consistency across outer loop invocations
   // get point samples file
   const String& import_pts_file
-    = probDescDB.get_string("method.import_build_points_file");
+    = probDescDB.get_string("method.import_points_file");
   if (!import_pts_file.empty())
     { samples = 0; sample_reuse = "all"; }
 
   //int symbols = samples; // symbols needed for DDACE
   Iterator dace_iterator;
-  NonDLHSSampling* lhs_sampler_rep;
   // instantiate the Nataf Recast and Gaussian Process DataFit recursions
   if (mppSearchType == EGRA_X) { // Recast( DataFit( iteratedModel ) )
 
+    // For additional generality, could develop on the fly envelope ctor:
+    //Iterator dace_iterator(iteratedModel, dace_method, ...);
+
     // The following uses on the fly derived ctor:
-    lhs_sampler_rep = new NonDLHSSampling(iteratedModel, sample_type, samples,
-      lhs_seed, rng, vary_pattern, ACTIVE_UNIFORM);
-    //unsigned short dace_method = SUBMETHOD_LHS; // submethod enum
-    //lhs_sampler_rep = new DDACEDesignCompExp(iteratedModel, samples, symbols,
-    //                                         lhs_seed, dace_method);
-    //unsigned short dace_method = FSU_HAMMERSLEY;
-    //lhs_sampler_rep = new FSUDesignCompExp(iteratedModel, samples, lhs_seed,
-    //                                       dace_method);
-    dace_iterator.assign_rep(lhs_sampler_rep, false);
+    dace_iterator.assign_rep(new NonDLHSSampling(iteratedModel, sample_type,
+      samples, lhs_seed, rng, vary_pattern, ACTIVE_UNIFORM), false);
+    //String dace_method = "lhs";
+    //dace_iterator.assign_rep(new DDACEDesignCompExp(iteratedModel, samples,
+    //                         symbols, lhs_seed, dace_method), false);
+    //String dace_method = "fsu_hammersley";
+    //dace_iterator.assign_rep(new FSUDesignCompExp(iteratedModel, samples,
+    //                         lhs_seed, dace_method), false);
 
     // Construct g-hat(x) using a GP approximation over the active/uncertain
     // vars (same view as iteratedModel: not the typical All view for DACE).
@@ -191,41 +191,37 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
     	{ set.request_value(dataOrder, i); surr_fn_indices.insert(i); }
     dace_iterator.active_set(set);
     //const Variables& curr_vars = iteratedModel.current_variables();
-    ActiveSet gp_set = iteratedModel.current_response().active_set(); // copy
-    gp_set.request_values(1);// no surr deriv evals, but GP may be grad-enhanced
     g_hat_x_model.assign_rep(new DataFitSurrModel(dace_iterator, iteratedModel,
-      gp_set, approx_type, approx_order, corr_type, corr_order, dataOrder,
-      outputLevel, sample_reuse, import_pts_file,
-      probDescDB.get_ushort("method.import_build_format"),
-      probDescDB.get_bool("method.import_build_active_only"),
-      probDescDB.get_string("method.export_approx_points_file"),
-      probDescDB.get_ushort("method.export_approx_format")), false);
+      //curr_vars.view(), curr_vars.variables_components(),
+      //iteratedModel.current_response().active_set(),
+      approx_type, approx_order, corr_type, corr_order, dataOrder, outputLevel,
+      sample_reuse, probDescDB.get_string("method.export_points_file"),
+      probDescDB.get_bool("method.export_points_file_annotated"),
+      import_pts_file,
+      probDescDB.get_bool("method.import_points_file_annotated")), false);
     g_hat_x_model.surrogate_function_indices(surr_fn_indices);
 
     // Recast g-hat(x) to G-hat(u)
-    transform_model(g_hat_x_model, uSpaceModel, true, 5.);// truncated dist bnds
+    transform_model(g_hat_x_model, uSpaceModel, true, 5.); // global bounds
   }
   else { // DataFit( Recast( iteratedModel ) )
 
     // Recast g(x) to G(u)
     Model g_u_model;
-    transform_model(iteratedModel, g_u_model, true, 5.); // truncated dist bnds
+    transform_model(iteratedModel, g_u_model, true, 5.); // global bounds
 
     // For additional generality, could develop on the fly envelope ctor:
     //Iterator dace_iterator(g_u_model, dace_method, ...);
 
     // The following use on-the-fly derived ctors:
-    lhs_sampler_rep = new NonDLHSSampling(g_u_model, sample_type,
-      samples, lhs_seed, rng, vary_pattern, ACTIVE_UNIFORM);
-    //unsigned short dace_method = SUBMETHOD_LHS; // submethod enum
-    //lhs_sampler_rep = new DDACEDesignCompExp(g_u_model, samples, symbols,
-    //                                         lhs_seed, dace_method);
-    //unsigned short dace_method = FSU_HAMMERSLEY;
-    //lhs_sampler_rep = new FSUDesignCompExp(g_u_model, samples, lhs_seed,
-    //                                       dace_method);
-    dace_iterator.assign_rep(lhs_sampler_rep, false);
-    // share nataf instance to provide data for performing inverse transforms
-    lhs_sampler_rep->initialize_random_variables(natafTransform); // shared rep
+    dace_iterator.assign_rep(new NonDLHSSampling(g_u_model, sample_type,
+      samples, lhs_seed, rng, vary_pattern, ACTIVE_UNIFORM), false);
+    //String dace_method = "lhs";
+    //dace_iterator.assign_rep(new DDACEDesignCompExp(g_u_model, samples,
+    //                         symbols, lhs_seed, dace_method), false);
+    //String dace_method = "fsu_hammersley";
+    //dace_iterator.assign_rep(new FSUDesignCompExp(g_u_model, samples,
+    //                         lhs_seed, dace_method), false);
 
     // Construct G-hat(u) using a GP approximation over the active/uncertain
     // variables (using the same view as iteratedModel/g_u_model: not the
@@ -240,47 +236,50 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
     dace_iterator.active_set(set);
 
     //const Variables& g_u_vars = g_u_model.current_variables();
-    ActiveSet gp_set = g_u_model.current_response().active_set(); // copy
-    gp_set.request_values(1);// no surr deriv evals, but GP may be grad-enhanced
     uSpaceModel.assign_rep(new DataFitSurrModel(dace_iterator, g_u_model,
-      gp_set, approx_type, approx_order, corr_type, corr_order, dataOrder,
-      outputLevel, sample_reuse, import_pts_file,
-      probDescDB.get_ushort("method.import_build_format"),
-      probDescDB.get_bool("method.import_build_active_only"),
-      probDescDB.get_string("method.export_approx_points_file"),
-      probDescDB.get_ushort("method.export_approx_format")), false);
+      //g_u_vars.view(), g_u_vars.variables_components(),
+      //g_u_model.current_response().active_set(),
+      approx_type, approx_order, corr_type, corr_order, dataOrder, outputLevel,
+      sample_reuse, probDescDB.get_string("method.export_points_file"),
+      probDescDB.get_bool("method.export_points_file_annotated"),
+      import_pts_file,
+      probDescDB.get_bool("method.import_points_file_annotated")), false);
     uSpaceModel.surrogate_function_indices(surr_fn_indices);
   }
 
-  // Following this ctor, IteratorScheduler::init_iterator() initializes the
-  // parallel configuration for NonDGlobalReliability + iteratedModel using
-  // NonDGlobalReliability's maxEvalConcurrency. During uSpaceModel construction
+  // mppModel.init_communicators() recursion is currently sufficient for
+  // uSpaceModel.  An additional uSpaceModel.init_communicators() call would be
+  // motivated by special parallel usage of uSpaceModel below that is not
+  // otherwise covered by the recursion.
+  //uSpaceMaxConcurrency = maxConcurrency; // local derivative concurrency
+  //uSpaceModel.init_communicators(uSpaceMaxConcurrency);
+
+  // Following this ctor, Strategy::init_iterator() initializes the parallel
+  // configuration for NonDGlobalReliability + iteratedModel using
+  // NonDGlobalReliability's maxConcurrency.  During uSpaceModel construction
   // above, DataFitSurrModel::derived_init_communicators() initializes the
   // parallel configuration for dace_iterator + iteratedModel using
-  // dace_iterator's maxEvalConcurrency.  The only iteratedModel concurrency
+  // dace_iterator's maxConcurrency.  The only iteratedModel concurrency
   // currently exercised is that used by dace_iterator within the initial GP
-  // construction, but the NonDGlobalReliability maxEvalConcurrency must still
-  // be set so as to avoid parallel configuration errors resulting from
-  // avail_procs > max_concurrency within IteratorScheduler::init_iterator().
-  // A max of the local derivative concurrency and the DACE concurrency is used
-  // for this purpose.
-  maxEvalConcurrency = std::max(maxEvalConcurrency,
-				dace_iterator.maximum_evaluation_concurrency());
+  // construction, but the NonDGlobalReliability maxConcurrency must still be
+  // set so as to avoid parallel configuration errors resulting from
+  // avail_procs > max_concurrency within Strategy::init_iterator().  A max
+  // of the local derivative concurrency and the DACE concurrency is used for
+  // this purpose.
+  maxConcurrency = std::max(maxConcurrency,dace_iterator.maximum_concurrency());
 
   // Configure a RecastModel with one objective and no constraints using the
   // alternate minimalist constructor.  The RIA/PMA expected improvement/
   // expected feasibility formulations may vary with the level requests, so
   // the recast fn pointers are reset for each level within the run fn.
-  SizetArray recast_vars_comps_total;  // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  short recast_resp_order = 1; // nongradient-based optimizers
+  SizetArray recast_vars_comps_total; // default: empty; no change in size
   mppModel.assign_rep(
-    new RecastModel(uSpaceModel, recast_vars_comps_total, all_relax_di,
-		    all_relax_dr, 1, 0, 0, recast_resp_order), false);
+    new RecastModel(uSpaceModel, recast_vars_comps_total, 1, 0, 0),
+    false);
 
   // For formulations with one objective and one equality constraint,
   // use the following instead:
-  //mppModel.assign_rep(new RecastModel(uSpaceModel, ..., 1, 1, 0, ...), false);
+  //mppModel.assign_rep(new RecastModel(uSpaceModel, 1, 1, 0), false);
   //RealVector nln_eq_targets(1, 0.);
   //mppModel.nonlinear_eq_constraint_targets(nln_eq_targets);
 
@@ -290,13 +289,14 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
 #ifdef HAVE_NCSU  
   mppOptimizer.assign_rep(new NCSUOptimizer(mppModel, max_iter, max_eval,
 					    min_box_size, vol_box_size), false);
-  //#ifdef HAVE_ACRO
+  //#ifdef DAKOTA_COLINY
   //int coliny_seed = 0; // system-generated, for now
   //mppOptimizer.assign_rep(new
   //  COLINOptimizer<coliny::DIRECT>(mppModel, coliny_seed), false);
   //mppOptimizer.assign_rep(new
   //  COLINOptimizer<coliny::EAminlp>(mppModel, coliny_seed), false);
   //#endif
+  mppModel.init_communicators(mppOptimizer.maximum_concurrency());
 #else
   Cerr << "NCSU DIRECT Optimizer is not available to use in the MPP search " 
        << "in global reliability optimization:  aborting process." << std::endl;
@@ -307,94 +307,42 @@ NonDGlobalReliability(ProblemDescDB& problem_db, Model& model):
   // and may be constructed here.  Thus, NonDGlobal applies integration
   // refinement to the G-hat(u) surrogate.  Behavior needs to be repeatable
   // and AIS is not part of the EGRA spec: either reuse lhs_seed or hardwire.
-  int refine_samples = 1000, refine_seed = 123457;
-  // we pass a u-space model and enforce the EGRA GP bounds on the samples;
-  // extreme values are needed to define bounds for outer PDF bins.
-  bool x_model_flag = false, use_model_bounds = true, track_extreme = pdfOutput;
+  int refinement_samples = 1000, refinement_seed = 123457;
+  // these flags control if/when space transformation is needed in the sampler
+  bool x_model_flag = false, bounded_model = true;
+  bool x_data_flag = (mppSearchType == EGRA_X) ? true : false;
   integrationRefinement = MMAIS; vary_pattern = true;
 
-  NonDAdaptImpSampling* importance_sampler_rep = new
-    NonDAdaptImpSampling(uSpaceModel, sample_type, refine_samples, refine_seed,
-			 rng, vary_pattern, integrationRefinement, cdfFlag,
-			 x_model_flag, use_model_bounds, track_extreme);
-  importanceSampler.assign_rep(importance_sampler_rep, false);
+  importanceSampler.assign_rep(new NonDAdaptImpSampling(uSpaceModel,
+    sample_type, refinement_samples, refinement_seed, rng, vary_pattern,
+    integrationRefinement, cdfFlag, x_data_flag, x_model_flag, bounded_model),
+    false);
 
-  // if approximation is built in x-space, then importanceSampler must perform
-  // inverse transformations on gp_inputs; if approximation is built in u-space,
-  // only the cdfFlag is needed to define which samples are failures
-  if (mppSearchType == EGRA_X) // share the ProbabilityTransformation rep
-    importance_sampler_rep->initialize_random_variables(natafTransform);
+  uSpaceModel.init_communicators(importanceSampler.maximum_concurrency());
 }
 
 
 NonDGlobalReliability::~NonDGlobalReliability()
-{ }
-
-
-bool NonDGlobalReliability::resize()
-{
-  bool parent_reinit_comms = NonDReliability::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
-
-
-void NonDGlobalReliability::derived_init_communicators(ParLevLIter pl_iter)
-{
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // mppModel.init_communicators() recursion is currently sufficient for
-  // uSpaceModel.  An additional uSpaceModel.init_communicators() call would be
-  // motivated by special parallel usage of uSpaceModel below that is not
-  // otherwise covered by the recursion.
-  //uSpaceMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //uSpaceModel.init_communicators(pl_iter, uSpaceMaxConcurrency);
-
-  // mppOptimizer and importanceSampler use NoDBBaseConstructor, so no
-  // need to manage DB list nodes at this level
-  mppOptimizer.init_communicators(pl_iter);
-  importanceSampler.init_communicators(pl_iter);
-}
-
-
-void NonDGlobalReliability::derived_set_communicators(ParLevLIter pl_iter)
-{
-  NonD::derived_set_communicators(pl_iter);
-
-  //uSpaceMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //uSpaceModel.set_communicators(pl_iter, uSpaceMaxConcurrency);
-
-  // mppOptimizer and importanceSampler use NoDBBaseConstructor, so no
-  // need to manage DB list nodes at this level
-  mppOptimizer.set_communicators(pl_iter);
-  importanceSampler.set_communicators(pl_iter);
-}
-
-
-void NonDGlobalReliability::derived_free_communicators(ParLevLIter pl_iter)
 {
   // deallocate communicators for MMAIS on uSpaceModel
-  importanceSampler.free_communicators(pl_iter);
+  uSpaceModel.free_communicators(importanceSampler.maximum_concurrency());
 
   // deallocate communicators for DIRECT on mppModel
-  mppOptimizer.free_communicators(pl_iter);
+  mppModel.free_communicators(mppOptimizer.maximum_concurrency());
 
-  //uSpaceMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //uSpaceModel.free_communicators(pl_iter, uSpaceMaxConcurrency);
-
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
+  // mppModel.free_communicators() recursion is currently sufficient for
+  // uSpaceModel.  An additional uSpaceModel.free_communicators() call would
+  // be motivated by special parallel usage of uSpaceModel below that is not
+  // otherwise covered by the recursion.
+  //uSpaceModel.free_communicators(uSpaceMaxConcurrency);
 }
 
 
-void NonDGlobalReliability::core_run()
+void NonDGlobalReliability::quantify_uncertainty()
 {
   // initialize the random variable arrays and the correlation Cholesky factor
   initialize_random_variable_parameters();
-  transform_correlations();
+  natafTransform.transform_correlations();
 
   // set the object instance pointer for use within static member functions
   NonDGlobalReliability* prev_grel_instance = nondGlobRelInstance;
@@ -415,7 +363,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
   // now that variables/labels/bounds/targets have flowed down at run-time from
   // any higher level recursions, propagate them up the instantiate-on-the-fly
   // Model recursion so that they are correct when they propagate back down.
-  mppModel.update_from_subordinate_model(); // depth = max
+  mppModel.update_from_subordinate_model(); // recurse_flag = true
 
   if (mppSearchType == EGRA_X) {
     // assign non-default global variable bounds for use in DACE.
@@ -443,6 +391,12 @@ void NonDGlobalReliability::optimize_gaussian_process()
     g_hat_x_model.continuous_lower_bounds(x_l_bnds);
     g_hat_x_model.continuous_upper_bounds(x_u_bnds);
   }
+  else {
+    NonDLHSSampling* lhs_sampler_rep
+      = (NonDLHSSampling*)uSpaceModel.subordinate_iterator().iterator_rep();
+    // pass x-space data so that u-space Models can perform inverse transforms
+    lhs_sampler_rep->initialize_random_variables(natafTransform);
+  }
 
   // Build initial GP once for all response functions
   uSpaceModel.build_approximation();
@@ -451,7 +405,6 @@ void NonDGlobalReliability::optimize_gaussian_process()
   // important to note that the MPP iteration is different for each response 
   // function, and it is not possible to combine the model evaluations for
   // multiple response functions.
-  ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
   for (respFnCount=0; respFnCount<numFunctions; respFnCount++) {
 
     // The most general case is to allow a combination of response, probability,
@@ -478,7 +431,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	Real p = requestedProbLevels[respFnCount][index];
 	Cout << "\n>>>>> Performance Measure Approach (PMA) for probability "
 	     << "level " << index+1 << " = " << p << '\n';
-	requestedTargetLevel = -Pecos::NormalRandomVariable::inverse_std_cdf(p);
+	requestedTargetLevel = -Pecos::Phi_inverse(p);
 	Real gen_beta_cdf = (cdfFlag) ?
 	  requestedTargetLevel : -requestedTargetLevel;
 	pmaMaximizeG = (gen_beta_cdf < 0.);
@@ -520,7 +473,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	  //secondary_resp_map[0][0] = respFnCount;
 	  //BoolDequeArray nonlinear_resp_map(2);
 	  //nonlinear_resp_map[1] = BoolDeque(1, false);
-	  //mpp_model_rep->init_maps(vars_map, false, NULL, NULL,
+	  //mpp_model_rep->initialize(vars_map, false, NULL, NULL,
 	  //  primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	  //  RIA_objective_eval, RIA_constraint_eval);
 
@@ -529,7 +482,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	  primary_resp_map.resize(1);
 	  primary_resp_map[0].resize(1);
 	  primary_resp_map[0][0] = respFnCount;
-	  mpp_model_rep->init_maps(vars_map, false, NULL, NULL,
+	  mpp_model_rep->initialize(vars_map, false, NULL, NULL,
 	    primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	    EFF_objective_eval, NULL);
 	}
@@ -545,7 +498,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	  //secondary_resp_map.reshape(1); // one constraint, no contributors
 	  //BoolDequeArray nonlinear_resp_map(2);
 	  //nonlinear_resp_map[0] = BoolDeque(1, false);
-	  //mpp_model_rep->init_maps(vars_map, false, NULL, set_map,
+	  //mpp_model_rep->initialize(vars_map, false, NULL, set_map,
 	  //  primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	  //  PMA_objective_eval, PMA_constraint_eval);
 
@@ -556,14 +509,15 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	  primary_resp_map.resize(1);
 	  primary_resp_map[0].resize(1);
 	  primary_resp_map[0][0] = respFnCount;
-	  mpp_model_rep->init_maps(vars_map, false, NULL, NULL,
+	  mpp_model_rep->initialize(vars_map, false, NULL, NULL,
 	    primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	    EIF_objective_eval, NULL);
 	}
 
 	// Execute GLOBAL search and retrieve u-space results
 	Cout << "\n>>>>> Initiating global reliability optimization\n";
-	mppOptimizer.run(pl_iter);
+	// no summary output since on-the-fly constructed:
+	mppOptimizer.run_iterator(Cout);
 	// Use these two lines for COLINY optimizers
 	//const VariablesArray& vars_star
 	//  = mppOptimizer.variables_array_results();
@@ -574,7 +528,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 
 	// Get expected value at u* for output
 	uSpaceModel.continuous_variables(c_vars_u);
-	uSpaceModel.evaluate();
+	uSpaceModel.compute_response();
 	const RealVector& g_hat_fns
 	  = uSpaceModel.current_response().function_values();
 
@@ -636,7 +590,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	  iteratedModel.continuous_variables(c_vars_x);
 	  ActiveSet set = iteratedModel.current_response().active_set();
 	  set.request_values(0); set.request_value(dataOrder, respFnCount);
-	  iteratedModel.evaluate(set);
+	  iteratedModel.compute_response(set);
 	  IntResponsePair resp_star_truth(iteratedModel.evaluation_id(),
 					  iteratedModel.current_response());
 
@@ -723,7 +677,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	    uSpaceModel.continuous_variables(u_pt);
 	    ActiveSet set = uSpaceModel.current_response().active_set();
 	    set.request_values(0); set.request_value(1, respFnCount);
-	    uSpaceModel.evaluate(set);
+	    uSpaceModel.compute_response(set);
 	    const Response& gp_resp = uSpaceModel.current_response();
 	    const RealVector& gp_fn = gp_resp.function_values();
 	    
@@ -732,7 +686,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	    
 	    RealVector variance;
 	    if (mppSearchType == EGRA_X) { // Recast( DataFit( iteratedModel ) )
-	      // RecastModel::derived_evaluate() propagates u_pt to x_pt
+	      // RecastModel::derived_compute_response() propagates u_pt to x_pt
 	      Model& dfs_model = uSpaceModel.subordinate_model();
 	      variance = dfs_model.approximation_variances(
 		dfs_model.current_variables()); // x_pt
@@ -756,7 +710,7 @@ void NonDGlobalReliability::optimize_gaussian_process()
 	      iteratedModel.continuous_variables(x_pt);
 	      set = iteratedModel.current_response().active_set();
 	      set.request_values(0); set.request_value(1, respFnCount);
-	      iteratedModel.evaluate(set);
+	      iteratedModel.compute_response(set);
 	      const Response& true_resp = iteratedModel.current_response();
 	      const RealVector& true_fn = true_resp.function_values();
 	      
@@ -778,15 +732,19 @@ void NonDGlobalReliability::optimize_gaussian_process()
 
 void NonDGlobalReliability::importance_sampling()
 {
-  bool x_data_flag = (mppSearchType == EGRA_X);
-  size_t i;
-  statCount = 0;
-  const ShortArray& final_res_asv = finalStatistics.active_set_request_vector();
-  ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
   // rep needed for access to functions not mapped to Iterator level
   NonDAdaptImpSampling* importance_sampler_rep
     = (NonDAdaptImpSampling*)importanceSampler.iterator_rep();
+  // if the approximation is built in x-space, then importanceSampler must
+  // perform inverse transformations on gp_inputs
+  // if the approximation is build in u-space, only the cdfFlag is needed
+  // to define which samples are failures
+  if (mppSearchType == EGRA_X)
+    importance_sampler_rep->initialize_random_variables(natafTransform);
 
+  size_t i;
+  statCount = 0;
+  const ShortArray& final_res_asv = finalStatistics.active_set_request_vector();
   for (respFnCount=0; respFnCount<numFunctions; respFnCount++) {
 
     // The most general case is to allow a combination of response, probability,
@@ -802,7 +760,7 @@ void NonDGlobalReliability::importance_sampling()
       // don't use derivatives in the importance sampling
       ActiveSet set = iteratedModel.current_response().active_set();
       set.request_values(0); set.request_value(1, respFnCount);
-      iteratedModel.evaluate(set);
+      iteratedModel.compute_response(set);
       const Response& true_resp = iteratedModel.current_response();
       const RealVector& true_fn = true_resp.function_values();
       finalStatistics.function_value(true_fn[respFnCount], statCount);
@@ -816,7 +774,7 @@ void NonDGlobalReliability::importance_sampling()
       //         levels for importance sampling efficiency.
       const Pecos::SurrogateData& gp_data
 	= uSpaceModel.approximation_data(respFnCount);
-      size_t num_data_pts = gp_data.points();
+      size_t num_data_pts = gp_data.size();
       gp_inputs.resize(num_data_pts);
       for (i=0; i<num_data_pts; ++i)
 	gp_inputs[i] = gp_data.continuous_variables(i); // view OK
@@ -834,25 +792,25 @@ void NonDGlobalReliability::importance_sampling()
 
       bool ria_flag = (levelCount < rl_len) ? true : false;
       if (ria_flag) {
-	Real z =  computedRespLevels[respFnCount][levelCount] 
+	Real z = computedRespLevels[respFnCount][levelCount] 
 	       = requestedRespLevels[respFnCount][levelCount];
-	importance_sampler_rep->
-	  initialize(gp_inputs, x_data_flag, respFnCount, 0., z);
+	importance_sampler_rep->initialize(gp_inputs, respFnCount, 0., z);
       }
-      else // not operational (see error traps in ctor)
-	importance_sampler_rep->initialize(gp_inputs, x_data_flag,
-	  respFnCount, 0., computedRespLevels[respFnCount][levelCount]);
+      else
+	importance_sampler_rep->initialize(gp_inputs, respFnCount, 0.,
+	  computedRespLevels[respFnCount][levelCount]);
 
-      importanceSampler.run(pl_iter);
+      // no summary output since on-the-fly constructed:
+      importanceSampler.run_iterator(Cout);
 
-      Real p = importance_sampler_rep->final_probability();
+      const Real& p = importance_sampler_rep->get_probability();
 #ifdef DEBUG
       Cout << "\np = " << p << std::endl;
 #endif // DEBUG
       // RIA z-bar -> p
       computedProbLevels[respFnCount][levelCount] = p;
       // RIA z-bar -> generalized beta
-      Real gen_beta = -Pecos::NormalRandomVariable::inverse_std_cdf(p);
+      Real gen_beta = -Pecos::Phi_inverse(p);
       computedGenRelLevels[respFnCount][levelCount] = gen_beta;
       switch (respLevelTarget) {
       case PROBABILITIES:
@@ -862,10 +820,6 @@ void NonDGlobalReliability::importance_sampling()
       }
     }
   }
-  // post-process level mappings to define PDFs (using prob_refined and
-  // all_levels_computed modes)
-  if (pdfOutput)
-    compute_densities(importance_sampler_rep->extreme_values(), true, true);
 }
 
 
@@ -938,8 +892,8 @@ expected_improvement(const RealVector& expected_values,
   }
   else{
     snv /= stdv; // now snv is the standard normal variate
-    cdf = Pecos::NormalRandomVariable::std_cdf(snv);
-    pdf = Pecos::NormalRandomVariable::std_pdf(snv);
+    cdf = Pecos::Phi(snv);
+    pdf = Pecos::phi(snv);
   }
   ei = (pmaMaximizeG) ? (penalized_mean - fnStar)*(1.-cdf) + stdv*pdf
                       : (fnStar - penalized_mean)*cdf      + stdv*pdf;
@@ -977,18 +931,17 @@ expected_feasibility(const RealVector& expected_values,
     cdfm = cdfp = cdfz = (snvz > 0.) ? 1. : 0.;
   }
   else {
-    snvz /= stdv; Real snvp = snvz + alpha, snvm = snvz - alpha;
-    pdfz = Pecos::NormalRandomVariable::std_pdf(snvz);
-    cdfz = Pecos::NormalRandomVariable::std_cdf(snvz);
-    pdfp = Pecos::NormalRandomVariable::std_pdf(snvp);
-    cdfp = Pecos::NormalRandomVariable::std_cdf(snvp);
-    pdfm = Pecos::NormalRandomVariable::std_pdf(snvm);
-    cdfm = Pecos::NormalRandomVariable::std_cdf(snvm);
+    snvz /= stdv;             pdfz = Pecos::phi(snvz); cdfz = Pecos::Phi(snvz);
+    Real snvp = snvz + alpha; pdfp = Pecos::phi(snvp); cdfp = Pecos::Phi(snvp);
+    Real snvm = snvz - alpha; pdfm = Pecos::phi(snvm); cdfm = Pecos::Phi(snvm);
   }
   // calculate expected feasibility function
-  Real ef = (mean - zbar)*(2.*cdfz - cdfm - cdfp) //exploit
-          - stdv*(2.*pdfz - pdfm - pdfp //explore
-	  - alpha*cdfp + alpha*cdfm);
+  Real ef = (mean - zbar)*(2.*cdfz     -cdfm -cdfp)- //exploit
+                     stdv*(2.*pdfz     -pdfm -pdfp - //explore
+			   alpha*cdfp + alpha*cdfm);
+  //Real ef = (mean - zbar)*(2.*Phi(snvz) - Phi(snvm) - Phi(snvp)) -  //exploit
+  //                   stdv*(2.*phi(snvz) - phi(snvm) - phi(snvp)  -  //explore
+  //   		              alpha*Phi(snvp) + alpha*Phi(snvm));
 
   return -ef;  // return -EF because we are maximizing
 }
@@ -1020,7 +973,7 @@ void NonDGlobalReliability::get_best_sample()
   }
 
   // Calculation of fnStar will have different form for CDF/CCDF cases
-  fnStar = (pmaMaximizeG) ? -DBL_MAX : DBL_MAX; IntRespMCIter it;
+  fnStar = DBL_MAX; IntRespMCIter it;
   for (i=0, it=true_responses.begin(); i<num_samples; i++, ++it) {
     // calculate the reliability index (beta)
     Real beta_star = 0., penalized_response; // TO DO
@@ -1058,7 +1011,7 @@ constraint_penalty(const Real& c_viol, const RealVector& u)
 
     // form -{grad_f} = m_grad_f = -grad[G_hat(u)]
     uSpaceModel.continuous_variables(u);
-    uSpaceModel.evaluate();
+    uSpaceModel.compute_response();
     const Real* grad_f = uSpaceModel.current_response().function_gradient(0);
     RealVector m_grad_f(numContAleatUncVars, false);
     for (size_t i=0; i<numContAleatUncVars; ++i)
@@ -1069,8 +1022,6 @@ constraint_penalty(const Real& c_viol, const RealVector& u)
     Real res_norm;
     IntVector index(1);
     RealVector lambda(1), w(1), bnd(2);
-    // lawson_hanson2.f90: BVLS ignore bounds based on huge(), so +/-DBL_MAX
-    // is sufficient here
     bnd[0] = -DBL_MAX; bnd[1] = DBL_MAX;
     BVLS_WRAPPER_FC(A.values(), m, n, m_grad_f.values(), bnd.values(),
 		    lambda.values(), res_norm, nsetp, w.values(),
@@ -1094,16 +1045,11 @@ void NonDGlobalReliability::print_results(std::ostream& s)
 {
   size_t i, j;
   const StringArray& fn_labels = iteratedModel.response_labels();
-  s << "-----------------------------------------------------------------------"
-    << "------";
+  s << "-----------------------------------------------------------------\n";
 
-  print_densities(s);
-
-  // output CDF/CCDF level mappings (replaces NonD::print_level_mappings())
-  s << std::scientific << std::setprecision(write_precision)
-    << "\nLevel mappings for each response function:\n";
   for (i=0; i<numFunctions; i++) {
 
+    // output CDF/CCDF response/probability pairs
     size_t num_levels = computedRespLevels[i].length();
     if (num_levels) {
       if (cdfFlag)
@@ -1120,8 +1066,10 @@ void NonDGlobalReliability::print_results(std::ostream& s)
     }
   }
 
-  s << "-----------------------------------------------------------------------"
-    << "------" << std::endl;
+  //s << "Final statistics:\n" << finalStatistics;
+
+  s << "-----------------------------------------------------------------"
+    << std::endl;
 }
 
 } // namespace Dakota

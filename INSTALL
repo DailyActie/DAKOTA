@@ -2,12 +2,13 @@
 DAKOTA INSTALL
 ==============
 
-Dakota is a framework which provides access to a broad variety of
+The Design Analysis Kit for Optimization and Terascale Applications
+(DAKOTA) is a framework which provides access to a broad variety of
 algorithms and services.  Downloading pre-built binaries from the
-Dakota web site or accessing a site-supported installation are the
-simplest routes to access Dakota.
+DAKOTA web site or accessing a site-supported installation are the
+simplest routes to access DAKOTA.
 
-For more experienced users, building Dakota from source (either
+For more experienced users, building DAKOTA from source (either
 downloaded or checked out) allows customization with additional
 packages and porting to additional platforms or operating systems.
 This INSTALL file, in conjunction with platform-specific 
@@ -16,7 +17,7 @@ describe how to install pre-built binaries and setup the environment,
 as well as how to compile from source code.
 
 NOTE: The most up to date installation guidance and tips can be found
-alongside the downloads on the Dakota website.
+alongside the downloads on the DAKOTA website.
 
 
 =================
@@ -35,7 +36,7 @@ Other Resources
 Distribution Contents
 =====================
 
-The directories contained in Dakota distributions include:
+The directories contained in DAKOTA distributions include:
   * bin-dist denotes binary distributions 
     	     (Dakota.release.platform.tar.gz, Dakota.release.platform.zip)
   * src-dist denotes source or checkout distributions
@@ -53,13 +54,13 @@ bin-dist      examples	 Example problems from the Users Manual, examples of
 			 examples, and platform installation examples.
 
 bin-dist      test	 Files for regression and unit testing of the
-src-dist      unit_test	 Dakota system. Test simulator programs and Dakota
+src-dist      		 Dakota system. Test simulator programs and Dakota
 			 input files are provided for testing different
 			 capabilities. 
 
-bin-dist      include	 Include files for Dakota and it's associated TPLs.
+bin-dist      include	 Include files for DAKOTA and it's associated TPLs.
 
-bin-dist      lib	 Library files for Dakota and it's associated TPLs.
+bin-dist      lib	 Library files for DAKOTA and it's associated TPLs.
 
 src-dist      packages	 Libraries of iterative algorithms provided by
 	      		 commercial vendors and related Sandia projects.
@@ -138,15 +139,7 @@ I. Install Unix-Like Binary (Linux RHEL6 or binary compatible, Mac OS X)
       $INSTALL_DIR with the absolute path to your installation directory,
       e.g. /home/username.
 
-         export PATH=$INSTALL_DIR/bin:$INSTALL_DIR/test:$PATH
-     
-      If installing Dakota on a Linux system, also set LD_LIBRARY_PATH:
-         
-         export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$INSTALL_DIR/lib:$INSTALL_DIR/bin
-
-      On a Mac, set DYLD_LIBRARY_PATH:
-
-         export DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$INSTALL_DIR/lib:$INSTALL_DIR/bin
+      	   export PATH=$INSTALL_DIR/bin:$INSTALL_DIR/test:$PATH
 
    c. Save and close file.
    d. Update changes in your terminal window. At
@@ -160,15 +153,7 @@ I. Install Unix-Like Binary (Linux RHEL6 or binary compatible, Mac OS X)
       $INSTALL_DIR with the absolute path to your installation directory,
       e.g. /home/username.
 
-         setenv path=($INSTALL_DIR/bin $INSTALL_DIR/test $path)
-
-      If installing Dakota on a Linux system, also set LD_LIBRARY_PATH:
-         
-         setenv LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:${INSTALL_DIR}/lib:${INSTALL_DIR}/bin"
-
-      On a Mac, set DYLD_LIBRARY_PATH:
-
-         setenv DYLD_LIBRARY_PATH "${DYLD_LIBRARY_PATH}:${INSTALL_DIR}/lib:${INSTALL_DIR}/bin"
+      	   setenv path=($INSTALL_DIR/bin $INSTALL_DIR/test $path)
 
    c. Save and close file.
    d. Update changes in your terminal window. At
@@ -216,9 +201,9 @@ III. Test Binary Distribution installation.
 
    > dakota -v
    Running serial executable in serial mode.
-   Dakota released <release date>.
+   DAKOTA released <release date>.
    Subversion revision ### build <build data & time>.
-   Dakota execution time in seconds;
+   DAKOTA execution time in seconds;
    Total CPU = ...
    Total wall clock = ...
 
@@ -239,7 +224,7 @@ III. Test Binary Distribution installation.
 Source Quick Start
 ==================
 
-To compile Dakota source distributions, use CMake to populate a build
+To compile DAKOTA source distributions, use CMake to populate a build
 tree for the target platform with generated Makefiles, and then
 execute 'make'.  Given the large number of supported packages,
 specifying a few 'cmake' options and environment variables may be
@@ -250,18 +235,18 @@ The following are instructions for building Dakota on a Unix-like platform
 in a Bash shell. You may need to use appropriate commands to work for your
 particular platform or shell.
 
-1. Install CMake 2.8.9 (or later) and ensure it is in your $PATH.
+1. Install CMake 2.8.4 (or later) and ensure it is in your $PATH.
 
 2. Extract Dakota source archive file. In the example below, Dakota will
    be extracted into the user's home directory, /home/username. 
 
    $ cd $HOME
-   $ tar xzvf /path/to/dakota-<release>.public.src.tar.gz
+   $ tar xzvf /path/to/dakota-<release>.src.tar.gz
 
-   You will see a new directory, /home/username/dakota-<release>.src. In
+   You will see a new directory, /home/username/dakota-<release>.<platform>. In
    the instructions below, $DAK_SRC refers to this directory.
 
-   $ export DAK_SRC=$HOME/dakota-<release>.src
+   $ export DAK_SRC=$HOME/dakota-<release>.<platform>
 
 3. Create separate build directory, e.g. $HOME/dakota-build. In the
    instructions below, $DAK_BUILD refers to the directory that you create
@@ -305,10 +290,10 @@ Miscellaneous Notes:
 
  * Executing cmake without any options will result in an attempt to
    build with as many vendor algorithms and packages as are available
-   in the distribution.  Options below and on the Dakota website
+   in the distribution.  Options below and on the DAKOTA website
    describe how to turn off features.
 
- * Once make has successfully completed, the generated Dakota
+ * Once make has successfully completed, the generated DAKOTA
    executables (dakota and dakota_restart_util) will reside in
    $DAK_BUILD/src.  If 'make install' is invoked, copies of the
    executables will be placed in CMAKE_INSTALL_PREFIX/bin and copies
@@ -321,7 +306,7 @@ Other Resources
 ===============
 
 For additional help with installing Dakota from source, please
-visit https://dakota.sandia.gov/content/build-compile-source-code
+visit Dakota Developer portal at http://dakota.sandia.gov/developer/. 
 
 Topic include:
 * accessing Dakota via Subversion repository checkout

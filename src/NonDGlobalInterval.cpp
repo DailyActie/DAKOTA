@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -24,7 +24,7 @@
 #ifdef HAVE_NCSU
 #include "NCSUOptimizer.hpp"
 #endif
-#ifdef HAVE_ACRO
+#ifdef DAKOTA_COLINY
 #include "COLINOptimizer.hpp"
 #endif
 #include "pecos_stat_util.hpp"
@@ -37,9 +37,8 @@ namespace Dakota {
 NonDGlobalInterval* NonDGlobalInterval::nondGIInstance(NULL);
 
 
-NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
-  NonDInterval(problem_db, model),
-  seedSpec(probDescDB.get_int("method.random_seed")),
+NonDGlobalInterval::NonDGlobalInterval(Model& model):
+  NonDInterval(model), seedSpec(probDescDB.get_int("method.random_seed")),
   numSamples(probDescDB.get_int("method.samples")),
   rngName(probDescDB.get_string("method.random_number_generator")),
   allResponsesPerIter(false), dataOrder(1), distanceTol(convergenceTol),
@@ -48,9 +47,10 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
   bool err_flag = false;
 
   // Define optimization sub-problem solver
-  unsigned short opt_alg = probDescDB.get_ushort("method.sub_method");
+  const String& opt_alg
+    = probDescDB.get_string("method.nond.optimization_algorithm");
   bool discrete = (numDiscIntEpistUncVars || numDiscRealEpistUncVars);
-  if (opt_alg == SUBMETHOD_EGO) {
+  if (opt_alg == "ego") {
     eifFlag = gpModelFlag = true;
     if (discrete) {
       Cerr << "Error: discrete variables are not currently supported for EGO "
@@ -58,11 +58,11 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
       err_flag = true;
     }
   }
-  else if (opt_alg == SUBMETHOD_SBO)
+  else if (opt_alg == "sbo")
     { eifFlag = false; gpModelFlag = true; }
-  else if (opt_alg == SUBMETHOD_EA)
+  else if (opt_alg == "ea")
     eifFlag = gpModelFlag = false;
-  else if (opt_alg == SUBMETHOD_DEFAULT)
+  else if (opt_alg.empty())
     { gpModelFlag = true; eifFlag = (discrete) ? false : true; }
   else {
     Cerr << "Error: unsupported optimization algorithm selection in "
@@ -81,22 +81,21 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
     if (!numSamples) // use a default of #terms in a quadratic polynomial
       numSamples = (numUncertainVars+1)*(numUncertainVars+2)/2;
     String approx_type = 
-      (probDescDB.get_short("method.nond.emulator") == GP_EMULATOR) ?
+      (probDescDB.get_short("method.nond.emulator") == GAUSSIAN_PROCESS) ?
       "global_gaussian" : "global_kriging";
-    unsigned short sample_type = SUBMETHOD_DEFAULT;
-    String sample_reuse = "none";
+      String sample_type, sample_reuse = "none";
     if (probDescDB.get_bool("method.derivative_usage")) {
       if (approx_type == "global_gaussian") {
 	Cerr << "\nError: efficient_global does not support gaussian_process "
 	     << "when derivatives present; use kriging instead." << std::endl;
 	err_flag = true;
       }
-      if (iteratedModel.gradient_type() != "none") dataOrder |= 2;
-      if (iteratedModel.hessian_type()  != "none") dataOrder |= 4;
+      if (gradientType != "none") dataOrder |= 2;
+      if (hessianType  != "none") dataOrder |= 4;
     }
     // get point samples file
     const String& import_pts_file
-      = probDescDB.get_string("method.import_build_points_file");
+      = probDescDB.get_string("method.import_points_file");
     if (!import_pts_file.empty())
       { numSamples = 0; sample_reuse = "all"; }
  
@@ -120,29 +119,35 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
     UShortArray approx_order(numUncertainVars, trend_order);
     short corr_order = -1, corr_type = NO_CORRECTION;
     //const Variables& curr_vars = iteratedModel.current_variables();
-    ActiveSet gp_set = iteratedModel.current_response().active_set(); // copy
-    gp_set.request_values(1);// no surr deriv evals, but GP may be grad-enhanced
     fHatModel.assign_rep(new DataFitSurrModel(daceIterator, iteratedModel,
-      gp_set, approx_type, approx_order, corr_type, corr_order, dataOrder,
-      outputLevel, sample_reuse, import_pts_file,
-      probDescDB.get_ushort("method.import_build_format"),
-      probDescDB.get_bool("method.import_build_active_only"),
-      probDescDB.get_string("method.export_approx_points_file"),
-      probDescDB.get_ushort("method.export_approx_format")), false);
+      //curr_vars.view(), curr_vars.variables_components(),
+      //iteratedModel.current_response().active_set(),
+      approx_type, approx_order, corr_type, corr_order, dataOrder, outputLevel,
+      sample_reuse, probDescDB.get_string("method.export_points_file"),
+      probDescDB.get_bool("method.export_points_file_annotated"),
+      import_pts_file,
+      probDescDB.get_bool("method.import_points_file_annotated")), false);
 
-    // Following this ctor, IteratorScheduler::init_iterator() initializes the
-    // parallel configuration for NonDGlobalInterval + iteratedModel using
-    // NonDGlobalInterval's maxEvalConcurrency.  During fHatModel construction
+    // intervalOptModel.init_communicators() recursion is currently sufficient
+    // for fHatModel.  An additional fHatModel.init_communicators() call would
+    // be motivated by special parallel usage of fHatModel below that is not
+    // otherwise covered by the recursion.
+    //fHatMaxConcurrency = maxConcurrency; // local derivative concurrency
+    //fHatModel.init_communicators(fHatMaxConcurrency);
+
+    // Following this ctor, Strategy::init_iterator() initializes the parallel
+    // configuration for NonDGlobalInterval + iteratedModel using
+    // NonDGlobalInterval's maxConcurrency.  During fHatModel construction
     // above, DataFitSurrModel::derived_init_communicators() initializes the
     // parallel configuration for daceIterator + iteratedModel using
-    // daceIterator's maxEvalConcurrency.  The only iteratedModel concurrency
+    // daceIterator's maxConcurrency.  The only iteratedModel concurrency
     // currently exercised is that used by daceIterator within the initial GP
-    // construction, but the NonDGlobalInterval maxEvalConcurrency must still be
+    // construction, but the NonDGlobalInterval maxConcurrency must still be
     // set so as to avoid parallel config errors resulting from avail_procs
-    // > max_concurrency within IteratorScheduler::init_iterator().  Max of the
-    // local deriv concurrency & the DACE concurrency is used for this purpose.
-    maxEvalConcurrency = std::max(maxEvalConcurrency,
-      daceIterator.maximum_evaluation_concurrency());
+    // > max_concurrency within Strategy::init_iterator().  A max of the local
+    // derivative concurrency and the DACE concurrency is used for this purpose.
+    maxConcurrency
+      = std::max(maxConcurrency, daceIterator.maximum_concurrency());
   }
   else
     fHatModel = iteratedModel; // shared rep
@@ -153,12 +158,9 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
   // Configure a RecastModel with one objective and no constraints using the
   // alternate minimalist constructor: the recast fn pointers are reset for
   // each level within the run fn.
-  SizetArray recast_vars_comps_total;  // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  short recast_resp_order = 1; // nongradient-based optimizers
-  intervalOptModel.assign_rep(
-    new RecastModel(fHatModel, recast_vars_comps_total, all_relax_di,
-		    all_relax_dr, 1, 0, 0, recast_resp_order), false);
+  SizetArray recast_vars_comps_total; // default: empty; no change in size
+  intervalOptModel.assign_rep(new
+    RecastModel(fHatModel, recast_vars_comps_total, 1, 0, 0), false);
 
   // Instantiate the optimizer used on the GP.
   // TO DO: add support for discrete EGO
@@ -190,7 +192,7 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
     else // EA controls from user spec
       { max_ea_iter = maxIterations; max_ea_eval = maxFunctionEvals; }
 
-#ifdef HAVE_ACRO
+#ifdef DAKOTA_COLINY
     // mixed EA (ignores GP variance)
     intervalOptimizer.assign_rep(new
       COLINOptimizer("coliny_ea", intervalOptModel, seedSpec, max_ea_iter,
@@ -205,57 +207,24 @@ NonDGlobalInterval::NonDGlobalInterval(ProblemDescDB& problem_db, Model& model):
     abort_handler(-1);
 #endif // HAVE_NCSU
   }
+  intervalOptModel.init_communicators(intervalOptimizer.maximum_concurrency());
 }
 
 
 NonDGlobalInterval::~NonDGlobalInterval()
-{ }
+{  
+  // deallocate communicators for DIRECT on intervalOptModel
+  intervalOptModel.free_communicators(intervalOptimizer.maximum_concurrency());
 
-
-void NonDGlobalInterval::derived_init_communicators(ParLevLIter pl_iter)
-{
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // intervalOptModel.init_communicators() recursion is currently sufficient
-  // for fHatModel.  An additional fHatModel.init_communicators() call would
+  // intervalOptModel.free_communicators() recursion is currently sufficient
+  // for fHatModel.  An additional fHatModel.free_communicators() call would
   // be motivated by special parallel usage of fHatModel below that is not
   // otherwise covered by the recursion.
-  //fHatMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //fHatModel.init_communicators(pl_iter, fHatMaxConcurrency);
-
-  // intervalOptimizer uses NoDBBaseConstructor, so no need to manage
-  // DB list nodes at this level
-  intervalOptimizer.init_communicators(pl_iter);
+  //fHatModel.free_communicators(fHatMaxConcurrency);
 }
 
 
-void NonDGlobalInterval::derived_set_communicators(ParLevLIter pl_iter)
-{
-  NonD::derived_set_communicators(pl_iter);
-
-  //fHatMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //fHatModel.set_communicators(pl_iter, fHatMaxConcurrency);
-
-  // intervalOptimizer uses NoDBBaseConstructor, so no need to manage
-  // DB list nodes at this level
-  intervalOptimizer.set_communicators(pl_iter);
-}
-
-
-void NonDGlobalInterval::derived_free_communicators(ParLevLIter pl_iter)
-{
-  // intervalOptimizer uses NoDBBaseConstructor, so no need to manage
-  // DB list nodes at this level
-  intervalOptimizer.free_communicators(pl_iter);
-
-  //fHatMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //fHatModel.free_communicators(pl_iter, fHatMaxConcurrency);
-
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-}
-
-
-void NonDGlobalInterval::core_run()
+void NonDGlobalInterval::quantify_uncertainty()
 {
   // set the object instance pointer for use within static member functions
   NonDGlobalInterval* prev_instance = nondGIInstance;
@@ -275,14 +244,12 @@ void NonDGlobalInterval::core_run()
 
   initialize(); // virtual fn
 
-  ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-
   for (respFnCntr=0; respFnCntr<numFunctions; ++respFnCntr) {
 
     primary_resp_map[0][0] = respFnCntr;
     nonlinear_resp_map[0][respFnCntr] = true;
     if (!eifFlag)
-      int_opt_model_rep->init_maps(vars_map, false, NULL, NULL,
+      int_opt_model_rep->initialize(vars_map, false, NULL, NULL,
 	primary_resp_map, secondary_resp_map, nonlinear_resp_map, 
 	extract_objective, NULL);
 
@@ -292,7 +259,7 @@ void NonDGlobalInterval::core_run()
 
       // initialize the recast model for lower bound estimation
       if (eifFlag)
-	int_opt_model_rep->init_maps(vars_map, false, NULL, NULL,
+	int_opt_model_rep->initialize(vars_map, false, NULL, NULL,
 	  primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	  EIF_objective_min, NULL);
       else {
@@ -315,8 +282,9 @@ void NonDGlobalInterval::core_run()
 	Cout << "\n>>>>> Initiating global minimization: response "
 	     << respFnCntr+1 << " cell " << cellCntr+1 << " iteration "
 	     << sbIterNum << "\n\n";
-	//intervalOptimizer.reset(); // redundant for COLINOptimizer::core_run()
-	intervalOptimizer.run(pl_iter);
+	// no summary output since on-the-fly constructed:
+	//intervalOptimizer.reset(); // redundant for COLINOpt::find_optimum()
+	intervalOptimizer.run_iterator(Cout);
 	// output iteration results, update convergence controls, and update GP
 	post_process_run_results(false);
       }
@@ -326,7 +294,7 @@ void NonDGlobalInterval::core_run()
 
       // initialize the recast model for upper bound estimation
       if (eifFlag)
-	int_opt_model_rep->init_maps(vars_map, false, NULL, NULL,
+	int_opt_model_rep->initialize(vars_map, false, NULL, NULL,
 	  primary_resp_map, secondary_resp_map, nonlinear_resp_map,
 	  EIF_objective_max, NULL);
       else {
@@ -349,8 +317,9 @@ void NonDGlobalInterval::core_run()
 	Cout << "\n>>>>> Initiating global maximization: response "
 	     << respFnCntr+1 << " cell " << cellCntr+1 << " iteration "
 	     << sbIterNum << "\n\n";
-	//intervalOptimizer.reset(); // redundant for COLINOptimizer::core_run()
-	intervalOptimizer.run(pl_iter);
+	// no summary output since on-the-fly constructed:
+	//intervalOptimizer.reset(); // redundant for COLINOpt::find_optimum()
+	intervalOptimizer.run_iterator(Cout);
 	// output iteration results, update convergence controls, and update GP
 	post_process_run_results(true);
       }
@@ -475,7 +444,7 @@ void NonDGlobalInterval::evaluate_response_star_truth()
     set.request_values(dataOrder);
   else
     { set.request_values(0); set.request_value(dataOrder, respFnCntr); }
-  iteratedModel.evaluate(set);
+  iteratedModel.compute_response(set);
 
   // Update the GP approximation
   IntResponsePair resp_star_truth(iteratedModel.evaluation_id(),
@@ -539,8 +508,8 @@ EIF_objective_min(const Variables& sub_model_vars, const Variables& recast_vars,
     }
     else{
       snv /= stdv; // now snv is the standard normal variate
-      Phi_snv = Pecos::NormalRandomVariable::std_cdf(snv); 
-      phi_snv = Pecos::NormalRandomVariable::std_pdf(snv);
+      Phi_snv = Pecos::Phi(snv); 
+      phi_snv = Pecos::phi(snv);
     }
     Real ei = (approx_fn_star - mean)*Phi_snv + stdv*phi_snv;
     // both bounds maximize EIF -> minimize -EIF
@@ -580,8 +549,8 @@ EIF_objective_max(const Variables& sub_model_vars, const Variables& recast_vars,
     }
     else{
       snv /= stdv; // now snv is the standard normal variate   
-      Phi_snv = Pecos::NormalRandomVariable::std_cdf(snv);
-      phi_snv = Pecos::NormalRandomVariable::std_pdf(snv);
+      Phi_snv = Pecos::Phi(snv);
+      phi_snv = Pecos::phi(snv);
     }
     Real ei = (-approx_fn_star - mean)*Phi_snv + stdv*phi_snv;
     // both bounds maximize EIF -> minimize -EIF

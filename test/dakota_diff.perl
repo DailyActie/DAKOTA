@@ -27,54 +27,32 @@ my $exitcode = 0;
 # Definitions
 # numerical field in exponential notation
 $expo = "-?\\d\\.\\d+e(?:\\+|-)\\d+"; 
+# TODO: extend NaN/Inf to work cross-platform (funny Windows format)
 # invalid numerical field
-$nanre = "-?(?:[Nn][Aa][Nn]|1\\.#IND)";
-$infre = "-?(?:1\\.#)?[Ii][Nn][Ff]";
-$naninf = "(?:$nanre|$infre)";
-
+$naninf = "-?([Nn][Aa][Nn]|[Ii][Nn][Ff])";
 # numerical field printed as exponential (may contain NaN/Inf)
-# (?: --> group without capture)
-$e = "(?:$expo|$naninf)";
+$e = "($expo|$naninf)";
 # numerical field in integer notation
 $i = "-?\\d+";                     
-# string variable field
-$s = "[a-zA-Z0-9_-]+";
 
-# Numerical DIFF tolerances
-# Tolerance below which absolute numerical diff will be used
-# Also used as PCE coefficient and Sobol index absolute ignore tolerance
-$SMALL       = 1.e-8;
-# Allow up to a quarter of the total abs() interval in abs diff
-$ABS_EPSILON = 5.e-9; 
-# Relative tolerance for other values
-# get tolerance from environment, if it exists.
-if (exists $ENV{'DAKDIFF_REL_EPSILON'}) {
-    $REL_EPSILON = $ENV{'DAKDIFF_REL_EPSILON'};
-} else {
-    $REL_EPSILON = 1.e-4 ;# allow up to 0.01% numerical differences
-}
 
 # -----------------
 # Process TEST file
 # -----------------
 open (my $DAKOTA_TEST, $tst_file)  || die "Error: Cannot open file $tst_file" ;
-# determine which subtest numbers are present in the .tst file and
-# compute indices for the start of each subtest
-# TODO: consider a hash from subtest numbers to output
-my @tst_subtest_numbers;  # subtest numbers found in .tst file  
-my @tst_subtest_indices;  # line indices for start of each subtest in .tst file  
-my @tst_output;           # test output for this test file
-extract_test_output($DAKOTA_TEST, \@tst_subtest_numbers, \@tst_subtest_indices,
-		    \@tst_output);
+# test numbers found, indices of them in output, output text
+# these are references!
+my ($tst_tests_ran, $tst_test_inds, $tst_output) = 
+  extract_test_output($DAKOTA_TEST);
 close ($DAKOTA_TEST);
 
 # -----------------
 # Process BASE file
 # -----------------
 open (my $DAKOTA_BASE, $base_file) || die "Error: Cannot open file $base_file" ;
-my @base_subtest_numbers;  # subtest numbers found in base file  
-my @base_subtest_indices;  # line indices for start of each subtest in baseline  
-my @base_output;           # test output baseline excerpt for this test file
+# test numbers found, indices of them in output, output text
+# these are references!
+my $base_tests_ran, $base_test_inds, $base_output;
 $test_found = 0;
 while ($line = <$DAKOTA_BASE>) {
 
@@ -83,8 +61,8 @@ while ($line = <$DAKOTA_BASE>) {
 
   if ($line =~ /$mod_testin/) {
     $test_found = 1;
-    extract_test_output($DAKOTA_BASE, \@base_subtest_numbers, 
-			\@base_subtest_indices, \@base_output);
+    ($base_tests_ran, $base_test_inds, $base_output) =
+      extract_test_output($DAKOTA_BASE);
   }
 
   # stop processing 
@@ -97,42 +75,35 @@ close ($DAKOTA_BASE);
 # ----------------------
 # Iterate over tst tests
 # ----------------------
-foreach my $tst_subtest_index (0 .. $#tst_subtest_numbers) {
+# print the test header, unconditionally
+print "$testin\n";
+foreach (@$tst_tests_ran) {
 
-  my $test_num = $tst_subtest_numbers[$tst_subtest_index];
-  # print the test header (dakota_*.in) if the 0-th test was run
-  # TODO: would be helpful to always output for users running a single manual test
-  if ($test_num == 0) {
-    print "$testin\n";
-  }
+  my $test_num = $_;
 
-  # Find the index of the sub-test in the baseline data
-  # TODO: consider using hash instead of linear lookup
-  my $base_index = 0;
-  ++$base_index until $base_subtest_numbers[$base_index] == $test_num or
-                      $base_index > $#base_subtest_numbers;
-  if ($base_index > $#base_subtest_numbers) {
-    print "Test number " . $test_num . " missing from baseline\n";
-  }
-  else {
-    # extract .base data for this test num
-    my $base_start = $base_subtest_indices[$base_index]; 
-    my $base_end   = $base_subtest_indices[$base_index + 1] - 1; 
-    my @base_excerpt = @base_output[$base_start .. $base_end];
+  # TODO: validate tst vs. base test indices
+  # Confirm baseline has this test
+  #if ($test_num >= $#base_tests_ran) {
+  #  print "Test number " . $test_num . " missing from baseline";
+  #}
 
-    # extract .tst data for this test num
-    my $tst_start = $tst_subtest_indices[$tst_subtest_index]; 
-    my $tst_end   = $tst_subtest_indices[$tst_subtest_index + 1] - 1; 
-    my @tst_excerpt = @tst_output[$tst_start .. $tst_end];
+  # extract .base data for this test num
+  my $base_start = @$base_test_inds[$test_num]; 
+  my $base_end   = @$base_test_inds[$test_num + 1] - 1; 
+  my @base_excerpt = @$base_output[$base_start .. $base_end];
 
-    # Consider comparing total length and reporting, then reporting details
-    #if ( ($base_end - $base_start) != ($tst_end - $tst_start)) {
-    #  print "DIFF Test " . $test_num . " (output length mismatch)";
-    #}
+  # extract .tst data for this test num
+  my $tst_start = @$tst_test_inds[$test_num]; 
+  my $tst_end   = @$tst_test_inds[$test_num + 1] - 1; 
+  my @tst_excerpt = @$tst_output[$tst_start .. $tst_end];
 
-    # compare base to test
-    compare_output($test_num, \@base_excerpt, \@tst_excerpt);
-  }
+  # Consider comparing total length and reporting, then reporting details
+  #if ( ($base_end - $base_start) != ($tst_end - $tst_start)) {
+  #  print "DIFF Test " . $test_num . " (output length mismatch)";
+  #}
+
+  # compare base to test
+  compare_output($test_num, \@base_excerpt, \@tst_excerpt);
 
 }
 
@@ -144,31 +115,36 @@ exit $exitcode;
 
 
 # Extract test output from the passed file handle until another
-# dakota_*.in test header is encountered. 
-# IN:  file handle to read from
-# OUT: reference to array of subtest numbers found
-# OUT: reference to array of subtest delineation indices
-# OUT: reference to array of test output, one entry per line
+# dakota_ test header is encountered.  Caution: returns are references
+# to the locals in this subroutine.
 sub extract_test_output {
-  
-  my ($file_handle, $ref_subtest_numbers, $ref_subtest_indices, $ref_output) = @_;
-  my $line_index = 0;
 
+  my $file_handle = shift;
+  my $line_num = 0;
+
+  # Values returned by reference
+  my @tests_ran;     # list of tests ran
+  my @test_inds;     # indices for the starting line of each test
+  my @test_output;  # contents of the tst file
+  
   while (my $line = <$file_handle>) {
-    # Log the test number and line index each time we encounter a new test
-    if ( ($subtest_num) = $line =~ /^Test Number (\d+)/ ) {
-      push @{$ref_subtest_numbers}, $subtest_num;
-      push @{$ref_subtest_indices}, $line_index;
+    if ( ($tested_num) = $line =~ /^Test Number (\d+)/ ) {
+      push @tests_ran, $tested_num;
+      push @test_inds, $line_num;
     }
 
     # stop when we encounter the next test file
-    last if ($line =~ /dakota_\w+\.in/);
+    # TODO: fix this REGEX
+    #last if ($line =~ /dakota_\w+\\\.in/);
+    last if ($line =~ /dakota_/);
 
-    push @{$ref_output}, $line;
-    $line_index++;
+    push @test_output, $line;
+    $line_num++;
   }
   # put the last line in indices so we always have start/end pairs
-  push @{$ref_subtest_indices}, $line_index;
+  push @test_inds, $line_num;
+
+  return (\@tests_ran, \@test_inds, \@test_output);
 
 }
 
@@ -251,306 +227,186 @@ sub compare_output {
     # Vector extractions
     ####################
 
-    # These extractions read until end of data table, so result in
-    # advancing to next input line when detecting the end.  We
-    # therefore have to loop all of them first, before going on to
-    # non-vector extractions; otherwise we'll go back to top of while
-    # loop and miss a line.
-
-    # This makes the assumption that all of these always occur
-    # together in the output; if not true, output will be missed
-
-    # single quotes must be escaped here:
-    my $best_re = '^<<<<< Best [ \w\(\)]+=$';
-    my $surr_re = '^Surrogate quality metrics';
-    my $pce_re = 'of Polynomial Chaos Expansion for';
-    my $uq_re = '^(\s+(Response Level|Resp Level Set)\s+Probability Level(\s+Reliability Index\s+General Rel Index)?|\s+Response Level\s+Belief (Prob Level|Gen Rel Lev)\s+Plaus (Prob Level|Gen Rel Lev)|\s+(Probability|General Rel) Level\s+Belief Resp Level\s+Plaus Resp Level|\s+Bin Lower\s+Bin Upper\s+Density Value|[ \w]+Correlation Matrix[ \w]+input[ \w]+output\w*:|\w+ Sobol\' indices:|(Moment statistics|Sample moment statistics|95% confidence intervals) for each (response function|posterior variable):)$';
-
-    while ( ($base =~ /${best_re}/) && ($test =~ /${best_re}/) ||
-            ($base =~ /${surr_re}/) && ($test =~ /${surr_re}/) ||
-            ($base =~ /${pce_re}/)  && ($test =~ /${pce_re}/)  ||
-            ($base =~ /${uq_re}/)   && ($test =~ /${uq_re}/)) {
-
-      # General
-      while ( ($base =~ /${best_re}/) && ($test =~ /${best_re}/) ) {
-        if ($base != $test) {
-          print "Error: mismatch in data header between baseline and test\n";
-          exit(-1);
-        }
-        $b_hdr = $base; # save header in case of diffs
-        $t_hdr = $test; # save header in case of diffs
-        $first_diff = 0;
-        $base = shift @base_excerpt; # grab next line
-        $test = shift @tst_excerpt; # grab next line
-        while ( ( ($t_val) = $test =~ /^\s+($e|$i|$s)/ ) &&
-                ( ($b_val) = $base =~ /^\s+($e|$i|$s)/ ) ) {
-          if (diff($t_val, $b_val)) {
-            $test_diff = 1;
-            if ($first_diff == 0) {
-              $first_diff = 1;
-              push @base_diffs, $b_hdr;
-              push @test_diffs, $t_hdr;
-            }
-            push @base_diffs, $base;
-            push @test_diffs, $test;
-          }
-          $base = shift @base_excerpt; # grab next line
-          $test = shift @tst_excerpt; # grab next line
-        }
-
-        # if there's extra data in either file, mark this a DIFF
-        if ( ( ($t_val) = $test =~ /^\s+($e|$i|$s)/ ) ||
-             ( ($b_val) = $base =~ /^\s+($e|$i|$s)/ ) ) {
-          $test_diff = 1;
-          if ($first_diff == 0) {
-            push @base_diffs, $b_hdr;
-            push @test_diffs, $t_hdr;
-          }
-          while ( ($t_val) = $test =~ /^\s+($e|$i|$s)/ ) {
-            push @test_diffs, $test;
-            $test = shift @tst_excerpt; # grab next line
-          }
-          while ( ($b_val) = $base =~ /^\s+($e|$i|$s)/ ) {
-            push @base_diffs, $base;
-            $base = shift @base_excerpt; # grab next line
-          }
-        }
-
+    # General
+    while ( ($base =~ /^<<<<< Best [ \w\(\)]+=$/) &&
+	    ($test =~ /^<<<<< Best [ \w\(\)]+=$/) ) {
+      if ($base != $test) {
+	print "Error: mismatch in data header between baseline and test\n";
+	exit(-1);
+      }
+      $b_hdr = $base; # save header in case of diffs
+      $t_hdr = $test; # save header in case of diffs
+      $first_diff = 0;
+      $base = shift @base_excerpt; # grab next line
+      $test = shift @tst_excerpt; # grab next line
+      while ( ( ($t_val) = $test =~ /^\s+($e|$i)/ ) &&
+	      ( ($b_val) = $base =~ /^\s+($e|$i)/ ) ) {
+	if (diff($t_val, $b_val)) {
+	  $test_diff = 1;
+	  if ($first_diff == 0) {
+	    $first_diff = 1;
+	    push @base_diffs, $b_hdr;
+	    push @test_diffs, $t_hdr;
+	  }
+	  push @base_diffs, $base;
+	  push @test_diffs, $test;
+	}
+	$base = shift @base_excerpt; # grab next line
+	$test = shift @tst_excerpt; # grab next line
       }
 
-      while ( ($base =~ /${surr_re}/) && ($test =~ /${surr_re}/) ) {
-        if ($base != $test) {
-          print "Error: mismatch in data header between baseline and test\n";
-          exit(-1);
-        }
-        $b_hdr = $base; # save header in case of diffs
-        $t_hdr = $test; # save header in case of diffs
-        $first_diff = 0;
-        $base = shift @base_excerpt; # grab next line
-        $test = shift @tst_excerpt; # grab next line
-        while ( ( ($t_val) = $test =~ /^\s*${s}\s*($e|$naninf)/ ) &&
-                ( ($b_val) = $base =~ /^\s*${s}\s*($e|$naninf)/ ) ) {
-          if (diff($t_val, $b_val)) {
-            $test_diff = 1;
-            if ($first_diff == 0) {
-              $first_diff = 1;
-              push @base_diffs, $b_hdr;
-              push @test_diffs, $t_hdr;
-            }
-            push @base_diffs, $base;
-            push @test_diffs, $test;
-          }
-          $base = shift @base_excerpt; # grab next line
-          $test = shift @tst_excerpt; # grab next line
-        }
-
-        # if there's extra data in either file, mark this a DIFF
-        if ( ( ($t_val) = $test =~ /^\s*${s}\s*($e|$naninf)/ ) ||
-             ( ($b_val) = $base =~ /^\s*${s}\s*($e|$naninf)/ ) ) {
-          $test_diff = 1;
-          if ($first_diff == 0) {
-            push @base_diffs, $b_hdr;
-            push @test_diffs, $t_hdr;
-          }
-          while ( ($t_val) = $test =~ /^\s*${s}\s*($e|$naninf)/ ) {
-            push @test_diffs, $test;
-            $test = shift @tst_excerpt; # grab next line
-          }
-          while ( ($b_val) = $base =~ /^\s*${s}\s*($e|$naninf)/ ) {
-            push @base_diffs, $base;
-            $base = shift @base_excerpt; # grab next line
-          }
-        }
-
+      # if there's extra data in either file, mark this a DIFF
+      if ( ( ($t_val) = $test =~ /^\s+($e|$i)/ ) ||
+	   ( ($b_val) = $base =~ /^\s+($e|$i)/ ) ) {
+	$test_diff = 1;
+	if ($first_diff == 0) {
+	  push @base_diffs, $b_hdr;
+	  push @test_diffs, $t_hdr;
+	}
+	while ( ($t_val) = $test =~ /^\s+($e|$i)/ ) {
+	  push @test_diffs, $test;
+	  $test = shift @tst_excerpt; # grab next line
+	}
+	while ( ($b_val) = $base =~ /^\s+($e|$i)/ ) {
+	  push @base_diffs, $base;
+	  $base = shift @base_excerpt; # grab next line
+	}
       }
 
-      # SBO
-      #if ( ($base =~ /^SBO Final Design Variables$/) &&
-      #     ($test =~ /^SBO Final Design Variables$/) ) {
-      #	 $b_hdr = $base; # save header in case of diffs
-      #	 $t_hdr = $test; # save header in case of diffs
-      #  $first_diff = 0;
-      #  $base = shift @base_excerpt; # grab next line
-      #  $test = shift @tst_excerpt; # grab next line
-      #  while ( ( ($t_val) = $test =~ /^\s+\w+\s+=\s+($e)$/ ) &&
-      #          ( ($b_val) = $base =~ /^\s+\w+\s+=\s+($e)$/ ) ) {
-      #    if (diff($t_val, $b_val)) {
-      #      $test_diff = 1;
-      #	     if ($first_diff == 0) {
-      #        $first_diff = 1;
-      #        push @base_diffs, $b_hdr;
-      #        push @test_diffs, $t_hdr;
-      #	     }
-      #      push @base_diffs, $base;
-      #      push @test_diffs, $test;
-      #    }
-      #    $base = shift @base_excerpt; # grab next line
-      #    $test = shift @tst_excerpt; # grab next line
-      #  }
-      #}
+    }
 
-      # PCE
-      if ( ($base =~ /${pce_re}/) && ($test =~ /${pce_re}/) ) {
-        $b_hdr = $base; # save header in case of diffs
-        $t_hdr = $test; # save header in case of diffs
-        $first_diff = 0;
-        $base = shift @base_excerpt; # grab next line
-        $test = shift @tst_excerpt; # grab next line
-        while ( ( ($t_val) = $test =~ /^\s+($e)/ ) &&
-                ( ($b_val) = $base =~ /^\s+($e)/ ) ) {
-          # Small PCE coefficients appearing in baseline or test, but
-          # not the other, cause skew. Ignore will advance one or both
-          # baselines if needed, then we return to the while test.
-          if (!ignore_small_value($t_val, $b_val, \$test, \$base, 
-                                  \@tst_excerpt, \@base_excerpt)) 
-          {
-            if (diff($t_val, $b_val)) {
-              $test_diff = 1;
-              if ($first_diff == 0) {
-                $first_diff = 1;
-                push @base_diffs, $b_hdr;
-                push @test_diffs, $t_hdr;
-              }
-              push @base_diffs, $base;
-              push @test_diffs, $test;
-            }
-            $base = shift @base_excerpt; # grab next line
-            $test = shift @tst_excerpt; # grab next line
-          }
-        }
+    # SBO
+    #if ( ($base =~ /^SBO Final Design Variables$/) &&
+    #     ($test =~ /^SBO Final Design Variables$/) ) {
+    #	 $b_hdr = $base; # save header in case of diffs
+    #	 $t_hdr = $test; # save header in case of diffs
+    #  $first_diff = 0;
+    #  $base = shift @base_excerpt; # grab next line
+    #  $test = shift @tst_excerpt; # grab next line
+    #  while ( ( ($t_val) = $test =~ /^\s+\w+\s+=\s+($e)$/ ) &&
+    #          ( ($b_val) = $base =~ /^\s+\w+\s+=\s+($e)$/ ) ) {
+    #    if (diff($t_val, $b_val)) {
+    #      $test_diff = 1;
+    #	     if ($first_diff == 0) {
+    #        $first_diff = 1;
+    #        push @base_diffs, $b_hdr;
+    #        push @test_diffs, $t_hdr;
+    #	     }
+    #      push @base_diffs, $base;
+    #      push @test_diffs, $test;
+    #    }
+    #    $base = shift @base_excerpt; # grab next line
+    #    $test = shift @tst_excerpt; # grab next line
+    #  }
+    #}
 
-        # if there's extra data of sufficiently large magnitude in
-        # either file, mark this a DIFF
-        if ( ( ($t_val) = $test =~ /^\s+($e)/ ) ||
-             ( ($b_val) = $base =~ /^\s+($e)/ ) ) {
-          # extra test contents
-          while ( ($t_val) = $test =~ /^\s+($e)/ ) {
-            if (!ignore_small_value_single($t_val, \$test, \@tst_excerpt)) {
-              $test_diff = 1;
-              if ($first_diff == 0) {
-                $first_diff = 1;
-                push @base_diffs, $b_hdr;
-                push @test_diffs, $t_hdr;
-              }
-              push @test_diffs, $test;
-              $test = shift @tst_excerpt; # grab next line
-            }
-          }  
-          # extra base contents
-          while ( ($b_val) = $base =~ /^\s+($e)/ ) {
-            if (!ignore_small_value_single($b_val, \$base, \@base_excerpt)) {
-              $test_diff = 1;
-              if ($first_diff == 0) {
-                $first_diff = 1;
-                push @base_diffs, $b_hdr;
-                push @test_diffs, $t_hdr;
-              }
-              push @base_diffs, $base;
-              $base = shift @base_excerpt; # grab next line
-            }
-          }  
-        }
-
+    # PCE
+    if ( ($base =~ /of Polynomial Chaos Expansion for/) &&
+	 ($test =~ /of Polynomial Chaos Expansion for/) ) {
+      $b_hdr = $base; # save header in case of diffs
+      $t_hdr = $test; # save header in case of diffs
+      $first_diff = 0;
+      $base = shift @base_excerpt; # grab next line
+      $test = shift @tst_excerpt; # grab next line
+      while ( ( ($t_val) = $test =~ /^\s+($e)/ ) &&
+	      ( ($b_val) = $base =~ /^\s+($e)/ ) ) {
+	if (diff($t_val, $b_val)) {
+	  $test_diff = 1;
+	  if ($first_diff == 0) {
+	    $first_diff = 1;
+	    push @base_diffs, $b_hdr;
+	    push @test_diffs, $t_hdr;
+	  }
+	  push @base_diffs, $base;
+	  push @test_diffs, $test;
+	}
+	$base = shift @base_excerpt; # grab next line
+	$test = shift @tst_excerpt; # grab next line
       }
 
-      # UQ mappings and indices
-      while ( ($base =~ /${uq_re}/o) && ($test =~ /${uq_re}/o) ) {
-        $b_hdr1 = $base;         # save headers in case of diffs
-        $b_hdr2 = shift @base_excerpt; # save headers in case of diffs
-        $t_hdr1 = $test;         # save headers in case of diffs
-        $t_hdr2 = shift @tst_excerpt; # save headers in case of diffs
-        $first_diff = 0;
-        $base = shift @base_excerpt; # grab next line
-        $test = shift @tst_excerpt; # grab next line
-        while ( ( (@t_val) = $test =~ /\s+($e)/go ) &&
-                ( (@b_val) = $base =~ /\s+($e)/go ) ) {
-          $row_diff = 0;
-          if ($#t_val != $#b_val) {
-            # Mismatch in # entries in a row: mark as DIFF, continue
-            $test_diff = 1;
-            $row_diff = 1
-          }
-          else {
-            # For single Sobol indices, we ignore small values;
-            # ultimately could do if ALL entries in a row are small...
-            # unfortnately t_val is matching spaces as separate entries...
-            # so using < 2 here instead of == 1
-            if ($#t_val < 2 && ($t_hdr1 =~ /Sobol/) && 
-                ignore_small_value($t_val[0], $b_val[0], \$test, \$base, 
-                                   \@tst_excerpt, \@base_excerpt)) {
-              # ignore small single Sobol index and go to while test
-              next;
-            }
-            else {
-              for ($count=0; $count<=$#t_val; $count++) {
-                if (diff($t_val[$count], $b_val[$count])) {
-                  $test_diff = 1;
-                  $row_diff = 1;
-                }
-              }
-            }
-          }
-          if ($row_diff == 1) {
-            if ($first_diff == 0) {
-              $first_diff = 1;
-              push @base_diffs, $b_hdr1;
-              push @base_diffs, $b_hdr2;
-              push @test_diffs, $t_hdr1;
-              push @test_diffs, $t_hdr2;
-            }
-            push @base_diffs, $base;
-            push @test_diffs, $test;
-          }
-          $base = shift @base_excerpt; # grab next line
-          $test = shift @tst_excerpt; # grab next line
-        }
-
-        # if there's extra data in either file, mark this a DIFF
-        if ( ( (@t_val) = $test =~ /\s+($e)/go ) ||
-             ( (@b_val) = $base =~ /\s+($e)/go ) ) {
-          # extra test contents
-          while ( (@t_val) = $test =~ /\s+($e)/go ) {
-            if ( $#t_val < 2 && ($t_hdr1 =~ /Sobol/) && 
-                 ignore_small_value_single($t_val[0], \$test, \@tst_excerpt) ) {
-              # ignore small single Sobol index
-              ; 
-            }
-            else {
-              $test_diff = 1;
-              if ($first_diff == 0) {
-                push @base_diffs, $b_hdr1;
-                push @base_diffs, $b_hdr2;
-                push @test_diffs, $t_hdr1;
-                push @test_diffs, $t_hdr2;
-              }
-              push @test_diffs, $test;
-              $test = shift @tst_excerpt; # grab next line
-            }
-          }
-          # extra base contents
-          while ( (@b_val) = $base =~ /\s+($e)/go ) {
-            if ( $#b_val < 2 && ($b_hdr1 =~ /Sobol/) && 
-                 ignore_small_value_single($b_val[0], \$base, \@base_excerpt) ) {
-              # ignore small Sobol index
-              ; 
-            }
-            else {
-              $test_diff = 1;
-              if ($first_diff == 0) {
-                push @base_diffs, $b_hdr1;
-                push @base_diffs, $b_hdr2;
-                push @test_diffs, $t_hdr1;
-                push @test_diffs, $t_hdr2;
-              }
-              push @base_diffs, $base;
-              $base = shift @base_excerpt; # grab next line
-            }
-          }
-        }
-
+      # if there's extra data in either file, mark this a DIFF
+      if ( ( ($t_val) = $test =~ /^\s+($e)/ ) ||
+	   ( ($b_val) = $base =~ /^\s+($e)/ ) ) {
+	$test_diff = 1;
+	if ($first_diff == 0) {
+	  push @base_diffs, $b_hdr;
+	  push @test_diffs, $t_hdr;
+	}
+	while ( ($t_val) = $test =~ /^\s+($e)/ ) {
+	  push @test_diffs, $test;
+	  $test = shift @tst_excerpt; # grab next line
+	}
+	while ( ($b_val) = $base =~ /^\s+($e)/ ) {
+	  push @base_diffs, $base;
+	  $base = shift @base_excerpt; # grab next line
+	}
       }
 
-    } # end overall while loop vector extract
+    }
+
+    # UQ mappings and indices
+    while ( ($base =~ /^(\s+(Response Level|Resp Level Set)\s+Probability Level\s+Reliability Index\s+General Rel Index|\s+Response Level\s+Belief (Prob Level|Gen Rel Lev)\s+Plaus (Prob Level|Gen Rel Lev)|\s+(Probability|General Rel) Level\s+Belief Resp Level\s+Plaus Resp Level|[ \w]+Correlation Matrix[ \w]+input[ \w]+output\w*:|\w+ Sobol' indices:|(Moment-based statistics|95% confidence intervals) for each response function:)$/o) &&
+	    ($test =~ /^(\s+(Response Level|Resp Level Set)\s+Probability Level\s+Reliability Index\s+General Rel Index|\s+Response Level\s+Belief (Prob Level|Gen Rel Lev)\s+Plaus (Prob Level|Gen Rel Lev)|\s+(Probability|General Rel) Level\s+Belief Resp Level\s+Plaus Resp Level|[ \w]+Correlation Matrix[ \w]+input[ \w]+output\w*:|\w+ Sobol' indices:|(Moment-based statistics|95% confidence intervals) for each response function:)$/o) ) {
+      $b_hdr1 = $base;         # save headers in case of diffs
+      $b_hdr2 = shift @base_excerpt; # save headers in case of diffs
+      $t_hdr1 = $test;         # save headers in case of diffs
+      $t_hdr2 = shift @tst_excerpt; # save headers in case of diffs
+      $first_diff = 0;
+      $base = shift @base_excerpt; # grab next line
+      $test = shift @tst_excerpt; # grab next line
+      while ( ( (@t_val) = $test =~ /\s+($e)/go ) &&
+	      ( (@b_val) = $base =~ /\s+($e)/go ) ) {
+	$row_diff = 0;
+	if ($#t_val != $#b_val) {
+	  # Mismatch in # entries in a row: mark as DIFF, continue
+	  $test_diff = 1;
+	  $row_diff = 1
+	}
+	else {
+	  for ($count=0; $count<=$#t_val; $count++) {
+	    if (diff($t_val[$count], $b_val[$count])) {
+	      $test_diff = 1;
+	      $row_diff = 1;
+	    }
+	  }
+	}
+	if ($row_diff == 1) {
+	  if ($first_diff == 0) {
+	    $first_diff = 1;
+	    push @base_diffs, $b_hdr1;
+	    push @base_diffs, $b_hdr2;
+	    push @test_diffs, $t_hdr1;
+	    push @test_diffs, $t_hdr2;
+	  }
+	  push @base_diffs, $base;
+	  push @test_diffs, $test;
+	}
+	$base = shift @base_excerpt; # grab next line
+	$test = shift @tst_excerpt; # grab next line
+      }
+
+      # if there's extra data in either file, mark this a DIFF
+      if ( ( (@t_val) = $test =~ /\s+($e)/go ) ||
+	   ( (@b_val) = $base =~ /\s+($e)/go ) ) {
+	$test_diff = 1;
+	if ($first_diff == 0) {
+	  push @base_diffs, $b_hdr1;
+	  push @base_diffs, $b_hdr2;
+	  push @test_diffs, $t_hdr1;
+	  push @test_diffs, $t_hdr2;
+	}
+	while ( (@t_val) = $test =~ /\s+($e)/go ) {
+	  push @test_diffs, $test;
+	  $test = shift @tst_excerpt; # grab next line
+	}
+	while ( (@b_val) = $base =~ /\s+($e)/go ) {
+	  push @base_diffs, $base;
+	  $base = shift @base_excerpt; # grab next line
+	}
+      }
+
+    }
+
 
 
     ###############################################################
@@ -609,9 +465,9 @@ sub compare_output {
 
     # MV
     elsif ( ( ($t_val) = $test =~
-	      /^\s+(?:Approximate Mean Response|Approximate Standard Deviation of Response|Importance Factor for \w+)\s+=\s+($e)$/ ) &&
+	      /^\s+(?:Approximate Mean Response|Approximate Standard Deviation of Response|Importance Factor for variable \w+)\s+=\s+($e)$/ ) &&
 	    ( ($b_val) = $base =~
-	      /^\s+(?:Approximate Mean Response|Approximate Standard Deviation of Response|Importance Factor for \w+)\s+=\s+($e)$/ ) ) {
+	      /^\s+(?:Approximate Mean Response|Approximate Standard Deviation of Response|Importance Factor for variable \w+)\s+=\s+($e)$/ ) ) {
       if ( diff($t_val, $b_val) ) {
 	$test_diff = 1;
 	push @base_diffs, $base;
@@ -619,7 +475,7 @@ sub compare_output {
       }
     }
 
-    # LHS/MC/MLMC/CVMC
+    # LHS/MC
     elsif ( ( ($t_mu, $t_sig, $t_cov) = $test =~
 	      /^\w+:\s+Mean =\s+($e)\s+Std. Dev. =\s+($e)\s+Coeff. of Variation =\s+($e)$/ ) &&
 	    ( ($b_mu, $b_sig, $b_cov) = $base =~
@@ -645,16 +501,6 @@ sub compare_output {
 	    ( ($b_min, $b_max) = $base =~
 	      /^\w+:\s+Min =\s+($e)\s+Max =\s+($e)$/ ) ) {
       if ( diff($t_min, $b_min) || diff($t_max, $b_max) ) {
-	$test_diff = 1;
-	push @base_diffs, $base;
-	push @test_diffs, $test;
-      }
-    }
-    elsif ( ( ($t_eq) = $test =~
-	      /^<<<<< Equivalent number of high fidelity evaluations:\s+($e)\s+$/ ) &&
-	    ( ($b_eq) = $base =~
-	      /^<<<<< Equivalent number of high fidelity evaluations:\s+($e)\s+$/ ) ) {
-      if ( diff($t_eq, $b_eq) ) {
 	$test_diff = 1;
 	push @base_diffs, $base;
 	push @test_diffs, $test;
@@ -733,61 +579,15 @@ sub compare_output {
 }  # end compare_output
 
 
-# Help avoid skew by ignoring numerical values below $ABS_EPSILON,
-# advancing the baseline, test, or both.  Takes test, base, and
-# corresponding excerpts by reference and updates them if needed.
-# Returns true=1 if a value had to be skipped, else 0.
-sub ignore_small_value {
-
-  my ($t_val, $b_val, $ref_test, $ref_base, 
-      $ref_tst_excerpt, $ref_base_excerpt) = @_;
-
-  my $t_ignore = ignore_small_value_single($t_val, $ref_test, $ref_tst_excerpt);
-  my $b_ignore = ignore_small_value_single($b_val, $ref_base, $ref_base_excerpt);
-  if ($t_ignore || $b_ignore) {
-    return 1;
-  }
-  return 0;
-}
-
-
-sub ignore_small_value_single {
-
-  my ($val, $ref_line, $ref_excerpt) = @_;
-
-  # Technically should probably test NaN/Inf first as strings, then do
-  # this tolerance test.  Also could diff them if BOTH small.
-
-  # For now, just make sure it's a numerical value, and not NaN/Inf
-  if ( ($val =~ /$expo/) && abs($val) < $SMALL) {
-      ${$ref_line} = shift @{$ref_excerpt}; # grab next line
-    return 1;
-  }
-  return 0;
-}
-
 # subroutine diff assesses whether two numbers differ by more than an epsilon
-# returns 1 if diff, 0 otherwise
 sub diff {
   # $_[0] = test value
   # $_[1] = baseline value
 
   #print "Diffing $_[0] and $_[1]\n";
-  
-  # nan or inf, which is represented differently on posix and windows
-  # systems
-  if ($_[0] =~ /$naninf/ || $_[1] =~ /$naninf/) { # nan or inf
-    if ($_[0] =~ /$infre/ && $_[1] =~ /$infre/) { # both inf?
-      $first0 = substr($_[0],0,1); # Get 1st chars to compare sign
-      $first1 = substr($_[1],0,1);
-      return not (($first0 eq "-" && $first1 eq "-") || # true when negative
-	  ($first0 ne "-" && $first1 ne "-"))  # true when non-negative  
-    } else {
-      return not ($_[0] =~ /$nanre/ && $_[1] =~ /$nanre/) # does not distinguish +/- nan
-    } 
-  }
-  # strings   
-  if ( $_[0] =~ /^$s$/ || $_[1] =~ /^$s$/ ) {
+
+  # for nan or inf, require exact string match
+  if ( $_[0] =~ /$naninf/ || $_[1] =~ /$naninf/ ) {
     if ( $_[0] ne $_[1] ) {
       return 1;
     }
@@ -796,7 +596,9 @@ sub diff {
     }
   }
 
-
+  $SMALL       = 1.e-8; # use absolute difference for small values
+  $ABS_EPSILON = 5.e-9; # allow up to a quarter of the total abs() interval
+  $REL_EPSILON = 1.e-4; # allow up to 0.01% numerical differences
   if ( (abs($_[0]) < $SMALL) || (abs($_[1]) < $SMALL) ) {
     $differ = abs($_[0] - $_[1]);     # absolute difference
     if ($differ > $ABS_EPSILON) {

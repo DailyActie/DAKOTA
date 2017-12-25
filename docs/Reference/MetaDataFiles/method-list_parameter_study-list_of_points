@@ -1,0 +1,12 @@
+Blurb::
+Specify the list of points that the \c list_parameter_study will run
+Description::
+The list of points is specified in the freeform format. Dakota will
+check to see that the number of values in the list is an integer multiple
+of the number of variables.
+
+Topics::	
+Examples::
+Theory::
+Faq::
+See_Also::	

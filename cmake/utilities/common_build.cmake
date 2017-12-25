@@ -52,19 +52,11 @@ if ( NOT DAKOTA_TEST_SBATCH )
   set( DAKOTA_TEST_SBATCH OFF )
 endif()
 
-if ( NOT DAKOTA_TEST_MSUB )
-  set( DAKOTA_TEST_MSUB OFF )
-endif()
-
-if ( NOT DEFINED DAKOTA_DO_UNIT )
-  set( DAKOTA_DO_UNIT ON )
-endif()
-
-if ( NOT DEFINED DAKOTA_DO_TEST )
+if ( NOT DAKOTA_DO_TEST )
   set( DAKOTA_DO_TEST ON )
 endif()
 
-if ( NOT DEFINED DAKOTA_DO_PACK )
+if ( NOT DAKOTA_DO_PACK )
   set( DAKOTA_DO_PACK ON )
 endif()
 
@@ -202,29 +194,6 @@ if ( ${ConfigStatus} EQUAL 0 )
   file( APPEND ${dakotaCtestResultsFile} "ctest_build errors: ${NumErr}\n" ) 
   file( APPEND ${dakotaCtestResultsFile} "ctest_build warnings: ${NumWarn}\n" ) 
 
-  if ( DAKOTA_DO_UNIT AND ${BuildStatus} EQUAL 0 )
-    include( "${CTEST_SOURCE_DIRECTORY}/CTestConfig.cmake" )
-
-    set( unit_test_subset ${CTEST_PROJECT_SUBPROJECTS} )
-    set_property( GLOBAL PROPERTY SubProject ${unit_test_subset} )
-    set_property( GLOBAL PROPERTY Label ${unit_test_subset} )
-    message( "ctest_test: Verifying subset tests by LABEL: ${unit_test_subset}\n" )
-
-    execute_process( COMMAND ${CMAKE_CTEST_COMMAND}
-      -L ${unit_test_subset}
-      -O ${CTEST_BINARY_DIRECTORY}/unit_test/${unit_test_subset}.out
-      WORKING_DIRECTORY ${CTEST_BINARY_DIRECTORY}
-      RESULT_VARIABLE CtestStatus
-      )
-
-    file( APPEND ${dakotaCtestResultsFile} "ctest unit_test failures: ${CtestStatus}\n" ) 
-
-    if ( DAKOTA_CDASH_SUBMIT )
-      ctest_submit(PARTS Build Test RETURN_VALUE SubmitStatus)
-    endif()  # DAKOTA_CDASH_SUBMIT
-
-  endif()  # DAKOTA_DO_UNIT
-
   # Perform tests if requested and build is successful
   if ( DAKOTA_DO_TEST AND ${BuildStatus} EQUAL 0 )
 
@@ -250,8 +219,8 @@ if ( ${ConfigStatus} EQUAL 0 )
     if (DAKOTA_TEST_SBATCH)
       # Generate files needed to submit tests to queue
       configure_file(
-	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_sbatch.sh.in
-	${CTEST_BINARY_DIRECTORY}/dakota_sbatch.sh @ONLY)
+	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_tests.sh.in
+	${CTEST_BINARY_DIRECTORY}/dakota_tests.sh @ONLY)
       configure_file(
 	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_tests.sbatch.in
 	${CTEST_BINARY_DIRECTORY}/dakota_tests.sbatch @ONLY)
@@ -260,23 +229,7 @@ if ( ${ConfigStatus} EQUAL 0 )
 	${CTEST_BINARY_DIRECTORY}/dakota_tests.cmake)
       # TODO: Propagate the exit code
       message("Submitting tests to batch system.")
-      execute_process(COMMAND dakota_sbatch.sh 
-	WORKING_DIRECTORY ${CTEST_BINARY_DIRECTORY}
-	RESULT_VARIABLE CtestStatus)
-    elseif (DAKOTA_TEST_MSUB)
-      # Generate files needed to submit tests to queue
-      configure_file(
-	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_msub.sh.in
-	${CTEST_BINARY_DIRECTORY}/dakota_msub.sh @ONLY)
-      configure_file(
-	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_tests.msub.in
-	${CTEST_BINARY_DIRECTORY}/dakota_tests.msub @ONLY)
-      configure_file(
-	${CTEST_SOURCE_DIRECTORY}/local/cmake/utilities/dakota_tests.cmake.in
-	${CTEST_BINARY_DIRECTORY}/dakota_tests.cmake)
-      # TODO: Propagate the exit code
-      message("Submitting tests to batch system.")
-      execute_process(COMMAND dakota_msub.sh 
+      execute_process(COMMAND dakota_tests.sh 
 	WORKING_DIRECTORY ${CTEST_BINARY_DIRECTORY}
 	RESULT_VARIABLE CtestStatus)
     else()
@@ -299,10 +252,9 @@ if ( DAKOTA_CDASH_SUBMIT )
   file( APPEND ${dakotaCtestResultsFile} "ctest_submit: ${SubmitStatus}\n" ) 
 endif()
 
-# Post-process unit and dakota test results. Do this even if testing was not
+# Post-process dakota test results. Do this even if testing was not
 # done to ensure the results from the last build are removed
 message("processing test results")
-process_unit_test_results( ${CTEST_BINARY_DIRECTORY} )
 process_dakota_test_results( ${CTEST_BINARY_DIRECTORY} )
 message("done processing test results")
 
@@ -319,7 +271,16 @@ if ( DAKOTA_DO_PACK )
   # WJB- ToDo: Assess the need for another variable, DAKOTA_DO_SOURCE_PACK
   #            PROBABLY is needed since only need to create source tarball once
 
-  
+  # BuildInfo needs to go into the source distribution, even though at config
+  # or build time, it is desirable to adhere to a read-only source dir policy,
+  # therefore, copy the file into the source tree just prior to packing
+  if ( EXISTS ${CTEST_BINARY_DIRECTORY}/src/DakotaBuildInfo.cpp )
+    execute_process(COMMAND ${CMAKE_COMMAND} -E copy
+      "${CTEST_BINARY_DIRECTORY}/src/DakotaBuildInfo.cpp"
+      "${CTEST_SOURCE_DIRECTORY}/src/"
+      )
+  endif() # DakotaBuildInfo.cpp exists
+
   if ( EXISTS ${CTEST_BINARY_DIRECTORY}/CPackSourceConfig.cmake )
     execute_process(COMMAND ${CMAKE_CPACK_COMMAND}
       --config ${CTEST_BINARY_DIRECTORY}/CPackSourceConfig.cmake
@@ -341,6 +302,14 @@ if ( DAKOTA_DO_PACK )
   endif() # DAKOTA_BUILD_DOCS
 endif() # DAKOTA_DO_PACK
 
+# Packing complete - OK to remove the BuildInfo file from the source tree
+
+if ( EXISTS ${CTEST_SOURCE_DIRECTORY}/src/DakotaBuildInfo.cpp )
+  execute_process(COMMAND ${CMAKE_COMMAND} -E remove
+    ${CTEST_SOURCE_DIRECTORY}/src/DakotaBuildInfo.cpp
+    WORKING_DIRECTORY ${CTEST_SOURCE_DIRECTORY}/src
+    )
+endif()
 
 ##############################################################################
 # Print all data

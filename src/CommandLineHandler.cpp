@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -10,6 +10,9 @@
 // S Manoharan. Advanced Computer Research Institute. Lyon. France
 
 #include "CommandLineHandler.hpp"
+#include "ProblemDescDB.hpp"
+#include "ParallelLibrary.hpp"
+#include "DakotaBuildInfo.hpp"
 // #ifdef DAKOTA_HAVE_MPI
 // #include <mpi.h>
 // #endif // DAKOTA_HAVE_MPI
@@ -17,6 +20,8 @@
 
 
 namespace Dakota {
+
+extern ParallelLibrary *Dak_pl;
 
 GetLongOpt::GetLongOpt(const char optmark)
 {
@@ -306,7 +311,10 @@ void GetLongOpt::usage(std::ostream &outfile) const
       usage_msg += ")\n";
    }
 
-   outfile << usage_msg << std::endl;
+   if (Dak_pl)
+      Dak_pl->output_helper(usage_msg, outfile);
+   else
+      outfile << usage_msg << std::endl;
 }
 
 void GetLongOpt::store(const char *name, const char *value)
@@ -326,7 +334,7 @@ void CommandLineHandler::initialize_options()
   // line option is used.  This does not make the command line option itself
   // mandatory.  Required command line inputs are enforced in check_usage().
 
-  GetLongOpt::usage("[options and <args>]");
+  usage("[options and <args>]");
 
   // information options
   enroll("help",    GetLongOpt::Valueless, "Print this summary", NULL);
@@ -373,11 +381,11 @@ void CommandLineHandler::initialize_options()
 
 
   // The write restart filename string is optional.  
-  // write_restart not invoked: retrieve returns NULL
-  // write_restart no value:    retrieve returns enpty string
+  // write_restart not invoked: retrieve returns "dakota.rst"
+  // write_restart no value:    retrieve returns "dakota.rst"
   // write_restart with value:  retrieve returns value
   enroll("write_restart", GetLongOpt::OptionalValue,
-         "Write a new DAKOTA restart file $val", NULL);
+         "Write a new DAKOTA restart file $val", "dakota.rst");
 
   //enroll("mpi", GetLongOpt::Valueless,
   //       "Turn on message passing within an executable built with MPI", 0);
@@ -402,16 +410,19 @@ void CommandLineHandler::check_usage(int argc, char** argv)
 //#endif // USE_MPI
   }
 
+  // potentially re-assign Cout/Cerr to file streams, keeping this
+  // class self-contained and independent of ParallelLibrary
+  assign_streams();
+
   if (retrieve("help") != NULL) {
     // usage may be version-specific, so include it
-    // BMA TODO: decide how to handle; could have call outputmanager's function
-    //    output_version();
+    output_version();
     usage();
     return;  // no further processing for usage
   }
 
   if (retrieve("version") != NULL) {
-    //output_version();
+    output_version();
     return;  // no further processing for version
   }
 
@@ -449,26 +460,91 @@ void CommandLineHandler::check_usage(int argc, char** argv)
   }
   
   // always output version before run proceeds
-  //  output_version();
+  output_version();
 
+  reset_streams();
 }
 
 
-// BMA TODO: avoid this weird overload of usage if we retain GetLongOpt
-void CommandLineHandler::usage(std::ostream &outfile) const
+/** Redirect output/error to files, including output from this
+    class. If there is a valid ParallelLibrary, only redirect on rank
+    0 to avoid file clash. */
+void CommandLineHandler::assign_streams()
 {
-  if (worldRank == 0)
-    GetLongOpt::usage(outfile);
+  if (Dak_pl && Dak_pl->world_rank() > 0)
+    return;
+
+  if (retrieve("output")) {
+    std::string std_output_filename = retrieve("output");
+    output_ofstream.open(std_output_filename.c_str(), std::ios::out);
+    if (!output_ofstream.good()) {
+      std::string err_msg("\nError opening output file '" + std_output_filename);
+      err_msg += "'.";
+      output_helper(err_msg, Cerr);
+      abort_handler(-1);
+    }
+    dakota_cout = &output_ofstream;
+  }
+
+  if (retrieve("error")) {
+    std::string std_error_filename = retrieve("error");
+    error_ofstream.open(std_error_filename.c_str(), std::ios::out);
+    if (!error_ofstream.good()) {
+      std::string err_msg("\nError opening error file '" + std_error_filename);
+      err_msg += "'.";
+      output_helper(err_msg, Cerr);
+      abort_handler(-1);
+    }
+    dakota_cerr = &error_ofstream;
+  }
+  
 }
 
+
+void CommandLineHandler::reset_streams()
+{
+  if (Dak_pl && Dak_pl->world_rank() > 0)
+    return;
+
+  if (retrieve("output")) {
+    output_ofstream.close();
+    dakota_cout = &std::cout;
+  }
+
+  if (retrieve("error")) {
+    error_ofstream.close();
+    dakota_cerr = &std::cerr;
+  }
+}
+
+/** Version is always output to Cout */ 
+void CommandLineHandler::output_version() const
+{
+  std::string version_info("Dakota version ");
+  version_info += DakotaBuildInfo::get_release_num(); 
+
+  // Major/interim releases:
+  //version_info += " released 11/15/2013.\n";
+
+  // Developmental/Stable releases:
+  version_info += "+ developmental release.\n";
+
+  version_info += "Subversion revision " 
+    + DakotaBuildInfo::get_rev_number()
+    + " built " + DakotaBuildInfo::get_build_date()
+    + " " + DakotaBuildInfo::get_build_time() + ".";
+
+  output_helper(version_info, Cout);
+}
 
 /** When there is a valid ParallelLibrary, output only on rank 0 */
 void CommandLineHandler::
-output_helper(const std::string& message, std::ostream &os) const
+output_helper(const std::string message, std::ostream &os) const
 {
-  if (worldRank == 0)
-    os << message << std::endl;
+ if (Dak_pl)
+   Dak_pl->output_helper(message, os);
+ else
+   os << message << std::endl;
 }
-
 
 } // namespace Dakota

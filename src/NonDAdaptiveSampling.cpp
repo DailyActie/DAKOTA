@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2012, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -46,15 +46,10 @@ namespace Dakota
 	/** This constructor is called for a standard letter-envelope iterator 
     instantiation.  In this case, set_db_list_nodes has been called and 
     probDescDB can be queried for settings from the method specification. */
-	NonDAdaptiveSampling::NonDAdaptiveSampling(ProblemDescDB& problem_db, Model& model): NonDSampling(problem_db, model)
+	NonDAdaptiveSampling::NonDAdaptiveSampling(Model& model): NonDSampling(model)
 	{	
 		#pragma region Class Constructor:
 		
-	        // sampleType default in DataMethod.cpp is SUBMETHOD_DEFAULT (0).
-	        // Enforce an LHS default for this method.
-	        if (!sampleType)
-		  sampleType = SUBMETHOD_LHS;
-
 		AMSC = NULL;
 
 		//Defaults are set before parsing input parameters
@@ -64,19 +59,12 @@ namespace Dakota
                 if (numRounds == -1)
                   numRounds = 100;
                 
-                numEmulEval = probDescDB.get_int("method.nond.samples_on_emulator");
+                numEmulEval = probDescDB.get_int("method.nond.emulator_samples");
                 if (numEmulEval == 0)
                   numEmulEval = 400; 
-		batchSize = 1;
-		const IntVector& db_refine_samples = 
-		  probDescDB.get_iv("method.nond.refinement_samples");
-		if (db_refine_samples.length() == 1)
-		  batchSize = db_refine_samples[0];
-		else if (db_refine_samples.length() > 1) {
-		  Cerr << "\nError (NonDAdaptiveSampling): refinement_samples must be "
-		       << "length 1 if specified." << std::endl;
-		  abort_handler(PARSE_ERROR);
-		}
+                batchSize = probDescDB.get_int("method.nond.batch_size");
+                if (batchSize == 0)
+		  batchSize = 1;
                 batchStrategy = probDescDB.get_string("method.batch_selection");
                 if (batchStrategy.empty())
 		  batchStrategy="naive";
@@ -110,12 +98,12 @@ namespace Dakota
 		short corr_order = -1, data_order = 1, corr_type = NO_CORRECTION;
 		if (probDescDB.get_bool("method.derivative_usage"))
 		{
-		  if (iteratedModel.gradient_type() != "none") data_order |= 2;
-		  if (iteratedModel.hessian_type()  != "none") data_order |= 4;
+			if (gradientType != "none") data_order |= 2;
+			if (hessianType  != "none") data_order |= 4;
 		}
 
 		bool vary_pattern = false;
-		const String& import_pts_file = probDescDB.get_string("method.import_build_points_file");
+		const String& import_pts_file = probDescDB.get_string("method.import_points_file");
 		int samples = numSamples;
 		if (!import_pts_file.empty())
 		{
@@ -123,9 +111,9 @@ namespace Dakota
 		}
                  
                 //**NOTE:  We are hardcoding the sample type to LHS and the approximation type to kriging for now
-		//if (sampleDesign == RANDOM_SAMPLING)
+		//if (sampleDesign == "sampling_lhs")
 		//{
-		gpBuild.assign_rep(new NonDLHSSampling(iteratedModel, SUBMETHOD_DEFAULT,
+		gpBuild.assign_rep(new NonDLHSSampling(iteratedModel, String("lhs"),
 							   samples, randomSeed, rngName,
 							   varyPattern, ACTIVE_UNIFORM), false);
 		//}
@@ -135,15 +123,11 @@ namespace Dakota
 		//					   sampleDesign));
 		//}
                 approx_type = "global_kriging";
-		ActiveSet gp_set = iteratedModel.current_response().active_set(); // copy
-		gp_set.request_values(1); // no surr deriv evals, but GP may be grad-enhanced
-		gpModel.assign_rep(new DataFitSurrModel(gpBuild, iteratedModel,
-						  gp_set, approx_type, approx_order, corr_type, corr_order, data_order,
-						  outputLevel, sample_reuse, import_pts_file,
-						  probDescDB.get_ushort("method.import_build_format"),
-						  probDescDB.get_bool("method.import_build_active_only"),
-						  probDescDB.get_string("method.export_approx_points_file"),
-						  probDescDB.get_ushort("method.export_approx_format")), false);
+		gpModel.assign_rep(new DataFitSurrModel(gpBuild, iteratedModel, approx_type,
+						  approx_order, corr_type, corr_order, data_order,
+						  outputLevel, sample_reuse, probDescDB.get_string("method.export_points_file"),
+						  probDescDB.get_bool("method.export_points_file_annotated"), import_pts_file,
+						  probDescDB.get_bool("method.import_points_file_annotated")), false);
 
 		vary_pattern = true; // allow seed to run among multiple approx sample sets
 							 // need to add to input spec
@@ -152,14 +136,14 @@ namespace Dakota
 		//// Until this starts working, we are forcing the candidates to be selected by
 		//// LHS
 		////***END ATTENTION***
-		//if(sampleDesign == RANDOM_SAMPLING){
+		//if(sampleDesign == "sampling_lhs"){
 		if(true)
 		{
-			construct_lhs(gpEval, gpModel, SUBMETHOD_DEFAULT, numEmulEval, randomSeed,
+			construct_lhs(gpEval, gpModel, String("lhs"), numEmulEval, randomSeed,
 						  rngName, vary_pattern);
 
 			numFinalEmulEval = 10000; // may be we should add that as a paramter
-			construct_lhs(gpFinalEval, gpModel, SUBMETHOD_DEFAULT, numFinalEmulEval, randomSeed,
+			construct_lhs(gpFinalEval, gpModel, String("lhs"), numFinalEmulEval, randomSeed,
 						  rngName, vary_pattern);
 		}
 		else
@@ -168,56 +152,21 @@ namespace Dakota
 			//gpEval.assign_rep(new FSUDesignCompExp(gpModel, numEmulEval, randomSeed, sampleDesign));
 		}
 
+		gpModel.init_communicators(gpEval.maximum_concurrency());
+
+		gpModel.init_communicators(gpFinalEval.maximum_concurrency());
 		#pragma endregion
 	}
 
-  NonDAdaptiveSampling::~NonDAdaptiveSampling()
-  { }
-
-
-  bool NonDAdaptiveSampling::resize()
-  {
-    bool parent_reinit_comms = NonDSampling::resize();
-
-    Cerr << "\nError: Resizing is not yet supported in method "
-         << method_enum_to_string(methodName) << "." << std::endl;
-    abort_handler(METHOD_ERROR);
-
-    return parent_reinit_comms;
-  }
-
-  void NonDAdaptiveSampling::derived_init_communicators(ParLevLIter pl_iter)
-  {
-    iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-    // gpEval and gpFinalEval use NoDBBaseConstructor, so no need to
-    // manage DB list nodes at this level
-    gpEval.init_communicators(pl_iter);
-    gpFinalEval.init_communicators(pl_iter);
-  }
-
-  void NonDAdaptiveSampling::derived_set_communicators(ParLevLIter pl_iter)
-  {
-    NonD::derived_set_communicators(pl_iter);
-
-    // gpEval and gpFinalEval use NoDBBaseConstructor, so no need to
-    // manage DB list nodes at this level
-    gpEval.set_communicators(pl_iter);
-    gpFinalEval.set_communicators(pl_iter);
-  }
-
-  void NonDAdaptiveSampling::derived_free_communicators(ParLevLIter pl_iter)
-  {
-    gpFinalEval.free_communicators(pl_iter);
-    gpEval.free_communicators(pl_iter);
-
-    iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-  }
+	NonDAdaptiveSampling::~NonDAdaptiveSampling()
+	{
+		gpModel.free_communicators(gpEval.maximum_concurrency());
+	}
 
 
 
 	//This is where all the magic happens
-	void NonDAdaptiveSampling::core_run() 
+	void NonDAdaptiveSampling::quantify_uncertainty() 
 	{
 		#pragma region Quantify Uncertainity:
 		numPtsTotal = numSamples + numRounds * batchSize;		
@@ -246,11 +195,11 @@ namespace Dakota
 		////***END ATTENTION***
 
 		// BMA: you should just be able to use numContinuousVars for now, or this:
-		//  size_t dim = numContinuousVars + numDiscreteIntVars + numDiscreteStringVars + numDiscreteRealVars;
+		//  size_t dim = numContinuousVars + numDiscreteIntVars + numDiscreteRealVars;
 		int dim = 0;
 		const Pecos::SurrogateData& gp_data = gpModel.approximation_data(0);
 
-		if(gp_data.points() > 1) dim = gp_data.continuous_variables(0).length();
+		if(gp_data.size() > 1) dim = gp_data.continuous_variables(0).length();
 
 		int i,j;
  
@@ -276,7 +225,7 @@ namespace Dakota
 		fout << "Round\tTrue_Min\tTrue_Max\tTrue_Saddle\tModel_Min\tModel_Max"
 			 << "\tModel_Saddle\tBottleneck\tRMSPE" << std::endl;
 
-		initialize_level_mappings();
+		initialize_distribution_mappings();
 
 
 		for (int k = 0; k < numRounds; k++) 
@@ -302,7 +251,7 @@ namespace Dakota
 			for(int i = 0; i < new_Xs.size(); i++) 
 			{
 				iteratedModel.continuous_variables(new_Xs[i]);
-				iteratedModel.evaluate();
+				iteratedModel.compute_response();
 				responses_to_add.insert(IntResponsePair(iteratedModel.evaluation_id(),
 										iteratedModel.current_response()));
 				points_to_add.push_back(iteratedModel.current_variables());
@@ -328,8 +277,7 @@ namespace Dakota
 		}
 	
 		// Exploring Final Emulator
-		ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-		gpFinalEval.run(pl_iter);
+		gpFinalEval.run_iterator(Cout);
 		const IntResponseMap& all_resp = gpFinalEval.all_responses();
 		IntRespMCIter resp_it = all_resp.begin();
 
@@ -379,9 +327,7 @@ namespace Dakota
 		RealVector temp_cvars;
 
 		// generate new set of emulator samples.  Note this will have a different seed  each time.
-
-		ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-		gpEval.run(pl_iter);
+		gpEval.run_iterator(Cout);
 
 		// obtain results 
 		const RealMatrix&  all_samples = gpEval.all_samples();
@@ -467,7 +413,7 @@ namespace Dakota
 				double min_sq_dist;
 				int min_index;
 				bool first = true;
-				for (int j = 0; j < gp_data.points(); j++) // This is a Naiive way to retriev closet data point. SHOULD BE RELACED IN THE FUTURE FOR BETTER PERFORMANCE!
+				for (int j = 0; j < gp_data.size(); j++) // This is a Naiive way to retriev closet data point. SHOULD BE RELACED IN THE FUTURE FOR BETTER PERFORMANCE!
 				{
 					double sq_dist = 0;
 					for(int d = 0; d < gp_data.continuous_variables(j).length(); d++)
@@ -503,7 +449,7 @@ namespace Dakota
 				int min_index;
 				bool first = true;
 
-				for (int j = 0; j < gp_data.points(); j++) // This is a Naiive way to retriev closet data point. SHOULD BE RELACED IN THE FUTURE FOR BETTER PERFORMANCE!
+				for (int j = 0; j < gp_data.size(); j++) // This is a Naiive way to retriev closet data point. SHOULD BE RELACED IN THE FUTURE FOR BETTER PERFORMANCE!
 				{
 					double sq_dist = 0;
 					for(int d = 0; d < gp_data.continuous_variables(j).length(); d++)
@@ -580,9 +526,9 @@ namespace Dakota
 		AMSC = NULL;
  
 		const Pecos::SurrogateData& gp_data = gpModel.approximation_data(respFnCount);
-		if(gp_data.points() < 1) return;
+		if(gp_data.size() < 1) return;
 
-		int n = gp_data.points();
+		int n = gp_data.size();
 		int d = gp_data.continuous_variables(0).length();
 		double *data_resp_vector = new double[n*(d+1)];
 
@@ -632,7 +578,7 @@ void NonDAdaptiveSampling::output_round_data(int round, int respFnCount)
 
   for(int i = 0; i < validationSetSize; i++) {
     surrogate_model.continuous_variables(validationSet[i]);
-    surrogate_model.evaluate();
+    surrogate_model.compute_response();
     yModel[i] = surrogate_model.current_response().function_value(respFnCount);
 
     if(outputValidationData) {
@@ -709,7 +655,7 @@ void NonDAdaptiveSampling::output_round_data(int round, int respFnCount)
 
     for(int i = 0; i < new_Xs.size(); i++) {
       iteratedModel.continuous_variables(new_Xs[i]);
-      iteratedModel.evaluate();
+      iteratedModel.compute_response();
 
       for(int j = 0; j < new_Xs[i].length(); j++)
         candidate_out << new_Xs[i][j] << " ";
@@ -854,10 +800,10 @@ RealVectorArray NonDAdaptiveSampling::drawNewX(int this_k, int respFnCount)
     //Find the mean response value
     const Pecos::SurrogateData& gp_data = gpModel.approximation_data(respFnCount);
     Real mean_value = 0;
-    for (i = 0; i < gp_data.points(); i++) {
+    for (i = 0; i < gp_data.size(); i++) {
       mean_value += gp_data.response_function(i);
     } 
-    mean_value /= (Real)gp_data.points();
+    mean_value /= (Real)gp_data.size();
 
     for(i = 0; i < batchSize; i++) {
       //Rescore the candidates after refitting the gp each time
@@ -889,7 +835,7 @@ RealVectorArray NonDAdaptiveSampling::drawNewX(int this_k, int respFnCount)
       
       Cout << "Updaing surrogate" << std::endl;
       gpModel.continuous_variables(gpCvars[max_index]);
-      gpModel.evaluate();
+      gpModel.compute_response();
       Response current_response = gpModel.current_response();
       current_response.function_value_view(respFnCount) = mean_value;
       IntResponsePair response_to_add(gpModel.evaluation_id(),current_response);
@@ -1132,10 +1078,10 @@ void NonDAdaptiveSampling::calc_score_topo_highest_persistence(int respFnCount)
   emulEvalScores = 0.0;
 
   const Pecos::SurrogateData& gp_data = gpModel.approximation_data(respFnCount);
-  if(gp_data.points() < 1)
+  if(gp_data.size() < 1)
     return;
 
-  int n_train = gp_data.points();
+  int n_train = gp_data.size();
   int n_cand = numEmulEval;
 ////***ATTENTION***
 //// I do this all over the place, but there has to be a better way to obtain
@@ -1201,7 +1147,7 @@ Real NonDAdaptiveSampling::calc_score_delta_y(int respFnCount,
   double min_sq_dist;
   int min_index;
   bool first = true;
-  for (int j = 0; j < gp_data.points(); j++) {
+  for (int j = 0; j < gp_data.size(); j++) {
     double sq_dist = 0;
     for(int d = 0; d < gp_data.continuous_variables(j).length(); d++)
       sq_dist += pow(test_point[d]-gp_data.continuous_variables(j)[d],2);
@@ -1216,7 +1162,7 @@ Real NonDAdaptiveSampling::calc_score_delta_y(int respFnCount,
 
   Model& surrogate_model = gpModel.surrogate_model();
   surrogate_model.continuous_variables(test_point);
-  surrogate_model.evaluate();
+  surrogate_model.compute_response();
   Real guessed_value = 
     surrogate_model.current_response().function_value(respFnCount);
 
@@ -1230,7 +1176,7 @@ Real NonDAdaptiveSampling::calc_score_delta_x(int respFnCount,
   double min_sq_dist;
   int min_index;
   bool first = true;
-  for (int j = 0; j < gp_data.points(); j++) {
+  for (int j = 0; j < gp_data.size(); j++) {
     double sq_dist = 0;
     for(int d = 0; d < gp_data.continuous_variables(j).length(); d++)
       sq_dist += pow(test_point[d]-gp_data.continuous_variables(j)[d],2);
@@ -1254,7 +1200,7 @@ Real NonDAdaptiveSampling::calc_score_topo_bottleneck(int respFnCount,
 
   Model& surrogate_model = gpModel.surrogate_model();
   surrogate_model.continuous_variables(test_point);
-  surrogate_model.evaluate();
+  surrogate_model.compute_response();
   temp_x[test_point.length()] = 
     surrogate_model.current_response().function_value(respFnCount);
   Real ret_value = ScoreTOPOB((*AMSC), temp_x);
@@ -1286,7 +1232,7 @@ Real NonDAdaptiveSampling::calc_score_topo_avg_persistence(int respFnCount,
 
   Model& surrogate_model = gpModel.surrogate_model();
   surrogate_model.continuous_variables(test_point);
-  surrogate_model.evaluate();
+  surrogate_model.compute_response();
   temp_x[test_point.length()] = 
     surrogate_model.current_response().function_value(respFnCount);
   Real ret_value = ScoreTOPOP((*AMSC), temp_x);
@@ -1314,7 +1260,7 @@ Real NonDAdaptiveSampling::calc_score_topo_alm_hybrid(int respFnCount,
 
   Model& surrogate_model = gpModel.surrogate_model();
   surrogate_model.continuous_variables(test_point);
-  surrogate_model.evaluate();
+  surrogate_model.compute_response();
   temp_x[test_point.length()] 
     = surrogate_model.current_response().function_value(respFnCount);
   Real ret_value = ScoreTOPOP((*AMSC), temp_x);
@@ -1400,14 +1346,7 @@ Real NonDAdaptiveSampling::compute_rmspe()
 				}
 				else if (opt == "sample_design") 
 				{
-				  if (val == "sampling_lhs")
-				    sampleDesign = RANDOM_SAMPLING;
-				  else if (val == "fsu_cvt")
-				    sampleDesign = FSU_CVT;
-				  else if (val == "fsu_halton")
-				    sampleDesign = FSU_HALTON;
-				  else if (val == "fsu_hammersley")
-				    sampleDesign = FSU_HAMMERSLEY;
+					sampleDesign = val;
 				}
 				else if (opt == "score_type") 
 				{
@@ -1736,7 +1675,7 @@ void NonDAdaptiveSampling::output_for_optimization(int dim)
 //// the domain boundaries, in a general framework this is inadequate
 ////***END ATTENTION***
     // BMA: Should be able to do
-    // iteratedModel.derived_interface().analysis_drivers()[0]\
+    // iteratedModel.interface().analysis_drivers()[0]\
     // to get the first driver in the list...
           << "herbie\'" << std:: endl
           << std::endl
@@ -1756,7 +1695,7 @@ void NonDAdaptiveSampling::output_for_optimization(int dim)
 
 void NonDAdaptiveSampling::
 construct_fsu_sampler(Iterator& u_space_sampler, Model& u_model, 
-    int num_samples, int seed, unsigned short sample_type) {
+    int num_samples, int seed, const String& sample_type) {
   // sanity checks
   if (num_samples <= 0) {
     Cerr << "Error: bad samples specification (" << num_samples << ") in "
@@ -1773,7 +1712,7 @@ void NonDAdaptiveSampling::print_results(std::ostream& s)
 {
   if (statsFlag) {
     s << "\nStatistics based on the adaptive sampling calculations:\n";
-    print_level_mappings(s);
+    print_distribution_mappings(s);
   }
 }
 

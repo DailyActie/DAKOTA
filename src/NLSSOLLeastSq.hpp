@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -53,19 +53,16 @@ public:
   //
   //- Heading: Constructors and destructor
   //
- 
-  /// standard constructor
-  NLSSOLLeastSq(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor
-  NLSSOLLeastSq(Model& model);
-  /// destructor
-  ~NLSSOLLeastSq();
+
+  NLSSOLLeastSq(Model& model);                      ///< standard constructor
+  NLSSOLLeastSq(NoDBBaseConstructor, Model& model); ///< alternate constructor
+  ~NLSSOLLeastSq();                                 ///< destructor
 
   //
   //- Heading: Member functions
   //
 
-  void core_run();
+  void minimize_residuals();
 
 private:
 

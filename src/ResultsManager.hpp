@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,19 +17,6 @@
 
 #include "dakota_results_types.hpp"
 #include "ResultsDBAny.hpp"
-#include "dakota_data_util.hpp"
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
-
-#ifdef DAKOTA_HAVE_HDF5
-#include "ResultsDBHDF5.hpp"
-#else
-// forward declaration due to PIMPL in support of conditional compilation HDF5
-namespace Dakota {
-  class ResultsDBHDF5;
-}
-#endif
-
 
 // Design notes (BMA, Fall 2012)
 
@@ -70,7 +57,7 @@ namespace Dakota {
 
 /// Get a globally unique 1-based execution number for a given
 /// iterator name (combination of methodName and methodID) for use in
-/// results DB.  Each Iterator::run() call creates or increments this
+/// results DB.  Each run_iterator call creates or increments this
 /// count for its string identifier.
 class ResultsID {
 
@@ -117,7 +104,6 @@ public:
     // optimization
     best_cv("Best Continuous Variables"),
     best_div("Best Discrete Integer Variables"),
-    best_dsv("Best Discrete String Variables"),
     best_drv("Best Discrete Real Variables"),
     best_fns("Best Functions"),
 
@@ -153,7 +139,6 @@ public:
     // labels for variables/resposes
     cv_labels("Continuous Variable Labels"),
     div_labels("Discrete Integer Variable Labels"),
-    dsv_labels("Discrete String Variable Labels"),
     drv_labels("Discrete Real Variable Labels"),
     fn_labels("Function Labels")
 
@@ -165,7 +150,6 @@ public:
   // optimization (all used)
   std::string best_cv;
   std::string best_div;
-  std::string best_dsv;
   std::string best_drv;
   std::string best_fns;
 
@@ -201,7 +185,6 @@ public:
   // labels for variables/resposes (all used)
   std::string cv_labels;
   std::string div_labels;
-  std::string dsv_labels;
   std::string drv_labels;
   std::string fn_labels;
 };
@@ -218,7 +201,8 @@ public:
 
     For now, using concrete types for most insertion, since underlying
     databases like HDF5 might need concrete types; though template
-    parameter for array allocation and retrieval. 
+    parameter for array allocation and retrieval.  Probably want to
+    use concrete types for arrays too.
 
     All insertions overwrite any previous data.
 */
@@ -231,12 +215,12 @@ class ResultsManager
 public:
 
   /// default constructor: no databases active until initialize called
-  ResultsManager(): coreDBActive(false), hdf5DBActive(false)
+  ResultsManager(): coreDBActive(false), fileDBActive(false)
   { /* no-op*/ }
 
   /// initialize the results manager to manage an in-core database,
   /// writing to the specified file name
-  void initialize(const std::string& base_filename);
+  void initialize(const std::string& text_filename);
 
   /// whether any databases are active
   bool active() const;
@@ -248,41 +232,25 @@ public:
   /// Copy of valid results names for when manager is passed around
   ResultsNames results_names;
 
-  // TODO: consider templating on container and scalar type
-
-  /// insert data
-  template<typename StoredType>
-  void insert(const StrStrSizet& iterator_id,
-	      const std::string& data_name,
-	      const StoredType& sent_data,
-	      const MetaDataType metadata = MetaDataType())
-  {
-    if (coreDBActive)
-      coreDB->insert(iterator_id, data_name, sent_data, metadata);
-#ifdef DAKOTA_HAVE_HDF5
-    if (hdf5DBActive)
-      hdf5DB->insert(iterator_id, data_name, sent_data, metadata);
-#endif
-  }
-  
-  // TODO: can't seem to pass SMACV by const ref...
+  /// insert StringMultiArrayConstView, e.g. variable labels
   void insert(const StrStrSizet& iterator_id,
 	      const std::string& data_name,
 	      StringMultiArrayConstView sma_labels,
-	      const MetaDataType metadata = MetaDataType())
-  {
-    std::vector<std::string> vs_labels;
-    if (coreDBActive || hdf5DBActive) {
-      // convert to standard data type to store
-      copy_data(sma_labels, vs_labels);
-    }
-   if (coreDBActive)
-      coreDB->insert(iterator_id, data_name, vs_labels, metadata);
-#ifdef DAKOTA_HAVE_HDF5
-    if (hdf5DBActive)
-      hdf5DB->insert(iterator_id, data_name, vs_labels, metadata);
-#endif
-  }
+	      const MetaDataType metadata = MetaDataType());
+
+
+  /// insert StringArray, e.g., response labels
+  void insert(const StrStrSizet& iterator_id,
+	      const std::string& data_name,
+	      const StringArray& sa_labels,
+	      const MetaDataType metadata = MetaDataType());
+
+  // TODO: may need care that we have values_copied = true, otherwise copy
+  /// insert RealMatrix, e.g. correlations
+  void insert(const StrStrSizet& iterator_id,
+	      const std::string& data_name,
+	      const RealMatrix& matrix,
+	      const MetaDataType metadata = MetaDataType());
 
   /// allocate an entry with array of StoredType of array_size for
   /// future insertion; likely move to non-templated accessors for these
@@ -293,15 +261,9 @@ public:
 		 size_t array_size,
 		 const MetaDataType metadata = MetaDataType())
   {
-    if (coreDBActive)
-      coreDB->array_allocate<StoredType>(iterator_id, data_name, array_size, 
-					 metadata);
-#ifdef DAKOTA_HAVE_HDF5
-    if (hdf5DBActive)
-      hdf5DB->array_allocate<StoredType>(iterator_id, data_name, array_size, 
-					 metadata);
-#endif
-
+    if (!coreDBActive) return;
+    coreDB.array_allocate<StoredType>(iterator_id, data_name, array_size, 
+				      metadata);
   }
 
   /// insert into a previously allocated array of StoredType at index
@@ -313,39 +275,10 @@ public:
 	       size_t index,
 	       const StoredType& sent_data)
   {
-    if (coreDBActive)
-      coreDB->array_insert<StoredType>(iterator_id, data_name, index, 
-				       sent_data);
-#ifdef DAKOTA_HAVE_HDF5
-    if (hdf5DBActive)
-      hdf5DB->array_insert<StoredType>(iterator_id, data_name, index, 
-				       sent_data);
-#endif
+    if (!coreDBActive) return;
+    coreDB.array_insert<StoredType>(iterator_id, data_name, index, sent_data);
   }
 
-  /// specialization: insert a SMACV into a previously allocated array
-  /// of StringArrayStoredType at index specified; metadata must be
-  /// specified at allocation
-  template<typename StoredType>
-  void
-  array_insert(const StrStrSizet& iterator_id,
-	       const std::string& data_name,
-	       size_t index,
-	       StringMultiArrayConstView sent_data)
-  {
-    // copy the data to native container for storage
-    StringArray sent_data_sa;
-    copy_data(sent_data, sent_data_sa);
-
-    if (coreDBActive)
-      coreDB->array_insert<StoredType>(iterator_id, data_name, index, 
-				       sent_data_sa);
-#ifdef DAKOTA_HAVE_HDF5
-    if (hdf5DBActive)
-      hdf5DB->array_insert<StoredType>(iterator_id, data_name, index, 
-				       sent_data_sa);
-#endif
-  }
 
 private:
 
@@ -354,7 +287,7 @@ private:
   StoredType core_lookup(const StrStrSizet& iterator_id,
 			 const std::string& data_name) const
   {
-    return coreDB->get_data<StoredType>(iterator_id, data_name);
+    return coreDB.get_data<StoredType>(iterator_id, data_name);
   }
 
   /// retrieve data via pointer to avoid copy; work-around for Boost
@@ -363,7 +296,7 @@ private:
   StoredType* core_lookup_ptr(const StrStrSizet& iterator_id,
 			      const std::string& data_name) const
   {
-    return coreDB->get_data_ptr<StoredType>(iterator_id, data_name);
+    return coreDB.get_data_ptr<StoredType>(iterator_id, data_name);
   }
 
   /// retrieve data from in-core array of StoredType at given index
@@ -372,7 +305,7 @@ private:
 			 const std::string& data_name,
 			 size_t index) const
   {
-    return coreDB->get_array_data<StoredType>(iterator_id, data_name, index);
+    return coreDB.get_array_data<StoredType>(iterator_id, data_name, index);
   }
 
   /// retrieve data via pointer to entry in in-core array
@@ -381,7 +314,7 @@ private:
 				    const std::string& data_name,
 				    size_t index) const
   {
-    return coreDB->get_array_data_ptr<StoredType>(iterator_id, data_name, index);
+    return coreDB.get_array_data_ptr<StoredType>(iterator_id, data_name, index);
   }
 
   /// retrieve requested data into provided db_data StoredType
@@ -392,7 +325,7 @@ private:
   {
     abort_handler(-1);
     return;
-    //db_data = hdf5DB.lookup(iterator_id data_name);
+    //db_data = fileDB.lookup(iterator_id data_name);
   }
 
 
@@ -400,25 +333,21 @@ private:
   // Data
   // ----
 
-  // TODO: consider removing or renaming flags based on HDF5 needs
-
   /// whether the in-core database in active
   bool coreDBActive;
   /// filename for the in-core database
   std::string coreDBFilename;
 
   /// whether the file database is active
-  bool hdf5DBActive;
+  bool fileDBActive;
 
   /// In-core database, with option to flush to file at end
-  boost::scoped_ptr<ResultsDBAny> coreDB;
+  ResultsDBAny coreDB;
 
-  /// File-based database; using shared_ptr due to potentially incomplete type
-  /// and requirements for checked_delete in debug builds
-  boost::shared_ptr<ResultsDBHDF5> hdf5DB;
+  /// File-based database
+  //ResultsDBHDF5 fileDB;
 
 };  // class ResultsManager
-
 
 
 // Notes on ResultsEntry: 
@@ -454,9 +383,8 @@ public:
 
   ~ResultsEntry() { dbDataPtr = NULL; }
 
-  // inactive for now: may cause compile issues w/ Intel C++
   /// return a reference to the stored data, whether from core or file
-  //  const StoredType& const_view() const;
+  const StoredType& const_view() const;
   
 private:
 
@@ -520,20 +448,20 @@ ResultsEntry(const ResultsManager& results_mgr,
   }
 }
 
-// inactive for now: may cause compile issues w/ Intel C++
-// template<typename StoredType>
-// const StoredType& ResultsEntry<StoredType>::const_view() const
-// {
-//   // prefer return of core data
-//   if (coreActive)
-//     if (dbDataPtr)
-//       return *dbDataPtr;
-//     else {
-//       Cerr << "Unexpected NULL pointer in ResultsManager!" << std::endl;
-//       abort_handler(-1);
-//     }
-//   return dbData;
-// }
+
+template<typename StoredType>
+const StoredType& ResultsEntry<StoredType>::const_view() const
+{
+  // prefer return of core data
+  if (coreActive)
+    if (dbDataPtr)
+      return *dbDataPtr;
+    else {
+      Cerr << "Unexpected NULL pointer in ResultsManager!" << std::endl;
+      abort_handler(-1);
+    }
+  return dbData;
+}
 
 
 }  // namespace Dakota

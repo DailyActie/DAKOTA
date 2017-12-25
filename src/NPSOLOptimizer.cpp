@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -23,10 +23,7 @@
 static const char rcsId[]="@(#) $Id: NPSOLOptimizer.cpp 7029 2010-10-22 00:17:02Z mseldre $";
 
 #define NPSOL_F77   F77_FUNC(npsol,NPSOL)
-// BMA (20160315): Changed to use Fortran 2003 ISO C bindings.
-// The Fortran symbol will be lowercase with same name as if in C
-//#define NPOPTN2_F77 F77_FUNC(npoptn2,NPOPTN2)
-#define NPOPTN2_F77 npoptn2
+#define NPOPTN2_F77 F77_FUNC(npoptn2,NPOPTN2)
 
 extern "C" {
 
@@ -61,51 +58,51 @@ NPSOLOptimizer* NPSOLOptimizer::npsolInstance(NULL);
 
 
 /** This is the primary constructor.  It accepts a Model reference. */
-NPSOLOptimizer::NPSOLOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model), SOLBase(model), setUpType("model")
+NPSOLOptimizer::NPSOLOptimizer(Model& model): Optimizer(model), SOLBase(model),
+  setUpType("model")
 {
   // invoke SOLBase set function (shared with NLSSOLLeastSq)
   set_options(speculativeFlag, vendorNumericalGradFlag, outputLevel,
               probDescDB.get_int("method.npsol.verify_level"),
               probDescDB.get_real("method.function_precision"),
               probDescDB.get_real("method.npsol.linesearch_tolerance"),
-              maxIterations, constraintTol, convergenceTol,
-	      iteratedModel.gradient_type(),
-	      iteratedModel.fd_gradient_step_size());
+              maxIterations, constraintTol, convergenceTol, gradientType, 
+              fdGradStepSize);
 }
 
 
 /** This is an alternate constructor which accepts a Model but does
     not have a supporting method specification from the ProblemDescDB. */
-NPSOLOptimizer::NPSOLOptimizer(Model& model):
-  Optimizer(NPSOL_SQP, model), SOLBase(model), setUpType("model")
+NPSOLOptimizer::NPSOLOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model), SOLBase(model), setUpType("model")
 {
   // invoke SOLBase set function (shared with NLSSOLLeastSq)
   set_options(speculativeFlag, vendorNumericalGradFlag, outputLevel, -1,
 	      1.e-10, 0.9, maxIterations, constraintTol, convergenceTol,
-	      iteratedModel.gradient_type(),
-	      iteratedModel.fd_gradient_step_size());
+	      gradientType, fdGradStepSize);
 }
 
 
 /** This is an alternate constructor for instantiations on the fly
     using a Model but no ProblemDescDB. */
-NPSOLOptimizer::
-NPSOLOptimizer(Model& model, const int& derivative_level, const Real& conv_tol):
-  Optimizer(NPSOL_SQP, model), SOLBase(model), setUpType("model")
+NPSOLOptimizer::NPSOLOptimizer(Model& model, const int& derivative_level,
+  const Real& conv_tol): // SOLBase default ctor
+  Optimizer(NoDBBaseConstructor(), model), setUpType("model")
 {
+  using std::string;
+
   // Set NPSOL options (mostly use defaults)
-  std::string vlevel_s("Verify Level                = -1");
+  string vlevel_s("Verify Level                = -1");
   vlevel_s.resize(72, ' ');
   NPOPTN2_F77( vlevel_s.data() ); // NO Null terminator with std::string::data()
 
-  std::string plevel_s("Major Print Level           = 0");
+  string plevel_s("Major Print Level           = 0");
   plevel_s.resize(72, ' ');
   NPOPTN2_F77( plevel_s.data() );
 
   // assign the derivative_level passed in
-  std::string dlevel_s("Derivative Level            = ");
-  dlevel_s += boost::lexical_cast<std::string>(derivative_level);
+  string dlevel_s("Derivative Level            = ");
+  dlevel_s += boost::lexical_cast<string>(derivative_level);
   dlevel_s.resize(72, ' ');
   NPOPTN2_F77( dlevel_s.data() );
 
@@ -114,7 +111,7 @@ NPSOLOptimizer(Model& model, const int& derivative_level, const Real& conv_tol):
     std::ostringstream ctol_stream;
     ctol_stream << "Optimality Tolerance        = "
                 << std::setiosflags(std::ios::left) << std::setw(26)<< conv_tol;
-    std::string ctol_s( ctol_stream.str() );
+    string ctol_s( ctol_stream.str() );
     ctol_s.resize(72, ' ');
     NPOPTN2_F77( ctol_s.data() );
   }
@@ -137,13 +134,15 @@ NPSOLOptimizer::NPSOLOptimizer(const RealVector& initial_point,
   void (*user_con_eval) (int&, int&, int&, int&, int*, double*, double*,
 			 double*, int&),
   const int& derivative_level, const Real& conv_tol): // SOLBase default ctor
-  Optimizer(NPSOL_SQP, initial_point.length(), 0, 0, 0,
+  Optimizer(NoDBBaseConstructor(), initial_point.length(), 0, 0,
 	    lin_ineq_coeffs.numRows(), lin_eq_coeffs.numRows(),
 	    nonlin_ineq_lower_bnds.length(), nonlin_eq_targets.length()),
   setUpType("user_functions"), initialPoint(initial_point), 
   lowerBounds(var_lower_bnds), upperBounds(var_upper_bnds), 
   userObjectiveEval(user_obj_eval), userConstraintEval(user_con_eval)
 {
+  using std::string;
+
   // invoke SOLBase allocate/set functions (shared with NLSSOLLeastSq)
   allocate_arrays(numContinuousVars, numNonlinearConstraints, lin_ineq_coeffs,
 		  lin_eq_coeffs);
@@ -154,18 +153,18 @@ NPSOLOptimizer::NPSOLOptimizer(const RealVector& initial_point,
                  nonlin_ineq_upper_bnds, nonlin_eq_targets);
 
   // Set NPSOL options (mostly use defaults)
-  std::string vlevel_s("Verify Level                = -1");
+  string vlevel_s("Verify Level                = -1");
   vlevel_s.resize(72, ' ');
   NPOPTN2_F77( vlevel_s.data() );
 
-  std::string plevel_s("Major Print Level           = 0");
+  string plevel_s("Major Print Level           = 0");
   plevel_s.resize(72, ' ');
   NPOPTN2_F77( plevel_s.data() );
 
   // Set Derivative Level = 3 for user-supplied gradients, 0 for NPSOL
   // vendor-numerical, ...
-  std::string dlevel_s("Derivative Level            = ");
-  dlevel_s += boost::lexical_cast<std::string>(derivative_level);
+  string dlevel_s("Derivative Level            = ");
+  dlevel_s += boost::lexical_cast<string>(derivative_level);
   dlevel_s.resize(72, ' ');
   NPOPTN2_F77( dlevel_s.data() );
 
@@ -174,7 +173,7 @@ NPSOLOptimizer::NPSOLOptimizer(const RealVector& initial_point,
     std::ostringstream ctol_stream;
     ctol_stream << "Optimality Tolerance        = "
                 << std::setiosflags(std::ios::left) << std::setw(26)<< conv_tol;
-    std::string ctol_s( ctol_stream.str() );
+    string ctol_s( ctol_stream.str() );
     ctol_s.resize(72, ' ');
     NPOPTN2_F77( ctol_s.data() );
   }
@@ -192,23 +191,23 @@ NPSOLOptimizer::~NPSOLOptimizer()
 
 
 #ifdef HAVE_DYNLIB_FACTORIES
-NPSOLOptimizer* new_NPSOLOptimizer(ProblemDescDB& problem_db)
-{
-#ifdef DAKOTA_DYNLIB
-  not_available("NPSOL");
-  return 0;
-#else
-  return new NPSOLOptimizer(problem_db);
-#endif
-}
-
-NPSOLOptimizer* new_NPSOLOptimizer1(Model& model)
+NPSOLOptimizer* new_NPSOLOptimizer(Model& model)
 {
 #ifdef DAKOTA_DYNLIB
   not_available("NPSOL");
   return 0;
 #else
   return new NPSOLOptimizer(model);
+#endif
+}
+
+NPSOLOptimizer* new_NPSOLOptimizer1(NoDBBaseConstructor, Model& model)
+{
+#ifdef DAKOTA_DYNLIB
+  not_available("NPSOL");
+  return 0;
+#else
+  return new NPSOLOptimizer(NoDBBaseConstructor(), model);
 #endif
 }
 
@@ -243,7 +242,7 @@ NPSOLOptimizer* new_NPSOLOptimizer3(const RealVector& initial_point,
   not_available("NPSOL");
   return 0;
 #else
-  return new NPSOLOptimizer(initial_point, var_lower_bnds, var_upper_bnds,
+  return new NPSOLOptimizer( initial_point, var_lower_bnds, var_upper_bnds,
 	       lin_ineq_coeffs, lin_ineq_lower_bnds, lin_ineq_upper_bnds,
 	       lin_eq_coeffs, lin_eq_targets, nonlin_ineq_lower_bnds,
 	       nonlin_ineq_upper_bnds, nonlin_eq_targets, user_obj_eval,
@@ -282,13 +281,13 @@ objective_eval(int& mode, int& n, double* x, double& f, double* gradf,
 
   if (asv_request && npsolInstance->numNonlinearConstraints == 0) {
     // constraint_eval has not been called.  Therefore, set vars/asv
-    // and perform an evaluate() prior to data recovery.
+    // and perform a compute_response prior to data recovery.
     RealVector local_des_vars(n, false);
     copy_data(x, n, local_des_vars);
     npsolInstance->iteratedModel.continuous_variables(local_des_vars);
     npsolInstance->activeSet.request_values(asv_request);
     npsolInstance->
-      iteratedModel.evaluate(npsolInstance->activeSet);
+      iteratedModel.compute_response(npsolInstance->activeSet);
     if (++npsolInstance->fnEvalCntr == npsolInstance->maxFunctionEvals) {
       mode = -1; // terminate NPSOL (see mode discussion in "User-Supplied
 	         // Subroutines" section of NPSOL manual)
@@ -318,14 +317,14 @@ objective_eval(int& mode, int& n, double* x, double& f, double* gradf,
 }
 
 
-void NPSOLOptimizer::core_run()
+void NPSOLOptimizer::find_optimum()
 {
   if (setUpType == "model")
     find_optimum_on_model();
   else if (setUpType == "user_functions")
     find_optimum_on_user_functions();
   else {
-    Cerr << "Error: bad setUpType in NPSOLOptimizer::core_run()."
+    Cerr << "Error: bad setUpType in NPSOLOptimizer::find_optimum()."
          << std::endl;
     abort_handler(-1);
   }
@@ -349,11 +348,7 @@ void NPSOLOptimizer::find_optimum_on_model()
 
   fnEvalCntr = 0; // prevent current iterator from continuing previous counting
 
-  // casts for Fortran interface
-  int num_cv = numContinuousVars;
-  int num_linear_constraints = numLinearConstraints;
-  int num_nonlinear_constraints = numNonlinearConstraints;
-
+  int        num_cv = numContinuousVars;
   double     local_f_val = 0.;
   RealVector local_f_grad(numContinuousVars, true);
 
@@ -374,7 +369,7 @@ void NPSOLOptimizer::find_optimum_on_model()
   copy_data(iteratedModel.continuous_variables(), local_des_vars);
 
   // these bounds must be updated from model bounds each time an iterator is
-  // run within the B&B minimizer.
+  // run within the B&B strategy.
   RealVector augmented_l_bnds, augmented_u_bnds;
   copy_data(iteratedModel.continuous_lower_bounds(), augmented_l_bnds);
   copy_data(iteratedModel.continuous_upper_bounds(), augmented_u_bnds);
@@ -386,7 +381,7 @@ void NPSOLOptimizer::find_optimum_on_model()
 		 iteratedModel.nonlinear_ineq_constraint_upper_bounds(),
 		 iteratedModel.nonlinear_eq_constraint_targets());
 
-  NPSOL_F77( num_cv, num_linear_constraints, num_nonlinear_constraints, 
+  NPSOL_F77( num_cv, numLinearConstraints, numNonlinearConstraints, 
 	     linConstraintArraySize, nlnConstraintArraySize, num_cv, 
 	     linConstraintMatrixF77, augmented_l_bnds.values(),
 	     augmented_u_bnds.values(), constraint_eval, objective_eval,
@@ -403,7 +398,7 @@ void NPSOLOptimizer::find_optimum_on_model()
   // invoke SOLBase deallocate function (shared with NLSSOLLeastSq)
   deallocate_arrays();
 
-  // Set best variables and response for use at higher levels.
+  // Set best variables and response for use by strategy level.
   // local_des_vars, local_f_val, & local_c_vals contain the optimal design 
   // (not the final fn. eval) since NPSOL performs this assignment internally 
   // prior to exiting (see "Subroutine npsol" section of NPSOL manual).
@@ -451,18 +446,12 @@ void NPSOLOptimizer::find_optimum_on_user_functions()
   //     Solve the problem.
   //------------------------------------------------------------------
 
-  int i;
-
-  // casts for Fortran interface
-  int num_cv = numContinuousVars;
-  int num_linear_constraints = numLinearConstraints;
-  int num_nonlinear_constraints = numNonlinearConstraints;
-
+  int i, num_cv = numContinuousVars;
   double     local_f_val = 0.;
   RealVector local_f_grad(numContinuousVars, true);
   RealVector local_c_vals(nlnConstraintArraySize);
   
-  NPSOL_F77( num_cv, num_linear_constraints, num_nonlinear_constraints, 
+  NPSOL_F77( num_cv, numLinearConstraints, numNonlinearConstraints, 
 	     linConstraintArraySize, nlnConstraintArraySize, num_cv, 
 	     linConstraintMatrixF77, lowerBounds.values(), upperBounds.values(),
 	     userConstraintEval, userObjectiveEval, informResult,

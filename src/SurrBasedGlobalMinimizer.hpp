@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,10 +41,8 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// constructor
-  SurrBasedGlobalMinimizer(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~SurrBasedGlobalMinimizer();
+  SurrBasedGlobalMinimizer(Model& model); ///< constructor
+  ~SurrBasedGlobalMinimizer();            ///< destructor
 
 protected:
 
@@ -52,16 +50,20 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
-  /// Performs global surrogate-based optimization by repeatedly
-  /// optimizing on and improving surrogates of the response functions.
-  void core_run();
-
   // Global surrogate-based methods cannot yet accept multiple initial points
   //bool accepts_multiple_points() const;
   /// Global surrogate-based methods can return multiple points
   bool returns_multiple_points() const;
 
 private:
+
+  //
+  //- Heading: Convenience member functions
+  //
+
+  /// Performs global surrogate-based optimization by repeatedly
+  /// optimizing on and improving surrogates of the response functions.
+  void minimize_surrogates();
 
   //
   //- Heading: Data members

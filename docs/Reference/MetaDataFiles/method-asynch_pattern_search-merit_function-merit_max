@@ -1,0 +1,10 @@
+Blurb::
+Nonsmoothed merit function
+Description::
+\c merit_max: based on \f$ \ell_\infty\f$ norm
+
+Topics::	not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	

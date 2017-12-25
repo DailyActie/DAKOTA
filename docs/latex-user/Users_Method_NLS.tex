@@ -331,8 +331,7 @@ two steps which are different from most other Dakota applications.
 
 To simplify specifying a least squares problem, a user may specify a
 data file containing experimental results or other calibration data.
-In the case of scalar calibration terms, 
-this file may be specified with \texttt{calibration\_data\_file}.  In
+This file may be specified with \texttt{calibration\_data\_file}.  In
 this case, Dakota will calculate the residuals (that is, the
 simulation model results minus the experimental results), and the
 user-provided script can omit this step: the script can just return
@@ -347,25 +346,17 @@ nonlinear least-squares problem.  Note that the file may be annotated
 (specified by \texttt{annotated}) or freeform (specified by
 \texttt{freeform}). The number of experiments in the calibration data
 file may be specified with \texttt{num\_experiments}, with one row of
-data per experiment. 
-When multiple experiments are present, the total number of least 
-squares terms will be the number of calibration terms times the number of 
-experiments.
+data per experiment, or with {\tt num\_experiments}, together with
+{\tt num\_replicates} for each experiment.  When multiple experiments
+or replicates are present, the total number of least squares terms
+will be expanded by the total number of rows of data.
 
-Finally, the calibration data file may contain additional 
-information than just
+Finally, this data file may contain additional information than just
 the observed experimental responses. If the observed data has
 measurement error associated with it, this can be specified in columns
-of such error data after the response data.  The type of measurement 
-error is specified by \texttt{variance\_type}.  For scalar 
-calibration terms, the \texttt{variance\_type} can be either \texttt{none} 
-(the user does not specify a measurement variance associated with each 
-calibration term) or \texttt{scalar} (the user specifies one measurement variance 
-per calibration term). 
-For field calibration terms, the \texttt{variance\_type} can also 
-be \texttt{diagonal} or \texttt{matrix}.  These are explained in 
-more detail in the Reference manual.
-Additionally, there is sometimes the
+of such error data after the response data.  The number of calibration
+terms which have associated error in the data set is given by
+\texttt{num\_std\_deviations}. Additionally, there is sometimes the
 need to specify configuration variables.  These are often used in
 Bayesian calibration analysis. These are specified as
 \texttt{num\_config\_variables}. If the user specifies a positive
@@ -412,7 +403,7 @@ the residuals to zero at the solution.  NLSSOL does require
 that the user has the NPSOL library.   
 Note that all of these methods are local in the sense that they are 
 gradient-based and depend on an initial starting point.  Often they 
-are used in conjunction with a multi-start method, to perform 
+are used in conjunction with a multi-start strategy, to perform 
 several repetitions of the optimization at different starting 
 points in the parameter space.  Another approach is to use 
 a general global optimizer such as a genetic algorithm or 

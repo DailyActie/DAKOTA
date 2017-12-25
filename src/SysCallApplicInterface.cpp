@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -18,11 +18,11 @@
 #include "CommandShell.hpp"
 #include <sys/types.h> // MAY REQUIRE ifndef(HPUX)
 #include <sys/stat.h>
-#include "WorkdirHelper.hpp"
 
 // eventually just use _WIN32 here
 #if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
-#include "dakota_windows.h" // for Sleep()
+#define NOMINMAX
+#include <windows.h> // for Sleep()
 #elif defined(HAVE_UNISTD_H)
 #include <unistd.h> // for usleep()
 #endif
@@ -142,41 +142,40 @@ void SysCallApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
     bool err_msg_caught = false;
 
     // Test for existence of the results file(s) corresponding to this PRPair
-    const bfs::path& file_to_test = fileNameMap[fn_eval_id].get<1>();
+    const std::string& file_to_test = fileNameMap[fn_eval_id].second;
     if (system_call_file_test(file_to_test)) {
       // File exists; test for complete/valid set of results (an incomplete 
       // set can result from a race condition in which Dakota is reading a 
       // file that a simulator has not finished writing).  Response::read
-      // throws a FileReadException if data is missing/misformatted.
-      PRPQueueIter queue_it = lookup_by_eval_id(prp_queue, fn_eval_id);
-      if (queue_it == prp_queue.end()) {
+      // throws a std::string exception if data is missing/misformatted.
+      ParamResponsePair pr_pair;
+      bool found = lookup_by_eval_id(prp_queue, fn_eval_id, pr_pair);
+      if (!found) {
 	Cerr << "Error: failure in queue lookup within SysCallApplic"
 	     << "Interface::test_local_evaluations()." << std::endl;
 	abort_handler(-1);
       }
-      Response response = queue_it->response(); // shallow copy
+      Response response = pr_pair.prp_response(); // shallow copy
 
       try {
 	read_results_files(response, fn_eval_id, final_eval_id_tag(fn_eval_id));
       }
 
-      // If a FileReadException exception (incomplete file) is caught, set 
+      // If a std::string exception (incomplete file) is caught, set 
       // err_msg_caught to true so that processing is not performed below.  
       // The for loop will then cycle through the other active asynch. evals.
       // before coming back to the one with the exception.  This should allow
       // file writing by a simulator to complete.  100 failures are currently
       // allowed for any fn_eval_id before it is assumed that the error is 
       // real (not race condition related) and aborting.
-      catch(const FileReadException& fr_except) {
+      catch(std::string& err_msg) {
         err_msg_caught = true;
 	IntShMIter map_iter = failCountMap.find(fn_eval_id);
 	if (map_iter != failCountMap.end()) {
           if (++map_iter->second > 100) {
-            Cerr << "Error: too many failed reads for results file " 
-		 << file_to_test 
-		 << "\n       check data format and completeness;\n       " 
-		 << fr_except.what() << std::endl;
-            abort_handler(INTERFACE_ERROR);
+            Cerr << "Error: too many failed reads for file " << file_to_test 
+                 << "\n       check data format and completeness" << std::endl;
+            abort_handler(-1);
           }
         }
         else
@@ -189,24 +188,21 @@ void SysCallApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
 #endif // SLEEP
 #ifdef ASYNCH_DEBUG
         Cerr << "Warning: exception caught in reading response file "
-             << file_to_test << "\nException = \"" << fr_except.what()
+             << file_to_test << "\nException = \"" << err_msg
              << "\"\nException recovery: returning " << file_to_test 
              << " to processing queue.\n";
 #endif
       }
 
-      // If a FunctionEvalFailure exception ("fail" detected in
-      // results file) is caught, call manage_failure which will
-      // either (1) repair the failure and populate response, or (2)
-      // abort the run.  NOTE: this destroys load balancing but trying
-      // to load balance failure recovery would be more difficult than
-      // it is worth.
-      catch(const FunctionEvalFailure& fneval_except) { 
-	// implemented at the derived class level since 
-	// DirectApplicInterface can do this w/o exceptions
-        //Cout << "Caught FunctionEvalFailure in test_local_evaluations(); "
-	//     << "message: " << fneval_except.what() << std::endl;
-        manage_failure(queue_it->variables(), response.active_set(),
+      // If an int exception ("fail" detected in results file) is caught, 
+      // call manage_failure which will either (1) repair the failure and 
+      // populate response, or (2) abort the run.  NOTE: this destroys load 
+      // balancing but trying to load balance failure recovery would be more
+      // difficult than it is worth.
+      catch(int fail_code) { // implemented at the derived class level since 
+                             // DirectApplicInterface can do this w/o exceptions
+        //Cout << "Caught int in test_local_evaluations()." << std::endl;
+        manage_failure(pr_pair.prp_parameters(), response.active_set(),
 		       response, fn_eval_id);
       }
 
@@ -215,8 +211,8 @@ void SysCallApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
         // the response within the PRPair, remove entry in failCountMap, and
         // add evaluation id to completion set.
         //Cout << "Evaluation " << fn_eval_id << " captured.\n";
-	//queue_it->response(response); // not needed for shallow copy
-	//replace_by_eval_id(prp_queue, fn_eval_id, *queue_it); // not needed
+	//pr_pair.prp_response(response); // not needed for shallow copy
+	//replace_by_eval_id(prp_queue, fn_eval_id, pr_pair); // not needed
         completionSet.insert(fn_eval_id);
 	failCountMap.erase(fn_eval_id); // if present
       }
@@ -239,7 +235,7 @@ void SysCallApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
 
 
 bool SysCallApplicInterface::
-system_call_file_test(const bfs::path& root_file)
+system_call_file_test(const std::string& root_file)
 {
   // Unix stat utility returns 0 if successful in gathering file statistics,
   // -1 if there's an error (e.g., the file does not exist).
@@ -250,26 +246,22 @@ system_call_file_test(const bfs::path& root_file)
     // Sun Solaris has been observed to have problems with the final results
     // file existing before previous results files exist (I/O threading?)
     for (size_t i=0; i<num_programs; ++i) {
-      // BMA TODO: rework with BFS utils
-      bfs::path tagged_file = 
-	WorkdirHelper::concat_path(root_file, 
-				   "." + boost::lexical_cast<std::string>(i+1));
-      if ( stat((char*)tagged_file.string().data(), &buf) == -1 )
+      std::string tagged_file =   root_file + "."
+                                + boost::lexical_cast<std::string>(i+1);
+      if ( stat((char*)tagged_file.data(), &buf) == -1 )
         return false;
     }
     return true;
 #else
     // Testing all files is usually overkill for sequential analyses.  It's only
     // really necessary to check the last tagged_file: root_file.[num_programs]
-    bfs::path tagged_file = 
-      WorkdirHelper::concat_path(root_file, 
-				 "." + 
-				 boost::lexical_cast<std::string>(num_programs));
-    return ( stat((char*)tagged_file.string().data(), &buf) == -1 ) ? false : true;
+    std::string tagged_file =   root_file + "."
+                              + boost::lexical_cast<std::string>(num_programs);
+    return ( stat((char*)tagged_file.data(), &buf) == -1 ) ? false : true;
 #endif // __SUNPRO_CC
   }
   else
-    return ( stat((char*)root_file.string().data(), &buf) == -1 ) ? false : true;
+    return ( stat((char*)root_file.data(), &buf) == -1 ) ? false : true;
 }
 
 
@@ -284,10 +276,10 @@ void SysCallApplicInterface::spawn_evaluation_to_shell(bool block_flag)
   // be able to manage tagged files and/or working subdirectories.
 
   static std::string no_workdir;
-  CommandShell shell;
-  const char* s = useWorkdir ? curWorkdir.string().c_str() : 0;
+  CommandShell shell(useWorkdir ? curWorkdir : no_workdir);
+  const char* s = useWorkdir ? curWorkdir.c_str() : 0;
   size_t num_programs = programNames.size(),
-    wd_strlen = useWorkdir ? curWorkdir.string().size() : 0;
+    wd_strlen = useWorkdir ? curWorkdir.size() : 0;
   bool needparen;
 
   // Input filter portion
@@ -340,10 +332,7 @@ void SysCallApplicInterface::spawn_evaluation_to_shell(bool block_flag)
   // suppressOutput and spawn the process.
   shell.asynch_flag(!block_flag);
   shell.suppress_output_flag(suppressOutput);
-
-  prepare_process_environment();
   shell << flush;
-  reset_process_environment();
 }
 
 
@@ -354,7 +343,8 @@ void SysCallApplicInterface::spawn_evaluation_to_shell(bool block_flag)
     externally. */
 void SysCallApplicInterface::spawn_input_filter_to_shell(bool block_flag)
 {
-  CommandShell shell;
+  static std::string no_workdir;
+  CommandShell shell(useWorkdir ? curWorkdir : no_workdir);
 
   shell << iFilterName;
   if (commandLineArgs)
@@ -362,10 +352,7 @@ void SysCallApplicInterface::spawn_input_filter_to_shell(bool block_flag)
 
   shell.asynch_flag(!block_flag);
   shell.suppress_output_flag(suppressOutput);
-
-  prepare_process_environment();
   shell << flush;
-  reset_process_environment();
 }
 
 
@@ -376,7 +363,8 @@ void SysCallApplicInterface::spawn_input_filter_to_shell(bool block_flag)
 void SysCallApplicInterface::
 spawn_analysis_to_shell(int analysis_id, bool block_flag)
 {
-  CommandShell shell;
+  static std::string no_workdir;
+  CommandShell shell(useWorkdir ? curWorkdir : no_workdir);
 
   shell << programNames[analysis_id-1];
   if (commandLineArgs) {
@@ -394,10 +382,7 @@ spawn_analysis_to_shell(int analysis_id, bool block_flag)
 
   shell.asynch_flag(!block_flag);
   shell.suppress_output_flag(suppressOutput);
-
-  prepare_process_environment();
   shell << flush;
-  reset_process_environment();
 }
 
 
@@ -408,7 +393,8 @@ spawn_analysis_to_shell(int analysis_id, bool block_flag)
     externally. */
 void SysCallApplicInterface::spawn_output_filter_to_shell(bool block_flag)
 {
-  CommandShell shell;
+  static std::string no_workdir;
+  CommandShell shell(useWorkdir ? curWorkdir : no_workdir);
 
   shell << oFilterName;
   if (commandLineArgs)
@@ -416,11 +402,7 @@ void SysCallApplicInterface::spawn_output_filter_to_shell(bool block_flag)
 
   shell.asynch_flag(!block_flag);
   shell.suppress_output_flag(suppressOutput);
-
-  prepare_process_environment();
   shell << flush;
-  reset_process_environment();
-
 }
 
 } // namespace Dakota

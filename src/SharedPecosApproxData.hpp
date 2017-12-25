@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -75,18 +75,12 @@ public:
   void polynomial_basis(const std::vector<Pecos::BasisPolynomial>& poly_basis);
   /// get Pecos::SharedOrthogPolyApproxData::polynomialBasis
   const std::vector<Pecos::BasisPolynomial>& polynomial_basis() const;
-  /// get Pecos::SharedOrthogPolyApproxData::polynomialBasis
-  std::vector<Pecos::BasisPolynomial>& polynomial_basis();
-
-  /// set Pecos::SharedOrthogPolyApproxData::multiIndex and allocate
-  /// associated arrays
-  void allocate(const UShort2DArray& mi);
-  /// get Pecos::SharedOrthogPolyApproxData::multiIndex
-  const UShort2DArray& multi_index() const;
 
   /// return Pecos::SharedPolyApproxData::sobolIndexMap
   const Pecos::BitArrayULongMap& sobol_index_map() const;
 
+  /// invoke Pecos::SharedOrthogPolyApproxData::cross_validation()
+  void cross_validation(bool flag);
   /// invoke Pecos::SharedOrthogPolyApproxData::coefficients_norms_flag()
   void coefficients_norms_flag(bool flag);
 
@@ -102,10 +96,12 @@ public:
   /// set the expansion configuration options within Pecos::SharedPolyApproxData
   void configuration_options(const Pecos::ExpansionConfigOptions& ec_options);
   /// set the basis configuration options within Pecos::SharedPolyApproxData
-  void configuration_options(const Pecos::BasisConfigOptions& bc_options);
-  /// set the regression configuration options within 
-  /// Pecos::SharedRegressOrthogPolyApproxData
-  void configuration_options(const Pecos::RegressionConfigOptions& rc_options);
+  void configuration_options(const Pecos::BasisConfigOptions&     bc_options);
+
+  /// set the noise tolerance(s) for compressed sensing algorithms
+  void noise_tolerance(const RealVector& noise_tol);
+  /// set the L2 penalty parameter for LASSO (elastic net variant)
+  void l2_penalty(Real l2_pen);
 
 protected:
 
@@ -117,18 +113,16 @@ protected:
 
   void rebuild();
   void pop(bool save_surr_data);
-  bool push_available();
-  size_t retrieval_index();
-  void pre_push();
-  void post_push();
+  bool restore_available();
+  size_t restoration_index();
+  void pre_restore();
+  void post_restore();
   size_t finalization_index(size_t i);
   void pre_finalize();
   void post_finalize();
 
-  void store(size_t index = _NPOS);
-  void restore(size_t index = _NPOS);
-  void remove_stored(size_t index = _NPOS);
-  size_t pre_combine(short corr_type);
+  void store();
+  void pre_combine(short corr_type);
   void post_combine(short corr_type);
 
 private:
@@ -175,20 +169,20 @@ inline void SharedPecosApproxData::pop(bool save_surr_data)
 { pecosSharedDataRep->decrement_data(); } // save is implied
 
 
-inline bool SharedPecosApproxData::push_available()
-{ return pecosSharedDataRep->push_available(); }
+inline bool SharedPecosApproxData::restore_available()
+{ return pecosSharedDataRep->restore_available(); }
 
 
-inline size_t SharedPecosApproxData::retrieval_index()
-{ return pecosSharedDataRep->retrieval_index(); }
+inline size_t SharedPecosApproxData::restoration_index()
+{ return pecosSharedDataRep->restoration_index(); }
 
 
-inline void SharedPecosApproxData::pre_push()
-{ pecosSharedDataRep->pre_push_data(); }
+inline void SharedPecosApproxData::pre_restore()
+{ pecosSharedDataRep->pre_restore_data(); }
 
 
-inline void SharedPecosApproxData::post_push()
-{ pecosSharedDataRep->post_push_data(); }
+inline void SharedPecosApproxData::post_restore()
+{ pecosSharedDataRep->post_restore_data(); }
 
 
 inline size_t SharedPecosApproxData::finalization_index(size_t i)
@@ -203,20 +197,12 @@ inline void SharedPecosApproxData::post_finalize()
 { pecosSharedDataRep->post_finalize_data(); }
 
 
-inline void SharedPecosApproxData::store(size_t index)
-{ pecosSharedDataRep->store_data(index); }
+inline void SharedPecosApproxData::store()
+{ pecosSharedDataRep->store_data(); }
 
 
-inline void SharedPecosApproxData::restore(size_t index)
-{ pecosSharedDataRep->restore_data(index); }
-
-
-inline void SharedPecosApproxData::remove_stored(size_t index)
-{ pecosSharedDataRep->remove_stored_data(index); }
-
-
-inline size_t SharedPecosApproxData::pre_combine(short corr_type)
-{ return pecosSharedDataRep->pre_combine_data(corr_type); }
+inline void SharedPecosApproxData::pre_combine(short corr_type)
+{ pecosSharedDataRep->pre_combine_data(corr_type); }
 
 
 inline void SharedPecosApproxData::post_combine(short corr_type)
@@ -270,25 +256,6 @@ polynomial_basis() const
 }
 
 
-inline std::vector<Pecos::BasisPolynomial>& SharedPecosApproxData::
-polynomial_basis()
-{
-  return ((Pecos::SharedOrthogPolyApproxData*)pecosSharedDataRep)->
-    polynomial_basis();
-}
-
-
-inline void SharedPecosApproxData::allocate(const UShort2DArray& mi)
-{ ((Pecos::SharedOrthogPolyApproxData*)pecosSharedDataRep)->allocate_data(mi); }
-
-
-inline const UShort2DArray& SharedPecosApproxData::multi_index() const
-{
-  return ((Pecos::SharedOrthogPolyApproxData*)pecosSharedDataRep)->
-    multi_index();
-}
-
-
 inline const Pecos::BitArrayULongMap& SharedPecosApproxData::
 sobol_index_map() const
 { return pecosSharedDataRep->sobol_index_map(); }
@@ -336,11 +303,24 @@ configuration_options(const Pecos::BasisConfigOptions& bc_options)
 { pecosSharedDataRep->configuration_options(bc_options); }
 
 
-inline void SharedPecosApproxData::
-configuration_options(const Pecos::RegressionConfigOptions& rc_options)
+inline void SharedPecosApproxData::cross_validation(bool flag)
 {
   ((Pecos::SharedRegressOrthogPolyApproxData*)pecosSharedDataRep)->
-    configuration_options(rc_options);
+    cross_validation(flag);
+}
+
+
+inline void SharedPecosApproxData::noise_tolerance(const RealVector& noise_tol)
+{
+  ((Pecos::SharedRegressOrthogPolyApproxData*)pecosSharedDataRep)->
+    noise_tolerance(noise_tol);
+}
+
+
+inline void SharedPecosApproxData::l2_penalty(Real l2_pen)
+{
+  ((Pecos::SharedRegressOrthogPolyApproxData*)pecosSharedDataRep)->
+    l2_penalty(l2_pen);
 }
 
 

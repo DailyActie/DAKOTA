@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -35,10 +35,9 @@ public:
   //
 
   /// standard constructor
-  NonDExpansion(ProblemDescDB& problem_db, Model& model);
+  NonDExpansion(Model& model);
   /// alternate constructor
-  NonDExpansion(unsigned short method_name, Model& model,
-		short exp_coeffs_approach, short u_space_type,
+  NonDExpansion(Model& model, short exp_coeffs_approach, short u_space_type,
 		bool piecewise_basis, bool use_derivs);
   /// destructor
   ~NonDExpansion();
@@ -47,31 +46,12 @@ public:
   //- Heading: Virtual function redefinitions
   //
 
-  bool resize();
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
   /// perform a forward uncertainty propagation using PCE/SC methods
-  void core_run();
+  void quantify_uncertainty(); // pure virtual fn. called by NonD
   /// print the final statistics
   void print_results(std::ostream& s);
 
   const Model& algorithm_space_model() const;
-
-  //
-  //- Heading: Virtual functions
-  //
-
-  /// evaluate allSamples for inclusion in the (PCE regression) approximation
-  /// and retain the best set (well spaced) of size batch_size
-  virtual void select_refinement_points(
-    const RealVectorArray& candidate_samples, unsigned short batch_size,
-    RealMatrix& best_samples);
-
-  /// append new data to uSpaceModel and update expansion order (PCE only)
-  virtual void append_expansion(const RealMatrix& samples,
-				const IntResponseMap& resp_map);
 
 protected:
 
@@ -87,16 +67,12 @@ protected:
   virtual void initialize_expansion();
   /// form the expansion by calling uSpaceModel.build_approximation()
   virtual void compute_expansion();
-  /// uniformly increment the expansion order and structured/unstructured
-  /// grid (PCE only)
-  virtual void increment_order_and_grid();
+  /// uniformly increment the expansion order (PCE only)
+  virtual void increment_order();
   /// increment the input specification sequence (PCE only)
   virtual void increment_specification_sequence();
   /// update an expansion; avoids overhead in compute_expansion()
   virtual void update_expansion();
-  /// construct a multifidelity expansion, across model forms or
-  /// discretization levels
-  virtual void multifidelity_expansion();
   /// print expansion coefficients, as supported by derived instance
   virtual void print_coefficients(std::ostream& s);
   /// archive expansion coefficients, as supported by derived instance
@@ -124,9 +100,6 @@ protected:
 
   /// common constructor code for initialization of natafTransform
   void initialize(short u_space_type);
-
-  /// check length and content of dimension preference vector
-  void check_dimension_preference(const RealVector& dim_pref) const;
 
   /// refine the reference expansion found by compute_expansion() using
   /// uniform/adaptive p-/h-refinement strategies
@@ -158,10 +131,8 @@ protected:
   //void construct_incremental_lhs(Iterator& u_space_sampler, Model& u_model,
   //				 int num_samples, int seed, const String& rng);
 
-  /// construct the expansionSampler for evaluating samples on uSpaceModel
-  void construct_expansion_sampler(const String& import_approx_file,
-    unsigned short import_build_format = TABULAR_ANNOTATED,
-    bool import_build_active_only = false);
+  /// construct the expansionSampler operating on uSpaceModel
+  void construct_expansion_sampler();
 
   /// calculate analytic and numerical statistics from the expansion
   void compute_statistics();
@@ -173,20 +144,15 @@ protected:
   //- Heading: Data
   //
 
-  /// Model representing the approximate response function in u-space,
-  /// after u-space recasting and polynomial data fit recursions
+  /// Model representing the approximate response function in u-space, after
+  /// u-space recasting and orthogonal polynomial data fit recursions
   Model uSpaceModel;
 
   /// method for collocation point generation and subsequent
-  /// calculation of the expansion coefficients
+  /// calculation of the expanion coefficients
   short expansionCoeffsApproach;
 
-  /// type of expansion basis: DEFAULT_BASIS or
-  /// Pecos::{NODAL,HIERARCHICAL}_INTERPOLANT for SC or
-  /// Pecos::{TENSOR_PRODUCT,TOTAL_ORDER,ADAPTED}_BASIS for PCE regression
-  short expansionBasisType;
-
-  /// number of invocations of core_run()
+  /// number of invocations of quantify_uncertainty()
   size_t numUncertainQuant;
 
   /// number of truth samples performed on g_u_model to form the expansion
@@ -220,10 +186,6 @@ protected:
   /// DIMENSION_ADAPTIVE_CONTROL_GENERALIZED
   short refineControl;
 
-  /// number of consecutive iterations within tolerance required to
-  /// indicate soft convergence
-  unsigned short softConvLimit;
-
   /// symmetric matrix of analytic response covariance (full response
   /// covariance option)
   RealSymMatrix respCovariance;
@@ -252,15 +214,6 @@ private:
   Real increment_sets();
   /// finalization of adaptive refinement using generalized sparse grids
   void finalize_sets(bool converged_within_tol);
-
-  /// analytic portion of compute_statistics() from post-processing of
-  /// expansion coefficients
-  void compute_analytic_statistics();
-  /// numerical portion of compute_statistics() from sampling on the expansion
-  void compute_numerical_statistics();
-  /// refinements to numerical probability statistics from importanceSampler
-  void compute_numerical_stat_refinements(RealVectorArray& imp_sampler_stats,
-					  RealRealPairArray& min_max_fns);
 
   /// calculate the response covariance (diagonal or full matrix)
   void compute_covariance();
@@ -304,17 +257,16 @@ private:
   /// generated by the expansionSampler using importance sampling
   Iterator importanceSampler;
   
+  /// flag to indicate calculation of numerical statistics by sampling
+  /// on the expansion
+  bool expSampling;
+  /// flag to use LHS sampling or MMAIS sampling on the expansion
+  bool impSampling;
+
   /// derivative of the expansion with respect to the x-space variables
   /// evaluated at the means (used as uncertainty importance metrics)
   RealMatrix expGradsMeanX;
 
-  /// maximum number of uniform/adaptive refinement iterations
-  /// (specialization of maxIterations)
-  int maxRefineIterations;
-  /// maximum number of regression solver iterations (specialization
-  /// of maxIterations)
-  int maxSolverIterations;
-  
   /// flag indicating the activation of variance-bsaed decomposition
   /// for computing Sobol' indices
   bool vbdFlag;
@@ -326,17 +278,6 @@ private:
   /// enumeration for controlling response covariance calculation and
   /// output: {DEFAULT,DIAGONAL,FULL}_COVARIANCE
   short covarianceControl;
-
-  /// integration refinement for expansion sampler
-  unsigned short integrationRefine;
-  /// random number generator for expansion sampler
-  String expansionRng;
-  /// seed for expansion sampler random number generator
-  int origSeed;
-  /// sample type for expansion sampler
-  unsigned short expansionSampleType;
-  /// refinement samples for expansion sampler
-  IntVector refinementSamples;
 };
 
 
@@ -349,28 +290,6 @@ inline void NonDExpansion::print_coefficients(std::ostream& s)
 
 inline void NonDExpansion::archive_coefficients()
 { /* default is no-op */ }
-
-
-inline void NonDExpansion::
-check_dimension_preference(const RealVector& dim_pref) const
-{
-  size_t len = dim_pref.length();
-  if (len) {
-    if (len != numContinuousVars) {
-      Cerr << "Error: length of dimension preference specification (" << len
-	   << ") is inconsistent with continuous expansion variables ("
-	   << numContinuousVars << ")." << std::endl;
-      abort_handler(-1);
-    }
-    else
-      for (size_t i=0; i<len; ++i)
-	if (dim_pref[i] < 0.) { // allow zero preference
-	  Cerr << "Error: bad dimension preference value (" << dim_pref[i]
-	       << ")." << std::endl;
-	  abort_handler(-1);
-	}
-  }
-}
 
 } // namespace Dakota
 

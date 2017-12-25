@@ -1,11 +1,10 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
 # DAKOTA INPUT FILE: dakota_trsbouu2_tbch.in
 #
 # Surrogate-based OUU with trust regions: surrogate containing nested
 #
 
-environment,
+strategy,
+	single_method
 #	  graphics
 	method_pointer = 'SBLO'
 
@@ -70,7 +69,7 @@ method,
 	model_pointer = 'DACE_M'
 	sampling
 	  sample_type lhs seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 #	dace lhs seed = 5
 #	  samples = 8 symbols = 8
 
@@ -117,7 +116,7 @@ method,
         sampling
 	  sample_type lhs samples = 50
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  response_levels = 4.2e+11 1.6e+05 7.5e+05
 	  complementary distribution
 	  output quiet

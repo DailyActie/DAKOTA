@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -37,8 +37,6 @@ initialize(Model& surr_model, const IntSet& surr_fn_indices, short corr_type,
   correctionType = corr_type; correctionOrder = corr_order;
 
   initialize_corrections();
-
-  initializedFlag = true;
 }
 
 
@@ -51,8 +49,6 @@ initialize(const IntSet& surr_fn_indices, size_t num_fns, size_t num_vars,
   correctionType = corr_type; correctionOrder = corr_order;
 
   initialize_corrections();
-
-  initializedFlag = true;
 
   // in this case, surrModel is null and must be protected
 }
@@ -665,11 +661,11 @@ search_db(const Variables& search_vars, const ShortArray& search_asv)
   if (cache_it == data_pairs.get<hashed>().end()) {
     // perform approx fn eval to retrieve missing data
     surrModel.active_variables(search_vars);
-    surrModel.evaluate(search_set);
+    surrModel.compute_response(search_set);
     return surrModel.current_response();
   }
   else
-    return cache_it->response();
+    return cache_it->prp_response();
 }
 
 } // namespace Dakota

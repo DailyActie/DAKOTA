@@ -1,11 +1,11 @@
-#@ *: DakotaConfig=HAVE_DOT
 # DAKOTA INPUT FILE: dakota_sbouu3_cantilever.in
 #
 # OUU with surrogates: nested containing surrogate
 #
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -60,7 +60,7 @@ method,
         sampling
 	  samples = 5000 sample_type lhs
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  output quiet
 
 model,
@@ -115,6 +115,5 @@ variables,
 
 interface,
 	id_interface = 'UQ_ACTUAL'
-  direct
-#	system asynch evaluation_concurrency = 5
+	system asynch evaluation_concurrency = 5
 	  analysis_driver = 'cantilever'

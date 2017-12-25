@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -25,91 +25,10 @@ namespace Dakota {
 // --------
 // Iterator
 // --------
-// unsigned short 16 bits are apportioned as [Minimizer,Opt,LSq,SurrBased,
-// Analyzer,NonD,PStudyDACE,Verif,Meta,...] where the trailing 6 bits are
-// available for up to 64 methods within a particular classification.
-#define    PARALLEL_BIT     64
-#define        META_BIT    128
-#define       VERIF_BIT    256
-#define  PSTUDYDACE_BIT    512
-#define        NOND_BIT   1024
-#define    ANALYZER_BIT   2048
-#define   SURRBASED_BIT   4096
-#define     LEASTSQ_BIT   8192
-#define   OPTIMIZER_BIT  16384
-#define   MINIMIZER_BIT  32768
-// define special values for method name.  Special bit selections enable 
-// identification of method groupings based on the value.
-enum { DEFAULT_METHOD=0,
-       // Meta-Iterators:
-       HYBRID=(META_BIT | PARALLEL_BIT), PARETO_SET, MULTI_START,
-       //       BRANCH_AND_BOUND,
-       // Verification Analyzers:
-       RICHARDSON_EXTRAP=(ANALYZER_BIT | VERIF_BIT),
-       // PStudyDACE Analyzers:
-       CENTERED_PARAMETER_STUDY=(ANALYZER_BIT | PSTUDYDACE_BIT),
-       LIST_PARAMETER_STUDY, MULTIDIM_PARAMETER_STUDY, VECTOR_PARAMETER_STUDY,
-       DACE, FSU_CVT, FSU_HALTON, FSU_HAMMERSLEY, PSUADE_MOAT,
-       // NonD Analyzers:
-       LOCAL_RELIABILITY=(ANALYZER_BIT | NOND_BIT), GLOBAL_RELIABILITY,
-       POLYNOMIAL_CHAOS, STOCH_COLLOCATION,
-       CUBATURE_INTEGRATION, SPARSE_GRID_INTEGRATION, QUADRATURE_INTEGRATION, 
-       BAYES_CALIBRATION, GPAIS, POF_DARTS, RKD_DARTS,
-       IMPORTANCE_SAMPLING, ADAPTIVE_SAMPLING, MULTILEVEL_SAMPLING,
-       LIST_SAMPLING, RANDOM_SAMPLING,
-       // Variables::method_view(): epistemic if method_name > RANDOM_SAMPLING
-       LOCAL_INTERVAL_EST, LOCAL_EVIDENCE, GLOBAL_INTERVAL_EST, GLOBAL_EVIDENCE,
-       //BAYES_CALIBRATION=(ANALYZER_BIT | NOND_BIT | PARALLEL_BIT),
-       //BRANCH_AND_BOUND=(MINIMIZER_BIT | PARALLEL_BIT),
-       // SurrBased Minimizers:
-       SURROGATE_BASED_LOCAL=(MINIMIZER_BIT | SURRBASED_BIT),
-       SURROGATE_BASED_GLOBAL, EFFICIENT_GLOBAL,
-       // Gradient-based LeastSq Minimizers:
-       NL2SOL=(MINIMIZER_BIT | LEASTSQ_BIT), NLSSOL_SQP, OPTPP_G_NEWTON,
-       // Nongradient-based Optimizers / Minimizers:
-       ASYNCH_PATTERN_SEARCH=(MINIMIZER_BIT | OPTIMIZER_BIT), OPTPP_PDS,
-       COLINY_BETA, COLINY_COBYLA,         COLINY_DIRECT, COLINY_MULTI_START,
-       COLINY_EA,   COLINY_PATTERN_SEARCH, COLINY_SOLIS_WETS,
-       MOGA, SOGA, NCSU_DIRECT, MESH_ADAPTIVE_SEARCH, GENIE_OPT_DARTS,
-       GENIE_DIRECT,
-       // Gradient-based Optimizers / Minimizers:
-       NONLINEAR_CG, OPTPP_CG, OPTPP_Q_NEWTON, OPTPP_FD_NEWTON, OPTPP_NEWTON,
-       NPSOL_SQP, NLPQL_SQP, //REDUCED_SQP,
-       DOT_BFGS, DOT_FRCG, DOT_MMFD, DOT_SLP, DOT_SQP, CONMIN_FRCG, CONMIN_MFD,
-       // Generic Optimizers / Minimizers:
-       DL_SOLVER,
-       // Minimizers that are both opt & least sq
-       BRANCH_AND_BOUND=(MINIMIZER_BIT | OPTIMIZER_BIT | LEASTSQ_BIT) };
-
-/// Sub-methods, including sampling, inference algorithm, opt algorithm types
-enum { SUBMETHOD_DEFAULT=0, // no specification
-       SUBMETHOD_NONE,      // spec override of default: no submethod
-       /// Type of hybrid meta-iterator:
-       SUBMETHOD_COLLABORATIVE,   SUBMETHOD_EMBEDDED,   SUBMETHOD_SEQUENTIAL,
-       // Sampling and DOE types:
-       SUBMETHOD_LHS,             SUBMETHOD_RANDOM,
-       SUBMETHOD_BOX_BEHNKEN,     SUBMETHOD_CENTRAL_COMPOSITE,
-       SUBMETHOD_GRID,            SUBMETHOD_OA_LHS,     SUBMETHOD_OAS,
-       // Bayesian inference algorithms:
-       SUBMETHOD_DREAM, SUBMETHOD_GPMSA, SUBMETHOD_QUESO, SUBMETHOD_WASABI,
-       SUBMETHOD_EXPDESIGN_BAYES,
-       // optimization sub-method selections (in addition to SUBMETHOD_LHS):
-       SUBMETHOD_NIP, SUBMETHOD_SQP, SUBMETHOD_EA, SUBMETHOD_EGO, SUBMETHOD_SBO,
-       // verification approaches:
-       SUBMETHOD_CONVERGE_ORDER,  SUBMETHOD_CONVERGE_QOI,
-       SUBMETHOD_ESTIMATE_ORDER };
-
 // define special values for outputLevel within
 // Iterator/Model/Interface/Approximation
 enum { SILENT_OUTPUT, QUIET_OUTPUT, NORMAL_OUTPUT, VERBOSE_OUTPUT,
        DEBUG_OUTPUT };
-// define special values for Iterator and Interface scheduling
-enum { DEFAULT_SCHEDULING, MASTER_SCHEDULING, PEER_SCHEDULING, 
-       PEER_DYNAMIC_SCHEDULING, PEER_STATIC_SCHEDULING, DYNAMIC_SCHEDULING,
-       STATIC_SCHEDULING };
-// define special values for ParallelLibrary configuration logic
-// related to scheduling
-enum { DEFAULT_CONFIG, PUSH_DOWN, PUSH_UP };
 
 // ----
 // NonD
@@ -117,11 +36,13 @@ enum { DEFAULT_CONFIG, PUSH_DOWN, PUSH_UP };
 // define special values for u_space_type in
 // NonD::initialize_random_variable_types()
 enum { STD_NORMAL_U, STD_UNIFORM_U, ASKEY_U, EXTENDED_U };
+// define special values for sparseGridBasisType
+enum { DEFAULT_INTERPOLANT, NODAL_INTERPOLANT, HIERARCHICAL_INTERPOLANT };
 // define special values for covarianceControl
 enum { DEFAULT_COVARIANCE, NO_COVARIANCE, DIAGONAL_COVARIANCE,
        FULL_COVARIANCE };
 // define special values for probability integration refinement
-enum { NO_INT_REFINE=0, IS, AIS, MMAIS };
+enum { NO_INT_REFINE, IS, AIS, MMAIS };
 // define special values for responseLevelTarget
 enum { PROBABILITIES, RELIABILITIES, GEN_RELIABILITIES };
 // define special values for responseLevelTargetReduce
@@ -139,11 +60,8 @@ enum { DEFAULT_LS=0, SVD_LS, EQ_CON_LS };
 // NonDBayesCalibration
 // --------------------
 // define special values for emulatorType
-enum { NO_EMULATOR, PCE_EMULATOR, SC_EMULATOR, GP_EMULATOR, KRIGING_EMULATOR,
-       VPS_EMULATOR };
-// modes for calibrating multipliers on observational error
-enum { CALIBRATE_NONE = 0, CALIBRATE_ONE, CALIBRATE_PER_EXPER, 
-       CALIBRATE_PER_RESP, CALIBRATE_BOTH};
+enum { NO_EMULATOR, POLYNOMIAL_CHAOS, STOCHASTIC_COLLOCATION,
+       GAUSSIAN_PROCESS, KRIGING };
 
 // ------------
 // NonDSampling
@@ -170,17 +88,20 @@ enum { UNCERTAIN,           UNCERTAIN_UNIFORM,
 // (6) ALL_UNIFORM: sample over All variables using uniform distributions.
 // Note that ACTIVE modes will overlap with either UNCERTAIN or ALL modes
 // depending on whether the Model/Variables employ an All or Distinct view.
-// Wilks type of confidence interval
-enum { ONE_SIDED, TWO_SIDED };
 
-// ---------------
-// NonDReliability
-// ---------------
+// --------------------
+// NonDLocalReliability
+// --------------------
 // define special values for mppSearchType
-enum { MV=0, AMV_X, AMV_U, AMV_PLUS_X, AMV_PLUS_U, TANA_X, TANA_U, NO_APPROX,
-       EGRA_X, EGRA_U };
+enum { MV, AMV_X, AMV_U, AMV_PLUS_X, AMV_PLUS_U, TANA_X, TANA_U, NO_APPROX };
 // define special values for secondOrderIntType
 enum { BREITUNG, HOHENRACK, HONG };
+
+// ---------------------
+// NonDGlobalReliability
+// ---------------------
+// define special values for mppSearchType
+enum { EGRA_X, EGRA_U };
 
 // -----------------------
 // SurrBasedLocalMinimizer
@@ -251,26 +172,15 @@ public:
   /// string pointer to the model specification to be used by this method
   /// (from the \c model_pointer specification in \ref MethodIndControl)
   String modelPointer;
-  /// string to point to the low fidelity model for Bayesian experimental design
-  String lowFidModelPointer;
   /// method verbosity control: {SILENT,QUIET,NORMAL,VERBOSE,DEBUG}_OUTPUT
   /// (from the \c output specification in \ref MethodIndControl)
   short methodOutput;
-
   /// maximum number of iterations allowed for the method (from the \c
   /// max_iterations specification in \ref MethodIndControl)
   int maxIterations;
-  /// maximum number of refinement iterations allowed for a uniform/adaptive
-  /// refinement approach (from the \c max_refinement_iterations specification
-  /// in \ref MethodIndControl)
-  int maxRefineIterations;
-  /// maximum number of internal solver iterations allowed for the method
-  /// (from the \c max_solver_iterations specification in \ref MethodIndControl)
-  int maxSolverIterations;
   /// maximum number of function evaluations allowed for the method (from
   /// the \c max_function_evaluations specification in \ref MethodIndControl)
   int maxFunctionEvaluations;
-  
   /// flag for use of speculative gradient approaches for maintaining parallel
   /// load balance during the line search portion of optimization algorithms
   /// (from the \c speculative specification in \ref MethodIndControl)
@@ -324,73 +234,20 @@ public:
 
   /// the method selection: one of the optimizer, least squares, nond, dace,
   /// or parameter study methods
-  unsigned short methodName;
-  /// enum value for a sub-method type
-  unsigned short subMethod;
-  /// string identifier for a sub-method name within a multi-option
-  /// method specification (e.g., from meta-iterators)
+  String methodName;
+  /// string identifier for a sub-method within a multi-option method
+  /// specification (e.g., from \c sub_method_name in SBL/SBG, \c dace
+  /// option, or \c richardson_extrap option)
   String subMethodName;
-  /// string pointer for a sub-model specification used by a meta-iterator
-  String subModelPointer;
-  /// string pointer for a sub-method specification used by a meta-iterator
+  /// string pointer for a sub-method specification used by a multi-component
+  /// method (from the \c sub_method_pointer specification in SBL/SBG)
   String subMethodPointer;
 
-  /// number of servers for concurrent iterator parallelism (from
-  /// the \c iterator_servers specification)
-  int iteratorServers;
-  /// number of processors for each concurrent iterator partition (from
-  /// the \c processors_per_iterator specification)
-  int procsPerIterator;
-  /// type of scheduling ({DEFAULT,MASTER,PEER}_SCHEDULING) used in concurrent
-  /// iterator parallelism (from the \c iterator_scheduling specification)
-  short iteratorScheduling;
-
-  /// array of methods for the sequential and collaborative hybrid
-  /// meta-iterators (from the \c method_name_list specification)
-  StringArray hybridMethodNames;
-  /// array of models for the sequential and collaborative hybrid
-  /// meta-iterators (from the \c model_pointer_list specification)
-  StringArray hybridModelPointers;
-  /// array of methods for the sequential and collaborative hybrid
-  /// meta-iterators (from the \c method_pointer_list specification)
-  StringArray hybridMethodPointers;
-  // progress threshold for sequential adaptive hybrids (from the \c
-  // progress_threshold specification)
-  //Real hybridProgThresh;
-  /// global method name for embedded hybrids (from the \c
-  /// global_method_name specification)
-  String hybridGlobalMethodName;
-  /// global model pointer for embedded hybrids (from the \c
-  /// global_model_pointer specification)
-  String hybridGlobalModelPointer;
-  /// global method pointer for embedded hybrids (from the \c
-  /// global_method_pointer specification)
-  String hybridGlobalMethodPointer;
-  /// local method name for embedded hybrids (from the \c
-  /// local_method_name specification)
-  String hybridLocalMethodName;
-  /// local model pointer for embedded hybrids (from the \c
-  /// local_model_pointer specification)
-  String hybridLocalModelPointer;
-  /// local method pointer for embedded hybrids (from the \c
-  /// local_method_pointer specification)
-  String hybridLocalMethodPointer;
-  /// local search probability for embedded hybrids (from the \c
-  /// local_search_probability specification)
-  Real hybridLSProb;
-
-  /// number of random jobs to perform in the pareto_set and
-  /// multi_start meta-iterators (from the \c random_starts and \c
-  /// random_weight_sets specifications)
-  int concurrentRandomJobs;
-  /// user-specified (i.e., nonrandom) parameter sets to evaluate in
-  /// the pareto_set and multi_start meta-iterators (from the \c
-  /// starting_points and \c weight_sets specifications)
-  RealVector concurrentParameterSets;
-
   /// number of consecutive iterations with change less than
-  /// convergenceTolerance required to trigger convergence
-  unsigned short softConvLimit;
+  /// convergenceTolerance required to trigger convergence within
+  /// the surrogate-based local method (from the \c
+  /// soft_convergence_limit specification in \ref MethodSBL)
+  int surrBasedLocalSoftConvLimit;
   /// flag to indicate user-specification of a bypass of any/all
   /// layerings in evaluating truth response values in SBL.
   bool surrBasedLocalLayerBypass;
@@ -439,7 +296,7 @@ public:
   /// SBL constraint relaxation method: NO_RELAX or HOMOTOPY
   short surrBasedLocalConstrRelax;
   /// user-specified method for adding points to the set upon which the
-  /// next surrogate is based in the \c surrogate_based_global method. 
+  /// next surrogate is based in the \c surrogate_based_global strategy. 
   bool surrBasedGlobalReplacePts;
 
   // number of samples at the root for the branch and bound method
@@ -763,8 +620,6 @@ public:
   String displayFormat;
   /// the \c VNS specification for NOMAD
   Real vns;
-  /// the \c NEIGHBOR_ORDER specification for NOMAD
-  int neighborOrder;
   /// the \c DISPLAY_ALL_EVAL specification for NOMAD
   bool showAllEval;
 
@@ -774,33 +629,18 @@ public:
   int numSamples;
   /// flag for fixing the value of the seed among different NonD/DACE
   /// sample sets.  This results in the use of the same sampling
-  /// stencil/pattern throughout an execution with repeated sampling.
+  /// stencil/pattern throughout a strategy with repeated sampling.
   bool fixedSeedFlag;
   /// flag for fixing the sequence for Halton or Hammersley QMC
   /// sample sets.  This results in the use of the same sampling
-  /// stencil/pattern throughout an execution with repeated sampling.
+  /// stencil/pattern throughout a strategy with repeated sampling.
   bool fixedSequenceFlag;
+  /// the number of previous samples when augmenting a LHS sample
+  int previousSamples;
   /// the \c var_based_decomp specification for a variety of sampling methods
   bool vbdFlag;
   /// the \c var_based_decomp tolerance for omitting index output
   Real vbdDropTolerance;
-  /// the \c backfill option allows one to augment in LHS sample 
-  /// by enforcing the addition of unique discrete variables to the sample
-  bool backfillFlag;
-  /// Flag to specify the calculation of principal components when 
-  /// using LHS  
-  bool pcaFlag;
-  /// The percentage of variance explained by using a truncated 
-  /// number of principal components in PCA
-  Real percentVarianceExplained;
-  /// Flag to specify use of Wilks formula to calculate num samples
-  bool wilksFlag;
-  /// Wilks order parameter
-  unsigned short wilksOrder;
-  /// Wilks confidence interval parameter
-  Real wilksConfidenceLevel;
-  /// Wilks sided interval type
-  short wilksSidedInterval;
 
   // NonD
 
@@ -830,10 +670,9 @@ public:
   short expansionType;
   /// boolean indicating presence of \c piecewise keyword
   bool piecewiseBasis;
-  /// enumeration for type of basis in sparse grid interpolation
-  /// (Pecos::{NODAL,HIERARCHICAL}_INTERPOLANT) or regression
-  /// (Pecos::{TENSOR_PRODUCT,TOTAL_ORDER,ADAPTED}_BASIS).
-  short expansionBasisType;
+  /// enumeration for type of basis in sparse grid interpolation:
+  /// DEFAULT_INTERPOLANT, NODAL_INTERPOLANT, or HIERARCHICAL_INTERPOLANT
+  short sparseGridBasisType;
   /// the \c expansion_order specification in \ref MethodNonDPCE
   UShortArray expansionOrder;
   /// the \c expansion_samples specification in \ref MethodNonDPCE
@@ -872,16 +711,6 @@ public:
   /// flag indicating the use of cross-validation across expansion orders
   /// (given a prescribed maximum order) and, for some methods, noise tolerances
   bool crossValidation;
-  /// flag indicating the restriction of cross-validation to estimate only
-  /// the most effective noise tolerance; used to reduce cost from performing
-  /// CV over both noise tolerances and expansion orders
-  bool crossValidNoiseOnly;
-  // initial grid level for the ADAPTED_BASIS_GENERALIZED approach to
-  // defining the candidate basis for sparse recovery (compressed sensing)
-  //unsigned short adaptedBasisInitLevel;
-  /// initial grid level for the ADAPTED_BASIS_EXPANDING_FRONT approach to
-  /// defining the candidate basis for sparse recovery (compressed sensing)
-  unsigned short adaptedBasisAdvancements;
   /// flag indicating the output of PCE coefficients corresponding to
   /// normalized basis polynomials
   bool normalizedCoeffs;
@@ -897,33 +726,29 @@ public:
   /// orthogonal least interpolation PCE; based on the \c tensor_grid
   /// specification in \ref MethodNonDPCE
   UShortArray tensorGridOrder;
-  /// the \c import_expansion_file specification in \ref MethodNonDPCE
-  String importExpansionFile;
-  /// the \c export_expansion_file specification in \ref MethodNonDPCE
-  String exportExpansionFile;
+  /// the \c expansion_import_file specification in \ref MethodNonDPCE
+  String expansionImportFile;
   /// the \c sample_type specification in \ref MethodNonDMC, \ref
   /// MethodNonDPCE, and \ref MethodNonDSC
-  unsigned short sampleType;
-  /// whether to generate D-optimal designs
-  bool dOptimal;
+  String sampleType;
   /// the type of limit state search in \ref MethodNonDLocalRel
   /// (\c x_taylor_mean, \c x_taylor_mpp, \c x_two_point, \c u_taylor_mean,
   /// \c u_taylor_mpp, \c u_two_point, or \c no_approx) or
   /// \ref MethodNonDGlobalRel (\c x_gaussian_process or \c u_gaussian_process)
-  unsigned short reliabilitySearchType;
+  String reliabilitySearchType;
   /// the \c first_order or \c second_order integration selection in
   /// \ref MethodNonDLocalRel
   String reliabilityIntegration;
   /// the \c import, \c adapt_import, or \c mm_adapt_import integration
   /// refinement selection in \ref MethodNonDLocalRel, \ref MethodNonDPCE,
   /// and \ref MethodNonDSC
-  unsigned short integrationRefine;
-  /// Sequence of refinement samples, e.g., the size of the batch
-  /// (e.g. number of supplemental points added) to be added to be
-  /// added to the build points for an emulator at each iteration
-  IntVector refineSamples;
-  /// the \c pilot_samples selection in \ref MethodMultilevelMC
-  SizetArray pilotSamples;
+  String integrationRefine;
+  /// the \c refinement_samples selection in \ref MethodNonDLocalRel,
+  /// \ref MethodNonDPCE, and \ref MethodNonDSC
+  int refineSamples;
+  /// the algorithm selection \c sqp or \c nip used for computing the MPP in
+  /// \ref MethodNonDLocalRel or the interval in \ref MethodNonDLocalIntervalEst
+  String nondOptAlgorithm;
   /// the \c distribution \c cumulative or \c complementary specification
   /// in \ref MethodNonD
   short distributionType;
@@ -940,64 +765,31 @@ public:
   RealVectorArray reliabilityLevels;
   /// the \c gen_reliability_levels specification in \ref MethodNonD
   RealVectorArray genReliabilityLevels;
-  /// the number of MCMC chain samples
-  int chainSamples;
-  /// the number of samples to construct an emulator, e.g., for
-  /// Bayesian calibration methods
-  int buildSamples;
-  /// number of samples to perform on emulator
-  int samplesOnEmulator;
-  /// The total order to be used in construction of a VPS surrogate 
-  int emulatorOrder;
+  /// the number of samples to construct a GP emulator for Bayesian 
+  /// calibration methods (\ref MethodNonDBayesCalib)
+  int emulatorSamples;
   /// the \c emulator specification in \ref MethodNonDBayesCalib
   short emulatorType;
-  /// the \c mcmc type specification in \ref MethodNonDBayesCalib
-  String mcmcType;
-  /// use of standardized probability spaces for MCMC within Bayesian inference
-  bool standardizedSpace;
-  /// flag indicating adaptive refinement of the emulator in regions
-  /// of high posterior probability
-  bool adaptPosteriorRefine;
-  /// flag indicating user activation of logit transform option within QUESO
-  bool logitTransform;
-  /// flag indicating the calculation of KL divergence between prior
-  /// and posterior in Bayesian methods 
-  bool posteriorStatsKL;
-  /// flag indicating the calculation of mutual information between prior
-  /// and posterior in Bayesian methods 
-  bool posteriorStatsMutual;
-  /// the method used for performing a pre-solve for the MAP point
-  unsigned short preSolveMethod;
-  /// the type of proposal covariance: user, derivatives, or prior
-  String proposalCovType;
-  /// number of updates of the proposal covariance from computing the
-  /// misfit Hessian using residual values and derivatives
-  int proposalCovUpdates;
-  /// the format of proposal covariance input: diagonal or matrix
-  String proposalCovInputType;
-  /// raw list of real data for the proposal covariance
-  RealVector proposalCovData;
-  /// file from which to read proposal covariance in diagonal or matrix format
-  String proposalCovFile;
+  /// the \c rejection type specification in \ref MethodNonDBayesCalib
+  String rejectionType;
+  /// the \c metropolis type specification in \ref MethodNonDBayesCalib
+  String metropolisType;
+  /// the \c proposal covariance scale factor in \ref MethodNonDBayesCalib
+  RealVector proposalCovScale;
+  /// the \c likelihood scale factor in \ref MethodNonDBayesCalib
+  Real likelihoodScale;
   /// the \c fitness metric type specification in \ref
   /// MethodNonDAdaptive
   String fitnessMetricType;
   /// the \c batch selection type specification in \ref
   /// MethodNonDAdaptive
   String batchSelectionType;
-  /// the \c Lipschitz type specification in \ref
-  /// MethodNonDPOFDarts (e.g. either local or global estimation)
-  String lipschitzType;
-  /// calibration mode for observation error multipliers (CALIBRATE_*)
-  unsigned short calibrateErrorMode;
-  /// hyperparameters inverse gamma prior alphas
-  RealVector hyperPriorAlphas;
-  /// hyperparameters inverse gamma prior alphas
-  RealVector hyperPriorBetas;
-  /// number of MCMC samples to discard from acceptance chain
-  int burnInSamples;
-  /// period or skip in post-processing the acceptance chain
-  int subSamplingPeriod;
+  /// The size of the batch (e.g. number of supplemental points added) to be
+  /// added to be added to the build points for an emulator at each iteration
+  int batchSize;
+  /// flag to indicate if the sigma terms should be calibrated in 
+  /// \ref MethodNonDBayesCalib
+  bool calibrateSigmaFlag;
 
   // DREAM sub-specification
 
@@ -1011,34 +803,6 @@ public:
   Real grThreshold;
   /// how often to perform a long jump in generations
   int jumpStep; 
-
-  // WASABI sub-specification
-
-  /// the type of data distribution: kde, or gaussian
-  String dataDistType;
-  /// the format of data distribution gaussian covariance input: 
-  /// diagonal or matrix
-  String dataDistCovInputType;
-  /// raw list of real data for the data distribution gaussian means
-  RealVector dataDistMeans;
-  /// raw list of real data for the data distribution gaussian covariance
-  RealVector dataDistCovariance;
-  /// file from which to read data distribution data (covariance or samples )
-  String dataDistFile;
-  /// The filename of the export file containing an arbitrary set of samples and 
-  /// their corresponding density values
-  String posteriorDensityExportFilename;
-  /// The filename of the export file containing samples from the posterior and 
-  /// their corresponding density values
-  String posteriorSamplesExportFilename;
-  /// The filename of the import file containing samples at which the 
-  /// posterior will be evaluated
-  String posteriorSamplesImportFilename;
-  /// Flag specifying whether to generate random samples from the posterior
-  bool generatePosteriorSamples;
-  /// Flag specifying whether to evaluate the posterior density at a 
-  /// set of samples
-  bool evaluatePosteriorDensity;
 
   // Parameter Study
 
@@ -1054,10 +818,8 @@ public:
   RealVector listOfPoints;
   /// the \c import_points_file spec for a file-based parameter study
   String pstudyFilename;
-  /// tabular format for the parameter study points file
-  unsigned short pstudyFileFormat;
-  /// whether to import active variables only
-  bool pstudyFileActive;
+  /// whether the parameter study points file is annotated
+  bool pstudyFileAnnotated;
   /// the \c partitions specification for PStudy method in \ref MethodPSMPS
   UShortArray varPartitions;
 
@@ -1068,29 +830,14 @@ public:
  
   // File read for surrogates
 
-  /// the file name from the \c import_build_points_file specification
-  String importBuildPtsFile;
-  /// tabular format for the build point import file
-  unsigned short importBuildFormat;
-  /// whether to import active variables only
-  bool importBuildActive;
-
-  /// the file name from the \c import_approx_points_file specification
-  String importApproxPtsFile;
-  /// tabular format for the approx point import file
-  unsigned short importApproxFormat;
-  /// whether to import active variables only
-  bool importApproxActive;
-
-  /// the file name from the \c export_approx_points_file specification
-  String exportApproxPtsFile;
-  /// tabular format for the approx point export file
-  unsigned short exportApproxFormat;
-
-  /// the file name from the \c export_mcmc_points_file specification
-  String exportMCMCPtsFile;
-  /// tabular format for the MCMC chain export file
-  unsigned short exportMCMCFormat;
+  /// the file name for point import in surrogate-based methods
+  String approxImportFile;
+  /// whether the point import file is annotated (default true)
+  bool approxImportAnnotated;
+  /// the file name for point export in surrogate-based methods
+  String approxExportFile;
+  /// whether the point export file is annotated (default true)
+  bool approxExportAnnotated;
 
 private:
 
@@ -1144,6 +891,8 @@ class DataMethod
   friend class ProblemDescDB;
   // the NIDR derived problem description database
   friend class NIDRProblemDescDB;
+  /// library_mode default data initializer
+  friend void run_dakota_data();
 
 public:
 
@@ -1170,11 +919,9 @@ public:
 
   /// read a DataMethod object from a packed MPI buffer
   void read(MPIUnpackBuffer& s);
+
   /// write a DataMethod object to a packed MPI buffer
   void write(MPIPackBuffer& s) const;
-
-  /// return dataMethodRep
-  DataMethodRep* data_rep();
 
 private:
 
@@ -1185,10 +932,6 @@ private:
   /// pointer to the body (handle-body idiom)
   DataMethodRep* dataMethodRep;
 };
-
-
-inline DataMethodRep* DataMethod::data_rep()
-{return dataMethodRep; }
 
 
 /// MPIPackBuffer insertion operator for DataMethod

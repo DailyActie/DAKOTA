@@ -1,9 +1,3 @@
-#@ On Windows: not sufficiently generic
-#@ *: DakotaConfig=UNIX
-#@ p*: Label=FastTest
-#@ p0: MPIProcs=3
-#@ p1: MPIProcs=2
-
 # Tests: all use workdir named trydir
 # 0	no extra options (script in inputdir, tmpnamed files)
 # 1	tag the workdir
@@ -15,9 +9,6 @@
 # 7	analysis driver located in template_directory
 # 8	basic work_directory, but with named parameters file, stripping dirname
 # 9	tagged and saved work_directory, with named and saved parameters file
-
-# Inactive tests
-# 10     test using environment variables to communicate the file names
 
 # TODO: Add tests for:
 # * driver lives on PATH, but not in inputdir
@@ -31,6 +22,8 @@
 # * Get autotagging working and test
 # * Parallel testing: blocked for test > 1 as doesn't seem to find driver in pwd
 
+# p0=3,p1=2
+
 method
   multidim_parameter_study		
     partitions = 2 2			
@@ -42,41 +35,35 @@ variables
     descriptors      'x1'     'x2'	
 
 interface
-# TODO: Previously tests 4 and 6 didn't work with fork on Mac; now
-# that they do, should mix and match tests with system and fork on all
-# platforms
-  system	#s0,#s2,#s4,#s6,#s8,#p0
-#  fork		#s1,#s3,#s5,#s7,#s9,#p1
-#    asynchronous evaluation_concurrency = 2	     	     	#s1,#s2,#s9,#p1
-    analysis_driver = 'dakota_workdir.py'			#s0,#p0
-#    analysis_driver = 'dakota_workdir.py tag'			#s1,#p1
-#    analysis_driver = 'dakota_workdir.py tag_save' 		#s2
-#    analysis_driver = 'dakota_workdir.py templatefiles' 	#s3
-#    analysis_driver = 'dakota_workdir.py templatedir' 		#s4
-#    analysis_driver = 'dakota_workdir.py templatefiles_copy' 	#s5
-#    analysis_driver = 'dakota_workdir.py templatedir_copy' 	#s6
-#    analysis_driver = 'templatedir_rosenbrock.py' 		#s7
-#    analysis_driver = 'dakota_workdir.py named_params' 	#s8
-#    analysis_driver = 'dakota_workdir.py saved_params' 	#s9
-# Not yet active:
-#    analysis_driver = 'dakota_workdir.py -params $DAKOTA_PARAMETERS_FILE -results $DAKOTA_RESULTS_FILE'   NO 10
-#      verbatim        			  	  		NO 10
+# This is masking a problem on Mac, where tests 4 and 6 don't work with fork
+  system	#0,#2,#4,#6,#8,#p0
+#  fork		#1,#3,#5,#7,#9,#p1
+    # Testing workdir without concurrent evaluations is kind of silly
+#    asynchronous evaluation_concurrency = 2	     	     	#1,#2,#9,#p1
+    analysis_driver = 'dakota_workdir.sh'			#0,#p0
+#    analysis_driver = 'dakota_workdir.sh tag'			#1,#p1
+#    analysis_driver = 'dakota_workdir.sh tag_save' 		#2
+#    analysis_driver = 'dakota_workdir.sh templatefiles' 	#3
+#    analysis_driver = 'dakota_workdir.sh templatedir' 		#4
+#    analysis_driver = 'dakota_workdir.sh templatefiles_copy' 	#5
+#    analysis_driver = 'dakota_workdir.sh templatedir_copy' 	#6
+#    analysis_driver = 'templatedir_rosenbrock.sh' 		#7
+#    analysis_driver = 'dakota_workdir.sh named_params' 	#8
+#    analysis_driver = 'dakota_workdir.sh saved_params' 	#9
 
     work_directory
       named 'trydir'
-# TODO: disable tag for p0 depending on parallel concurrency
-#	directory_tag						#s1,#s2,#s9,#p0,#p1
-#	directory_save  					#s2,#s9
-# 	link_files = 'dakota_workdir.root.dat' 			#s3
-#	link_files = 'dakota_workdir.templatedir/*'		#s4,#s7
-# 	copy_files = 'dakota_workdir.root.dat' 			#s5
-#	copy_files = 'dakota_workdir.templatedir/*'		#s6
-#	parameters_file = 'params.in'				#s8,#s9
-#	  file_save						#s9
-# Disabling absolute path since leaves files that may get in other users' way
-#	parameters_file = '/tmp/params.in'			NO 9
+#	directory_tag						#1,#2,#9,#p1
+#	directory_save  					#2,#9
+# 	template_files = 'dakota_workdir.root.dat' 		#3,#5
+# 	template_directory = 'dakota_workdir.templatedir'	#4,#6
+#         copy							#5,#6
+# 	template_directory = 'dakota_workdir.templatedir'	#7
+#	parameters_file = 'params.in'				#8
+#	parameters_file = '/tmp/params.in'			#9
+#	  file_save						#9
 
 responses
-  objective_functions = 1             
+  num_objective_functions = 1             
   no_gradients				
   no_hessians

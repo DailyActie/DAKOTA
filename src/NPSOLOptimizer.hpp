@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -54,11 +54,10 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NPSOLOptimizer(ProblemDescDB& problem_db, Model& model);
+  NPSOLOptimizer(Model& model); ///< standard constructor
 
   /// alternate constructor for Iterator instantiations by name
-  NPSOLOptimizer(Model& model);
+  NPSOLOptimizer(NoDBBaseConstructor, Model& model);
 
   /// alternate constructor for instantiations "on the fly"
   NPSOLOptimizer(Model& model, const int& derivative_level,
@@ -66,10 +65,14 @@ public:
 
   /// alternate constructor for instantiations "on the fly"
   NPSOLOptimizer(const RealVector& initial_point,
-    const RealVector& var_lower_bnds,  const RealVector& var_upper_bnds,
-    const RealMatrix& lin_ineq_coeffs, const RealVector& lin_ineq_lower_bnds,
-    const RealVector& lin_ineq_upper_bnds, const RealMatrix& lin_eq_coeffs,
-    const RealVector& lin_eq_targets, const RealVector& nonlin_ineq_lower_bnds,
+    const RealVector& var_lower_bnds,
+    const RealVector& var_upper_bnds,
+    const RealMatrix& lin_ineq_coeffs,
+    const RealVector& lin_ineq_lower_bnds,
+    const RealVector& lin_ineq_upper_bnds,
+    const RealMatrix& lin_eq_coeffs,
+    const RealVector& lin_eq_targets,
+    const RealVector& nonlin_ineq_lower_bnds,
     const RealVector& nonlin_ineq_upper_bnds,
     const RealVector& nonlin_eq_targets, 
     void (*user_obj_eval) (int&, int&, double*, double&, double*, int&),
@@ -83,7 +86,7 @@ public:
   //- Heading: Member functions
   //
 
-  void core_run();
+  void find_optimum();
 
 private:
 
@@ -91,9 +94,9 @@ private:
   //- Heading: Convenience member functions
   //
 
-  /// called by core_run for setUpType == "model"
+  /// called by find_optimum for setUpType == "model"
   void find_optimum_on_model();
-  /// called by core_run for setUpType == "user_functions"
+  /// called by find_optimum for setUpType == "user_functions"
   void find_optimum_on_user_functions();
 
   //
@@ -138,8 +141,8 @@ private:
 // Factory functions for dynamic loading of solver libraries
 // ---------------------------------------------------------
 
-NPSOLOptimizer* new_NPSOLOptimizer(ProblemDescDB& problem_db, Model& model);
 NPSOLOptimizer* new_NPSOLOptimizer(Model& model);
+NPSOLOptimizer* new_NPSOLOptimizer(NoDBBaseConstructor dummy, Model& model);
 NPSOLOptimizer* new_NPSOLOptimizer(Model& model, const int&, const Real&);
 NPSOLOptimizer* new_NPSOLOptimizer(const RealVector& initial_point,
     const RealVector& var_lower_bnds,

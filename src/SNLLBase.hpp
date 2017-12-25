@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -29,8 +29,8 @@ template<class T> class OptppArray;
 
 namespace Dakota {
 
+class Model;
 class Minimizer;
-class ProblemDescDB;
 /// enumeration for the type of evaluator function
 enum EvalType { NLFEvaluator, CONEvaluator }; // could add 0/1/2/2GN granularity
 
@@ -50,9 +50,9 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  SNLLBase();                          ///< default constructor
-  SNLLBase(ProblemDescDB& problem_db); ///< standard constructor
-  ~SNLLBase();                         ///< destructor
+  SNLLBase();             ///< default constructor
+  SNLLBase(Model& model); ///< standard constructor
+  ~SNLLBase();            ///< destructor
 
 protected:
 
@@ -68,24 +68,24 @@ protected:
   /// convenience function for copying local_fn_vals to g; used by
   /// constraint evaluator functions
   void copy_con_vals_dak_to_optpp(const RealVector& local_fn_vals,
-				  RealVector& g, size_t offset);
+				  RealVector& g, const size_t& offset);
 
   /// convenience function for copying g to local_fn_vals; used in
   /// final solution logging
   void copy_con_vals_optpp_to_dak(const RealVector& g,
 				  RealVector& local_fn_vals,
-				  size_t offset);
+				  const size_t& offset);
 
   /// convenience function for copying local_fn_grads to grad_g;
   /// used by constraint evaluator functions
   void copy_con_grad(const RealMatrix& local_fn_grads, RealMatrix& grad_g,
-		     size_t offset);
+		     const size_t& offset);
 
   /// convenience function for copying local_fn_hessians to hess_g;
   /// used by constraint evaluator functions
   void copy_con_hess(const RealSymMatrixArray& local_fn_hessians,
 		     OPTPP::OptppArray<RealSymMatrix>& hess_g, 
-                     size_t offset);
+                     const size_t& offset);
 
   /// convenience function for setting OPT++ options prior to the
   /// method instantiation
@@ -93,12 +93,12 @@ protected:
 
   /// convenience function for setting OPT++ options after the
   /// method instantiation
-  void snll_post_instantiate(int num_cv, bool vendor_num_grad_flag,
-			     const String& finite_diff_type,
-			     const RealVector& fdss, int max_iter,
-			     int max_fn_evals, Real conv_tol, Real grad_tol,
-			     Real max_step, bool bound_constr_flag,
-			     int num_constr, short output_lev,
+  void snll_post_instantiate(const int& num_cv, bool vendor_num_grad_flag,
+			     const String& finite_diff_type, const Real& fdss,
+			     const int& max_iter, const int& max_fn_evals,
+			     const Real& conv_tol, const Real& grad_tol,
+			     const Real& max_step, bool bound_constr_flag,
+			     const int& num_constr, short output_lev,
 			     OPTPP::OptimizeClass* the_optimizer, 
 			     OPTPP::NLP0* nlf_objective,
 			     OPTPP::FDNLF1* fd_nlf1,OPTPP::FDNLF1* fd_nlf1_con);
@@ -167,8 +167,7 @@ protected:
 };
 
 
-inline SNLLBase::SNLLBase(): meritFn(OPTPP::ArgaezTapia), maxStep(1000.),
-  stepLenToBndry(0.99995), centeringParam(0.2) // leave searchMethod empty
+inline SNLLBase::SNLLBase(): meritFn(OPTPP::ArgaezTapia)
 { }
 
 

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,12 +20,10 @@ static const char rcsId[]="@(#) $Id: DakotaVerification.cpp 6886 2010-08-02 19:1
 
 namespace Dakota {
 
-Verification::Verification(ProblemDescDB& problem_db, Model& model):
-  Analyzer(problem_db, model)
+Verification::Verification(Model& model): Analyzer(model)
 {
   // Check for vendor numerical gradients (manage_asv will not work properly)
-  if (iteratedModel.gradient_type() == "numerical" &&
-      iteratedModel.method_source() == "vendor") {
+  if (gradientType == "numerical" && methodSource == "vendor") {
     Cerr << "\nError: Verification does not contain a vendor algorithm for "
          << "numerical derivatives;\n       please select dakota as the finite "
 	 << "difference method_source." << std::endl;
@@ -34,29 +32,16 @@ Verification::Verification(ProblemDescDB& problem_db, Model& model):
 }
 
 
-Verification::Verification(unsigned short method_name, Model& model):
-  Analyzer(method_name, model)
+Verification::Verification(NoDBBaseConstructor, Model& model):
+  Analyzer(NoDBBaseConstructor(), model)
 {
   // Check for vendor numerical gradients (manage_asv will not work properly)
-  if (iteratedModel.gradient_type() == "numerical" &&
-      iteratedModel.method_source() == "vendor") {
+  if (gradientType == "numerical" && methodSource == "vendor") {
     Cerr << "\nError: Verification does not contain a vendor algorithm for "
          << "numerical derivatives;\n       please select dakota as the finite "
 	 << "difference method_source." << std::endl;
     abort_handler(-1);
   }
-}
-
-
-bool Verification::resize()
-{
-  bool parent_reinit_comms = Analyzer::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
 }
 
 

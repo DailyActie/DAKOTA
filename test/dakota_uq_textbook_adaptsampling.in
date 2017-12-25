@@ -1,16 +1,19 @@
 # DAKOTA INPUT FILE - dakota_uq_textbook_adaptsampling.in
 # This sampling input file demonstrates adaptive sampling. 
 
+strategy
+	single_method
+
 method,
-	adaptive_sampling,
-	  initial_samples = 20
+	nond_adaptive_sampling,
+	  samples = 20
 	  seed = 1234
 	  # rng mt19937
 	  rng rnum2 
           response_levels =  10.0
-          samples_on_emulator = 400
+          emulator_samples = 400
           max_iterations = 50
-          refinement_samples = 2
+          batch_size = 2
           batch_selection = naive
           fitness_metric = predicted_variance
           #fitness_metric = distance
@@ -19,7 +22,7 @@ method,
           # misc_options  'sample_design=sampling_lhs' 
           # 'approx_type=global_kriging'
           # 'candidate_size=400' 'rounds=50' 'score_type=alm'
-          # 'batch_size=2' 'batch_environment=naive'
+          # 'batch_size=2' 'batch_strategy=naive'
 
 variables,
 	uniform_uncertain = 2
@@ -32,6 +35,6 @@ interface,
 	  analysis_driver = 'text_book'
 
 responses,
-	response_functions = 1
+	num_response_functions = 1
 	no_gradients
 	no_hessians

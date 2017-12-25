@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -30,8 +30,7 @@ namespace Dakota {
     and probDescDB can be queried for settings from the method
     specification.  It is not currently used, as there is not yet a
     separate nond_quadrature method specification. */
-NonDQuadrature::NonDQuadrature(ProblemDescDB& problem_db, Model& model):
-  NonDIntegration(problem_db, model),
+NonDQuadrature::NonDQuadrature(Model& model): NonDIntegration(model),
   nestedRules(
     probDescDB.get_short("method.nond.nesting_override") == Pecos::NESTED),
   quadOrderSeqSpec(probDescDB.get_usa("method.nond.quadrature_order")),
@@ -43,32 +42,20 @@ NonDQuadrature::NonDQuadrature(ProblemDescDB& problem_db, Model& model):
 
   // natafTransform available: initialize_random_variables() called in
   // NonDIntegration ctor
-  check_variables(natafTransform.x_random_variables());
-
-  Pecos::ExpansionConfigOptions
-    ec_options(Pecos::QUADRATURE,
-	       probDescDB.get_short("method.nond.expansion_basis_type"),
-	       outputLevel, probDescDB.get_bool("method.variance_based_decomp"),
-	       probDescDB.get_ushort("method.nond.vbd_interaction_order"),
-	       probDescDB.get_short("method.nond.expansion_refinement_control"),
-	       //maxIterations,
-	       probDescDB.get_int("method.nond.max_refinement_iterations"),
-	       probDescDB.get_int("method.nond.max_solver_iterations"),
-	       convergenceTol,
-	       probDescDB.get_ushort("method.soft_convergence_limit"));
+  check_variables(natafTransform.x_types());
 
   bool piecewise_basis = (probDescDB.get_bool("method.nond.piecewise_basis") ||
     probDescDB.get_short("method.nond.expansion_refinement_type") ==
     Pecos::H_REFINEMENT);
   bool use_derivs = probDescDB.get_bool("method.derivative_usage");
   bool equidist_rules = true; // NEWTON_COTES pts for piecewise interpolants
+
   Pecos::BasisConfigOptions bc_options(nestedRules, piecewise_basis,
 				       equidist_rules, use_derivs);
-
-  tpqDriver->initialize_grid(natafTransform.u_types(), ec_options, bc_options);
+  tpqDriver->initialize_grid(natafTransform.u_types(), bc_options);
 
   reset(); // init_dim_quad_order() uses integrationRules from initialize_grid()
-  maxEvalConcurrency *= tpqDriver->grid_size();
+  maxConcurrency *= tpqDriver->grid_size();
 }
 
 
@@ -76,42 +63,36 @@ NonDQuadrature::NonDQuadrature(ProblemDescDB& problem_db, Model& model):
     evaluation of numerical quadrature points. */
 NonDQuadrature::
 NonDQuadrature(Model& model, const UShortArray& quad_order_seq,
-	       const RealVector& dim_pref, short driver_mode):
-  NonDIntegration(QUADRATURE_INTEGRATION, model, dim_pref), nestedRules(false),
+	       const RealVector& dim_pref):
+  NonDIntegration(NoDBBaseConstructor(), model, dim_pref), nestedRules(false),
   quadOrderSeqSpec(quad_order_seq), numSamples(0), quadMode(FULL_TENSOR)
 {
   // initialize the numerical integration driver
   numIntDriver = Pecos::IntegrationDriver(Pecos::QUADRATURE);
   tpqDriver = (Pecos::TensorProductDriver*)numIntDriver.driver_rep();
 
-  tpqDriver->mode(driver_mode);
-
-  // local natafTransform not yet updated: x_ran_vars would have to be passed in
+  // local natafTransform not yet updated: x_types would have to be passed in
   // from NonDExpansion if check_variables() needed to be called here.  Instead,
-  // it is deferred until run time in NonDIntegration::core_run().
-  //check_variables(x_ran_vars);
+  // it is deferred until run time in NonDIntegration::quantify_uncertainty().
+  //check_variables(x_types);
 }
 
 
 /** This alternate constructor is used for on-the-fly generation and
     evaluation of filtered tensor quadrature points. */
 NonDQuadrature::
-NonDQuadrature(Model& model, int num_filt_samples, const RealVector& dim_pref,
-	       short driver_mode): 
-  NonDIntegration(QUADRATURE_INTEGRATION, model, dim_pref),
-  nestedRules(false), // minimize zeros introduced into Vandermonde matrix
+NonDQuadrature(Model& model, int num_filt_samples, const RealVector& dim_pref): 
+  NonDIntegration(NoDBBaseConstructor(), model, dim_pref), nestedRules(false),
   quadMode(FILTERED_TENSOR), numSamples(num_filt_samples)
 {
   // initialize the numerical integration driver
   numIntDriver = Pecos::IntegrationDriver(Pecos::QUADRATURE);
   tpqDriver = (Pecos::TensorProductDriver*)numIntDriver.driver_rep();
 
-  tpqDriver->mode(driver_mode);
-
-  // local natafTransform not yet updated: x_ran_vars would have to be passed in
+  // local natafTransform not yet updated: x_types would have to be passed in
   // from NonDExpansion if check_variables() needed to be called here.  Instead,
-  // it is deferred until run time in NonDIntegration::core_run().
-  //check_variables(x_ran_vars);
+  // it is deferred until run time in NonDIntegration::quantify_uncertainty().
+  //check_variables(x_types);
 }
 
 
@@ -119,10 +100,8 @@ NonDQuadrature(Model& model, int num_filt_samples, const RealVector& dim_pref,
     evaluation of random sampling from a tensor quadrature multi-index. */
 NonDQuadrature::
 NonDQuadrature(Model& model, int num_rand_samples, int seed,
-	       const UShortArray& quad_order_seq, const RealVector& dim_pref,
-	       short driver_mode): 
-  NonDIntegration(QUADRATURE_INTEGRATION, model, dim_pref),
-  nestedRules(false), // minimize zeros introduced into Vandermonde matrix
+	       const UShortArray& quad_order_seq, const RealVector& dim_pref): 
+  NonDIntegration(NoDBBaseConstructor(), model, dim_pref), nestedRules(false),
   quadOrderSeqSpec(quad_order_seq), quadMode(RANDOM_TENSOR),
   numSamples(num_rand_samples), randomSeed(seed)
 {
@@ -130,12 +109,10 @@ NonDQuadrature(Model& model, int num_rand_samples, int seed,
   numIntDriver = Pecos::IntegrationDriver(Pecos::QUADRATURE);
   tpqDriver = (Pecos::TensorProductDriver*)numIntDriver.driver_rep();
 
-  tpqDriver->mode(driver_mode);
-
-  // local natafTransform not yet updated: x_ran_vars would have to be passed in
+  // local natafTransform not yet updated: x_types would have to be passed in
   // from NonDExpansion if check_variables() needed to be called here.  Instead,
-  // it is deferred until run time in NonDIntegration::core_run().
-  //check_variables(x_ran_vars);
+  // it is deferred until run time in NonDIntegration::quantify_uncertainty().
+  //check_variables(x_types);
 }
 
 
@@ -152,32 +129,32 @@ initialize_grid(const std::vector<Pecos::BasisPolynomial>& poly_basis)
   case FULL_TENSOR:
     // infer nestedRules
     for (size_t i=0; i<numContinuousVars; ++i) {
-      short rule = poly_basis[i].collocation_rule();
-      // Distinguish between rules that *support* vs. *require* nesting, since
-      // TPQ should allow unrestricted order specifications where supported.
-      // > GENZ_KEISTER and GAUSS_PATTERSON are only defined as nested rules
-      // > NEWTON_COTES, CLENSHAW_CURTIS, FEJER2 support nesting but also allow
-      //   arbitrary order specification
-      if (rule == Pecos::GENZ_KEISTER || rule == Pecos::GAUSS_PATTERSON)// ||
-	//rule == Pecos::NEWTON_COTES || rule == Pecos::CLENSHAW_CURTIS ||
-	//rule == Pecos::FEJER2)
+      short colloc_rule = poly_basis[i].collocation_rule();
+      if (colloc_rule == Pecos::GENZ_KEISTER    ||
+	  colloc_rule == Pecos::GAUSS_PATTERSON) //||
+	// don't need to enforce a growth pattern for these;
+	// also SLOW_RESTRICTED_GROWTH is not currently supported
+	// in tpqDriver->nested_quadrature_order()
+	//colloc_rule == Pecos::NEWTON_COTES    ||
+	//colloc_rule == Pecos::CLENSHAW_CURTIS ||
+	//colloc_rule == Pecos::FEJER2)
 	{ nestedRules = true; break; }
     }
     reset();
-    maxEvalConcurrency *= tpqDriver->grid_size();
+    maxConcurrency *= tpqDriver->grid_size();
     break;
   case FILTERED_TENSOR:
     // nested overrides not currently part of tensor regression spec
     //for () if () { nestedRules = true; break; }
     update(); // compute min quad order reqd for numSamples
-    maxEvalConcurrency *= numSamples;
+    maxConcurrency *= numSamples;
     break;
    case RANDOM_TENSOR:
     // nested overrides not currently part of tensor regression spec
     //for () if () { nestedRules = true; break; }
     reset();  // propagate updated settings to tpqDriver
     update(); // enforce min quad order constraints
-    maxEvalConcurrency *= numSamples;
+    maxConcurrency *= numSamples;
     break;
  }
 }
@@ -204,7 +181,7 @@ compute_minimum_quadrature_order(size_t min_samples, const RealVector& dim_pref,
 				 UShortArray& dim_quad_order)
 {
   dim_quad_order.assign(numContinuousVars, 1);
-  // compute minimal order tensor grid with at least min_samples points
+  // compute minimal order tensor grid with at least numSamples points
   if (dim_pref.empty()) // isotropic tensor grid
     while (tpqDriver->grid_size() < min_samples)
       increment_grid(dim_quad_order);
@@ -244,7 +221,7 @@ void NonDQuadrature::get_parameter_sets(Model& model)
   // ------------------------------------------------------------------------
   case FILTERED_TENSOR:
     Cout << "Filtered to " << numSamples
-	 << " samples with max product weight.\n";
+	 << " samples with max product weight\n.";
     // Compute the tensor-product grid and store in allSamples
     tpqDriver->compute_grid(allSamples);
     // retain a subset of the minimal order tensor grid
@@ -254,7 +231,7 @@ void NonDQuadrature::get_parameter_sets(Model& model)
   // Probabilistic collocation from random sampling of a tensor multi-index
   // ----------------------------------------------------------------------
   case RANDOM_TENSOR:
-    Cout << numSamples << " samples drawn randomly from tensor grid.\n";
+    Cout << numSamples << " samples drawn randomly from tensor grid\n.";
     const Pecos::UShortArray& lev_index = tpqDriver->level_index();
     tpqDriver->update_1d_collocation_points_weights(quad_order, lev_index);
     const Pecos::Real3DArray& colloc_pts_1d
@@ -278,20 +255,20 @@ void NonDQuadrature::get_parameter_sets(Model& model)
                 index_u_bnds(numContinuousVars, false);
       for (j=0; j<numContinuousVars; ++j)
 	index_u_bnds[j] = quad_order[j] - 1;
-      IntMatrix sorted_samples;
+      std::set<IntArray> sorted_samples; std::set<IntArray>::iterator it;
       // generate unique samples since redundancy degrades the conditioning
       Pecos::LHSDriver lhs("lhs", IGNORE_RANKS, false);
       if (!randomSeed) randomSeed = generate_system_seed();
       lhs.seed(randomSeed);
       lhs.generate_unique_index_samples(index_l_bnds, index_u_bnds, numSamples,
 					sorted_samples);
-
       // convert multi-index samples into allSamples
-      for (i=0; i<numSamples; ++i){
-	Real* all_samp_i = allSamples[i];
-	int*  sorted_samples_i = sorted_samples[i];
+      for (it =sorted_samples.begin(), i=0;
+	   it!=sorted_samples.end(),   i<numSamples; ++it, ++i) {
+	Real*              all_samp_i = allSamples[i];
+	const IntArray& sorted_samp_i = *it;
 	for (j=0; j<numContinuousVars; ++j)
-	  all_samp_i[j] = colloc_pts_1d[lev_index[j]][j][sorted_samples_i[j]];
+	  all_samp_i[j] = colloc_pts_1d[lev_index[j]][j][sorted_samp_i[j]];
       }
     }
     break;

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -34,9 +34,8 @@ namespace Dakota {
 #define TRUTH_MODEL 2
 
 
-SurrBasedGlobalMinimizer::
-SurrBasedGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
-  SurrBasedMinimizer(problem_db, model),
+SurrBasedGlobalMinimizer::SurrBasedGlobalMinimizer(Model& model):
+  SurrBasedMinimizer(model),
   replacePoints(probDescDB.get_bool("method.sbg.replace_points"))
 {
   // Verify that iteratedModel is a surrogate model so that
@@ -61,32 +60,42 @@ SurrBasedGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
     // Approach 1: method spec support for approxSubProbMinimizer
     const String& model_ptr = probDescDB.get_string("method.model_pointer");
     size_t method_index = probDescDB.get_db_method_node(); // for restoration
-    probDescDB.set_db_method_node(approx_method_ptr); // method only
-    // sub-problem minimizer will use shallow copy of iteratedModel
-    // (from problem_db.get_model())
-    approxSubProbMinimizer = probDescDB.get_iterator();//(iteratedModel);
+    probDescDB.set_db_method_node(approx_method_ptr); // set method only
+    approxSubProbMinimizer = probDescDB.get_iterator(iteratedModel);
     // suppress DB ctor default and don't output summary info
     approxSubProbMinimizer.summary_output(false);
     // verify approx method's modelPointer is empty or consistent
     const String& am_model_ptr = probDescDB.get_string("method.model_pointer");
     if (!am_model_ptr.empty() && am_model_ptr != model_ptr)
-      Cerr << "Warning: SBO approx_method_pointer specification includes an\n"
+      Cerr << "Warning: SBO approx_method_pointer specification include an\n"
 	   << "         inconsistent model_pointer that will be ignored."
 	   << std::endl;
     probDescDB.set_db_method_node(method_index); // restore method only
   }
   else if (!approx_method_name.empty())
     // Approach 2: instantiate on-the-fly w/o method spec support
-    approxSubProbMinimizer
-      = probDescDB.get_iterator(approx_method_name, iteratedModel);
+    approxSubProbMinimizer = Iterator(approx_method_name, iteratedModel);
+
+  // Allocate comms for parallel.  For DataFitSurrModel, concurrency
+  // is from daceIterator evals (global) or numerical derivatives
+  // (local/multipt) on actualModel.  For HierarchSurrModel,
+  // concurrency is from approxSubProbMinimizer on lowFidelityModel.
+  iteratedModel.init_communicators(
+    approxSubProbMinimizer.maximum_concurrency());
 }
 
 
 SurrBasedGlobalMinimizer::~SurrBasedGlobalMinimizer()
-{ }
+{
+  // Virtual destructor handles referenceCount at Iterator level.
+
+  // free communicators for iteratedModel
+  iteratedModel.free_communicators(
+    approxSubProbMinimizer.maximum_concurrency());
+}
 
 
-void SurrBasedGlobalMinimizer::core_run()
+void SurrBasedGlobalMinimizer::minimize_surrogates()
 {
   // Extract subIterator/subModel(s) from the SurrogateModel
   Model&    truth_model   = iteratedModel.truth_model();
@@ -135,7 +144,7 @@ void SurrBasedGlobalMinimizer::core_run()
     // we stop the surrogate-based global minimization process because it will
     // not work with such an inaccurate model.
     std::vector<Approximation>& approxs
-      = approx_model.derived_interface().approximations();
+      = approx_model.interface().approximations();
     std::vector<Approximation>::iterator it;
     for (it=approxs.begin(); it!=approxs.end(); ++it) {
       if (it->diagnostics_available()) {
@@ -149,8 +158,8 @@ void SurrBasedGlobalMinimizer::core_run()
 	// TODO: report function index along with diagnostic.
 	if (r2_diagnostic < 0.5 || r2_diagnostic > 1.1) {
 	  Cerr << "Surrogate approximation is not accurate enough for " 
-	       << "the surrogate-based global minimization.\n" 
-	       << "The minimization has quit before the requested number " 
+	       << "surrogate-based global optimization strategy." 
+	       << "The strategy has quit before the requested number " 
 	       << "of iterations due to poor surrogate fit." << std::endl;
 	  abort_handler(-1);
 	}
@@ -159,12 +168,11 @@ void SurrBasedGlobalMinimizer::core_run()
       }
     }
 
-    // use the iterator to solve the approximate subproblem.  On the first
-    // iteration, the surrogate is built using only the original truth
-    // samples.  At each subsequent iteration, the surrogate includes
-    // additional truth samples from validation of subproblem solutions.
-    ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-    approxSubProbMinimizer.run(pl_iter);
+    // use the iterator to solve the approximate model.  At the first iteration,
+    // this is the surrogate built using only the original truth samples.  At
+    // each subsequent iteration, the surrogate includes additional truth
+    // samples depending on the method of adding points
+    approxSubProbMinimizer.run_iterator(Cout);
 
     // Get the results from the iterator execution.
     VariablesArray vars_results;
@@ -185,9 +193,9 @@ void SurrBasedGlobalMinimizer::core_run()
 
       // request the evaluation in synchronous or asyncronous mode.
       if (truth_asynch_flag)
-        truth_model.evaluate_nowait();
+        truth_model.asynch_compute_response();
       else {
-        truth_model.evaluate();
+        truth_model.compute_response();
 	truth_resp_results[truth_model.evaluation_id()]
 	  = truth_model.current_response().copy();
       }

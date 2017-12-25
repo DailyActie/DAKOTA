@@ -1,20 +1,19 @@
-#@ p0: MPIProcs=2
-#@ p1: MPIProcs=2
-#@ s1: DakotaConfig=HAVE_ACRO
-#@ s2: DakotaConfig=HAVE_ACRO
 # DAKOTA INPUT FILE - dakota_uq_cantilever_interval.in
 
-environment,    
-	tabular_data    
+# Processor specification for parallel tests:
+# p0=2, p1=2
+
+strategy,    
+	single_method tabular_graphics_data    
 
 method,									 
-	global_interval_est lhs		#s0
-#	global_interval_est sbo		#s1
-#	global_interval_est ea 		#s2
-#        max_iterations = 10            #s2
-	seed = 3452 samples=1000        #s0
-#	seed = 3452 samples = 50        #s1
-#	seed = 3452                     #s2
+	global_interval_est lhs		#0
+#	global_interval_est sbo		#1
+#	global_interval_est ea 		#2
+#        max_iterations = 10            #2
+	seed = 3452 samples=1000        #0
+#	seed = 3452 samples = 50        #1
+#	seed = 3452                     #2
 
 variables,
         continuous_interval_uncertain = 2
@@ -27,13 +26,12 @@ variables,
           interval_probs =  1.0
           lower_bounds = 2. 
           upper_bounds = 3.
-        discrete_uncertain_set
-	  integer = 1
-            set_values = 3 4 
-            set_probabilities = 0.4 0.6
-          real = 1
-            set_values = 3.2 6.2
-            set_probabilities = 0.2 0.8
+        discrete_uncertain_set_int = 1
+          set_values = 3 4 
+          set_probabilities = 0.4 0.6
+        discrete_uncertain_set_real = 1
+          set_values = 3.2 6.2
+          set_probabilities = 0.2 0.8
 
 interface,
         direct

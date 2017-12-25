@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -15,7 +15,7 @@
 #include "NCSUOptimizer.hpp"
 #include "ProblemDescDB.hpp"
 
-#define NCSU_DIRECT_F77 F77_FUNC_(ncsuopt_direct,NCSUOPT_DIRECT)
+#define NCSU_DIRECT_F77 F77_FUNC_(ncsu_direct,NCSU_DIRECT)
 
 extern "C" {
 
@@ -48,8 +48,8 @@ NCSUOptimizer* NCSUOptimizer::ncsudirectInstance(NULL);
 
 
 /** This is the standard constructor with method specification support. */ 
-NCSUOptimizer::NCSUOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model), setUpType(SETUP_MODEL),
+NCSUOptimizer::NCSUOptimizer(Model& model): Optimizer(model),
+  setUpType(SETUP_MODEL),
   minBoxSize(probDescDB.get_real("method.min_boxsize_limit")), 
   volBoxSize(probDescDB.get_real("method.volume_boxsize_limit")),
   solutionTarget(probDescDB.get_real("method.solution_target")),
@@ -65,11 +65,12 @@ NCSUOptimizer::NCSUOptimizer(ProblemDescDB& problem_db, Model& model):
 NCSUOptimizer::
 NCSUOptimizer(Model& model, const int& max_iter, const int& max_eval,
 	      double min_box_size, double vol_box_size, double solution_target):
-  Optimizer(NCSU_DIRECT, model), setUpType(SETUP_MODEL),
+  Optimizer(NoDBBaseConstructor(), model), setUpType(SETUP_MODEL),
   minBoxSize(min_box_size), volBoxSize(vol_box_size),
   solutionTarget(solution_target), userObjectiveEval(NULL)
 { 
-  maxIterations = max_iter; maxFunctionEvals = max_eval;
+  maxIterations = max_iter; 
+  maxFunctionEvals = max_eval;
   initialize(); 
   check_inputs();
 }
@@ -77,9 +78,11 @@ NCSUOptimizer(Model& model, const int& max_iter, const int& max_eval,
 
 /** This is an alternate constructor for Iterator instantiations by name
     using a Model but no ProblemDescDB. */
-NCSUOptimizer::NCSUOptimizer(Model& model):
-  Optimizer(NCSU_DIRECT, model), setUpType(SETUP_MODEL), minBoxSize(-1.),
-  volBoxSize(-1.), solutionTarget(-DBL_MAX), userObjectiveEval(NULL)
+NCSUOptimizer::
+NCSUOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model), setUpType(SETUP_MODEL),
+  minBoxSize(-1.), volBoxSize(-1.), solutionTarget(-DBL_MAX), 
+  userObjectiveEval(NULL)
 { 
   initialize(); 
   check_inputs();
@@ -94,12 +97,13 @@ NCSUOptimizer(const RealVector& var_l_bnds,
 	      const int& max_eval,
 	      double (*user_obj_eval) (const RealVector &x),
 	      double min_box_size, double vol_box_size, double solution_target):
-  Optimizer(NCSU_DIRECT, var_l_bnds.length(), 0, 0, 0, 0, 0, 0, 0),
+  Optimizer(NoDBBaseConstructor(), var_l_bnds.length(), 0, 0, 0, 0, 0, 0),
   setUpType(SETUP_USERFUNC), minBoxSize(min_box_size), volBoxSize(vol_box_size),
   solutionTarget(solution_target), lowerBounds(var_l_bnds), 
   upperBounds(var_u_bnds), userObjectiveEval(user_obj_eval)
 { 
-  maxIterations = max_iter; maxFunctionEvals = max_eval; 
+  maxIterations = max_iter;
+  maxFunctionEvals = max_eval; 
   check_inputs();
 }
 
@@ -112,16 +116,16 @@ void NCSUOptimizer::initialize()
   // sub-models and test each sub-iterator for NCSU presence.
   Iterator sub_iterator = iteratedModel.subordinate_iterator();
   if (!sub_iterator.is_null() && 
-       ( sub_iterator.method_name() == NCSU_DIRECT  ||
-	 sub_iterator.uses_method() == NCSU_DIRECT ) )
+       ( strbegins(sub_iterator.method_name(), "ncsu_") ||
+	 strbegins(sub_iterator.uses_method(), "ncsu_") ) )
     sub_iterator.method_recourse();
   ModelList& sub_models = iteratedModel.subordinate_models();
   for (ModelLIter ml_iter = sub_models.begin();
        ml_iter != sub_models.end(); ml_iter++) {
     sub_iterator = ml_iter->subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	 ( sub_iterator.method_name() == NCSU_DIRECT  ||
-	   sub_iterator.uses_method() == NCSU_DIRECT ) )
+	 ( strbegins(sub_iterator.method_name(), "ncsu_") ||
+	   strbegins(sub_iterator.uses_method(), "ncsu_") ) )
       sub_iterator.method_recourse();
   }
 }
@@ -207,9 +211,9 @@ objective_eval(int *n, double c[], double l[], double u[], int point[],
 
       // request the evaluation in synchronous or asynchronous mode
       if (ncsudirectInstance->iteratedModel.asynch_flag())
-	ncsudirectInstance->iteratedModel.evaluate_nowait();
+	ncsudirectInstance->iteratedModel.asynch_compute_response();
       else {
-	ncsudirectInstance->iteratedModel.evaluate();
+	ncsudirectInstance->iteratedModel.compute_response();
 	// record the response in the function vector
 	Real fn_val = ncsudirectInstance->
 	  iteratedModel.current_response().function_value(0);
@@ -246,7 +250,7 @@ objective_eval(int *n, double c[], double l[], double u[], int point[],
 }
 
 
-void NCSUOptimizer::core_run()
+void NCSUOptimizer::find_optimum()
 {
   //------------------------------------------------------------------
   //     Solve the problem.

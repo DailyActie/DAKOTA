@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -51,16 +51,15 @@ public:
   /// alternate constructor for instantiations "on the fly" based on a
   /// quadrature order specification
   NonDQuadrature(Model& model, const UShortArray& quad_order_seq,
-		 const RealVector& dim_pref, short driver_mode);
+		 const RealVector& dim_pref);
   /// alternate constructor for instantiations "on the fly" that
   /// generate a filtered tensor product sample set
   NonDQuadrature(Model& model, int num_filt_samples,
-		 const RealVector& dim_pref, short driver_mode);
+		 const RealVector& dim_pref);
   /// alternate constructor for instantiations "on the fly" that
   /// sample randomly from a tensor product multi-index
   NonDQuadrature(Model& model, int num_rand_samples, int seed,
-		 const UShortArray& quad_order_seq, const RealVector& dim_pref,
-		 short driver_mode);
+		 const UShortArray& quad_order_seq, const RealVector& dim_pref);
 
   //
   //- Heading: Virtual function redefinitions
@@ -92,8 +91,8 @@ protected:
   //- Heading: Constructors and destructor
   //
 
-  NonDQuadrature(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDQuadrature();                                       ///< destructor
+  NonDQuadrature(Model& model); ///< constructor
+  ~NonDQuadrature();            ///< destructor
 
   //
   //- Heading: Virtual function redefinitions

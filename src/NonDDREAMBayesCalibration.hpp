@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -40,10 +40,8 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~NonDDREAMBayesCalibration();
+  NonDDREAMBayesCalibration(Model& model); ///< standard constructor
+  ~NonDDREAMBayesCalibration();            ///< destructor
 
   //
   //- Heading: Static callback functions required by DREAM
@@ -81,18 +79,28 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
-  void core_run();
-  void print_results(std::ostream& s);
-
-  // Member functions
-
-  /// Callback to archive the chain from DREAM, potentially leaving it in u-space
-  static void cache_chain(const double* const z);
-  /// save the final x-space acceptance chain and corresponding function values
-  void archive_acceptance_chain();
+  /// redefined from DakotaNonD
+  void quantify_uncertainty();
+  // redefined from DakotaNonD
+  //void print_results(std::ostream& s);
 
   //
   //- Heading: Data
+
+  /// scale factor for proposal covariance
+  //  RealVector proposalCovScale;
+
+  /// scale factor for likelihood
+  Real likelihoodScale;
+
+  /// number of samples in the chain (e.g. number of MCMC samples)
+  int numSamples;
+
+  /// flag to indicate if the sigma terms should be calibrated (default true)
+  bool calibrateSigmaFlag;
+
+  /// random seed to pass to QUESO
+  int randomSeed;
 
   /// lower bounds on calibrated parameters
   RealVector paramMins;
@@ -114,13 +122,12 @@ protected:
   /// how often to perform a long jump in generations
   int jumpStep;
 
+  /// uniform prior PDFs for each variable
+  std::vector<boost::math::uniform> priorDistributions;
   /// random number engine for sampling the prior
   boost::mt19937 rnumGenerator;
-
-  // uniform prior PDFs for each variable
-  //std::vector<boost::math::uniform> priorDistributions;
-  // samplers for the uniform prior PDFs for each variable
-  //std::vector<boost::uniform_real<double> > priorSamplers;
+  /// samplers for the uniform prior PDFs for each variable
+  std::vector<boost::uniform_real<double> > priorSamplers;
 
 private:
 
@@ -128,8 +135,12 @@ private:
   // - Heading: Data
   // 
 
+  /// the emulator type: NO_EMULATOR, GAUSSIAN_PROCESS, POLYNOMIAL_CHAOS, or
+  /// STOCHASTIC_COLLOCATION
+  short emulatorType;
+  
   /// Pointer to current class instance for use in static callback functions
-  static NonDDREAMBayesCalibration* nonDDREAMInstance;
+  static NonDDREAMBayesCalibration* NonDDREAMInstance;
   
 };
 

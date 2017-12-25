@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -36,9 +36,8 @@ void DOT510_F77( int& ndv, int& ncon, int& ncola, int& method, int& nrwk,
 namespace Dakota {
 
 
-DOTOptimizer::DOTOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model), realCntlParmArray(20, 0.0),
-  intCntlParmArray(20, 0)
+DOTOptimizer::DOTOptimizer(Model& model): Optimizer(model),
+  realCntlParmArray(20, 0.0), intCntlParmArray(20, 0)
 {
   // If speculativeFlag is set and vendor numerical_gradients are used, output
   // a warning
@@ -58,8 +57,8 @@ DOTOptimizer::DOTOptimizer(ProblemDescDB& problem_db, Model& model):
 }
 
 
-DOTOptimizer::DOTOptimizer(const String& method_string, Model& model):
-  Optimizer(method_string_to_enum(method_string), model),
+DOTOptimizer::DOTOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model),
   realCntlParmArray(20, 0.0), intCntlParmArray(20, 0)
 {
   printControl = 3;
@@ -68,16 +67,6 @@ DOTOptimizer::DOTOptimizer(const String& method_string, Model& model):
 
 
 #ifdef HAVE_DYNLIB_FACTORIES
-DOTOptimizer* new_DOTOptimizer(ProblemDescDB& problem_db)
-{
-#ifdef DAKOTA_DYNLIB
-  not_available("DOT");
-  return 0;
-#else
-  return new DOTOptimizer(problem_db);
-#endif // DAKOTA_DYNLIB
-}
-
 DOTOptimizer* new_DOTOptimizer(Model& model)
 {
 #ifdef DAKOTA_DYNLIB
@@ -85,6 +74,16 @@ DOTOptimizer* new_DOTOptimizer(Model& model)
   return 0;
 #else
   return new DOTOptimizer(model);
+#endif // DAKOTA_DYNLIB
+}
+
+DOTOptimizer* new_DOTOptimizer(NoDBBaseConstructor, Model& model)
+{
+#ifdef DAKOTA_DYNLIB
+  not_available("DOT");
+  return 0;
+#else
+  return new DOTOptimizer(NoDBBaseConstructor(), model);
 #endif // DAKOTA_DYNLIB
 }
 #endif // HAVE_DYNLIB_FACTORIES
@@ -100,20 +99,16 @@ void DOTOptimizer::initialize()
   //       for LHS since it is only active in pre-processing.
   Iterator sub_iterator = iteratedModel.subordinate_iterator();
   if (!sub_iterator.is_null() && 
-      ( ( sub_iterator.method_name() >= DOT_BFGS &&
-	  sub_iterator.method_name() <= DOT_SQP ) ||
-	( sub_iterator.uses_method() >= DOT_BFGS &&
-	  sub_iterator.uses_method() <= DOT_SQP ) ) )
+       ( strbegins(sub_iterator.method_name(), "dot_") ||
+	 strbegins(sub_iterator.uses_method(), "dot_") ) )
     sub_iterator.method_recourse();
   ModelList& sub_models = iteratedModel.subordinate_models();
   for (ModelLIter ml_iter = sub_models.begin();
        ml_iter != sub_models.end(); ml_iter++) {
     sub_iterator = ml_iter->subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	( ( sub_iterator.method_name() >= DOT_BFGS &&
-	    sub_iterator.method_name() <= DOT_SQP ) ||
-	  ( sub_iterator.uses_method() >= DOT_BFGS &&
-	    sub_iterator.uses_method() <= DOT_SQP ) ) )
+	 ( strbegins(sub_iterator.method_name(), "dot_") ||
+	   strbegins(sub_iterator.uses_method(), "dot_") ) )
       sub_iterator.method_recourse();
   }
 
@@ -136,37 +131,33 @@ void DOTOptimizer::initialize()
   realCntlParmArray[3] = convergenceTol;
 
   // Default DOT gradients [ IPRM(1)=0 ] = numerical;forward;vendor setting.
-  const String& grad_type     = iteratedModel.gradient_type();
-  const String& method_src    = iteratedModel.method_source();
-  const String& interval_type = iteratedModel.interval_type();
-  if ( grad_type == "analytic" || grad_type == "mixed" || 
-       ( grad_type == "numerical" && method_src == "dakota" ) )
+  if ( gradientType == "analytic" || gradientType == "mixed" || 
+       ( gradientType == "numerical" && methodSource == "dakota" ) )
     // p. 3-12 DOT V4.20: Set IPRM(1)=1 before calling DOT. This invokes
     // user-supplied gradient mode which DAKOTA uses for analytic, dakota 
     // numerical, or mixed analytic/dakota numerical gradients.
     intCntlParmArray[0] = 1;
-  else if (grad_type == "none") {
-    Cerr << "\nError: gradient type = none is invalid with DOT.\n"
+  else if (gradientType == "none") {
+    Cerr << "\nError: gradientType = none is invalid with DOT.\n"
          << "Please select numerical, analytic, or mixed gradients."<<std::endl;
     abort_handler(-1);
   }
   else { // Vendor numerical gradients
-    Real fd_grad_ss = iteratedModel.fd_gradient_step_size()[0];
-    if (interval_type == "central") {
+    if (intervalType == "central") {
       // p. 3-8 DOT V4.20: Set IPRM(1) = -1 before calling DOT
       intCntlParmArray[0] = -1; // central finite difference by DOT
 
       // DOT's central differencing uses +/- 2*fdss*X_i for some reason (why?),
       // so correct for this by sending fdss/2 to DOT
-      realCntlParmArray[8] = fd_grad_ss/2; // FDCH
+      realCntlParmArray[8] = fdGradStepSize/2; // FDCH
     }
     else 
       // DOT's forward differencing uses fdss*X_i as one would expect
-      realCntlParmArray[8] = fd_grad_ss;   // FDCH
+      realCntlParmArray[8] = fdGradStepSize;   // FDCH
 
     // for FDCHM (minimum delta), use 2 orders of magnitude smaller than fdss to
     // be consistent with Model::estimate_derivatives():
-    realCntlParmArray[9] = fd_grad_ss*.01; // FDCHM
+    realCntlParmArray[9] = fdGradStepSize*.01; // FDCHM
   }
 }
 
@@ -262,52 +253,52 @@ void DOTOptimizer::allocate_constraints()
   constraintValues.resize(nln_con_array_size);
 
   // See DOT manual, Chapter 2, p. 4 for DOT's METHOD values
-  if (methodName == DOT_MMFD) {
+  if (methodName == "dot_mmfd") {
     if (numDotConstr)
       dotMethod = 1; // Good input.
     else {           // Recover from bad input.
       Cerr << "\nWarning: for no constraints, dot_mmfd request will be"
 	   << "\n         changed to dot_frcg.\n\n";
       dotMethod = 2;
-      methodName = DOT_FRCG; // for output header/footer
+      methodName = "dot_frcg"; // for output header/footer
     }
   }
-  else if (methodName == DOT_SLP) {
+  else if (methodName == "dot_slp") {
     dotMethod = 2; // Same dotMethod for good or bad input.
     if (numDotConstr == 0) { // Recover from bad input.
       Cerr << "\nWarning: for no constraints, dot_slp request will be"
            << "\n         changed to dot_frcg.\n\n";
-      methodName = DOT_FRCG; // for output header/footer
+      methodName = "dot_frcg"; // for output header/footer
     }
   }
-  else if (methodName == DOT_SQP) {
+  else if (methodName == "dot_sqp") {
     if (numDotConstr)
       dotMethod = 3; // Good input.
     else {           // Recover from bad input.
       Cerr << "\nWarning: for no constraints, dot_sqp request will be"
 	   << "\n         changed to dot_bfgs.\n\n";
       dotMethod = 1;
-      methodName = DOT_BFGS; // for output header/footer
+      methodName = "dot_bfgs"; // for output header/footer
     }
   }
-  else if (methodName == DOT_BFGS) {
+  else if (methodName == "dot_bfgs") {
     if (numDotConstr == 0)
       dotMethod = 1; // Good input.
     else {           // Recover from bad input.
       Cerr << "\nWarning: for constrained optimization, dot_bfgs request"
 	   << "\n         will be changed to dot_sqp.\n\n";
       dotMethod = 3;
-      methodName = DOT_SQP; // for output header/footer
+      methodName = "dot_sqp"; // for output header/footer
     }
   }
-  else if (methodName == DOT_FRCG) {
+  else if (methodName == "dot_frcg") {
     if (numDotConstr == 0)
       dotMethod = 2; // Good input.
     else {           // Recover from bad input.
       Cerr << "\nWarning: for constrained optimization, dot_frcg request"
 	   << "\n         will be changed to dot_mmfd.\n\n";
       dotMethod = 1;
-      methodName = DOT_MMFD; // for output header/footer
+      methodName = "dot_mmfd"; // for output header/footer
     }
   }
 }
@@ -347,7 +338,7 @@ void DOTOptimizer::initialize_run()
 }
 
 
-void DOTOptimizer::core_run()
+void DOTOptimizer::find_optimum()
 {
   size_t i, j, fn_eval_cntr;
   int num_cv = numContinuousVars;
@@ -396,7 +387,7 @@ void DOTOptimizer::core_run()
         if (dotInfo==1)
           Cout << "\nDOT requests function values:";
         else {
-          if (iteratedModel.gradient_type() == "numerical")
+          if (gradientType=="numerical")
             Cout << "\nDOT requests dakota-numerical gradients:";
           else
             Cout << "\nDOT requests analytic gradients:";
@@ -444,7 +435,7 @@ void DOTOptimizer::core_run()
     }
 
     iteratedModel.continuous_variables(designVars);
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response& local_response = iteratedModel.current_response();
 
     // Populate proper data for input back to DOT through parameter list

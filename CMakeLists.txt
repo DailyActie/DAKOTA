@@ -1,5 +1,4 @@
-## Dakota requires CMake 2.8.9 or newer; some TPLs may require even newer
-cmake_minimum_required(VERSION 2.8.9)
+cmake_minimum_required(VERSION 2.8.4)
 
 set(CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
@@ -7,93 +6,18 @@ set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   )
 
-# We delay enabling languages until developer compiler flags are set,
-# even though we no longer force the compiler to the MPI wrapper
+# Check for compilers after initializing MPI
 project("Dakota" NONE)
 
 # DAKOTA versions for packaging
-set(Dakota_VERSION_MAJOR 6)
+set(Dakota_VERSION_MAJOR 5)
 set(Dakota_VERSION_MINOR 4)
 set(Dakota_VERSION_PATCH 0)
-# TODO?: set(Dakota_VERSION_TWEAK SVNREV)
-set(Dakota_VERSION_PAIR
-  "${Dakota_VERSION_MAJOR}.${Dakota_VERSION_MINOR}")
-set(Dakota_VERSION_TRIPLE
-  "${Dakota_VERSION_MAJOR}.${Dakota_VERSION_MINOR}.${Dakota_VERSION_PATCH}")
 
-# --- Release time toggle 
-# Toggle this to append to the version number for stable
-#set(Dakota_VERSION_APPEND_STABLE "")   # Versioned release
-set(Dakota_VERSION_APPEND_STABLE "+")  # Stable releases
-
-# --- Release time toggle 
-# If empty, the build date will be used as the release date (could consider 
-# using the SVN rev date); use format Mmm dd yyyy, as in asctime()
-#set(Dakota_RELEASE_DATE "May 15 2015")    # Versioned release date Mmm dd yyyy
-set(Dakota_RELEASE_DATE "")               # Stable release: empty -> build date 
-
-# Dakota version to use for naming archives
+# Set this to append to the version number
+#set(Dakota_VERSION_APPEND_STABLE "+")
+set(Dakota_VERSION_APPEND_STABLE "")
 set(Dakota_VERSION_STRING "${Dakota_VERSION_MAJOR}.${Dakota_VERSION_MINOR}.${Dakota_VERSION_PATCH}${Dakota_VERSION_APPEND_STABLE}")
-
-# Dakota version to use in source/docs (could use for tarball names?)
-# For now, we don't use .0 for new minor releases, use 5.4 not 5.4.0
-if (${Dakota_VERSION_PATCH} GREATER 0) 
-  set(Dakota_VERSION_SRC 
-    "${Dakota_VERSION_TRIPLE}${Dakota_VERSION_APPEND_STABLE}")
-else()
-  set(Dakota_VERSION_SRC 
-    "${Dakota_VERSION_PAIR}${Dakota_VERSION_APPEND_STABLE}")
-endif()
-
-# Buiding in an SVN checkout or a source package? 
-set(DAKOTA_VERSION_file_path)
-if(EXISTS ${Dakota_SOURCE_DIR}/.svn)
-  set(DAKOTA_SVN_checkout TRUE)
-  # SVN checkout, determine revision level
-
-  if((APPLE AND DEFINED ENV{BUILD_URL}) OR (CYGWIN AND DEFINED ENV{BUILD_URL}))
-    # Workarounds for Jenkins slave shell where svn is different version
-    # than the svn client that performed the 'update' step
-
-    file(STRINGS ${Dakota_SOURCE_DIR}/.svn/entries
-      list_dakota_rev LIMIT_COUNT 4)
-
-    # Get the trailing (or 4th) entry (SVN rev of Dakota)
-    # Would also want to silence CMP0007, or remove blanks
-    list(GET list_dakota_rev -1 Dakota_SVN_REV)
-
-  else()
-    # NOT CYGWIN/jenkins so "assert" that the same svn client is used for
-    # 'update' and 'configure' steps
-    find_package(Subversion)
-
-    if(Subversion_FOUND)
-      # Workarounds for Trilinos, where CMAKE_PROJECT_NAME != Dakota
-      # and the Dakota/ directory may be symlinked.
-      get_filename_component(abs_source_dir ${Dakota_SOURCE_DIR} REALPATH)
-      Subversion_WC_INFO(${abs_source_dir} Dakota)
-
-      set(Dakota_SVN_REV "${Dakota_WC_REVISION}")
-    endif(Subversion_FOUND) # Subversion_FOUND
-  endif()
-
-  # Create VERSION file
-  file( WRITE ${Dakota_BINARY_DIR}/generated/VERSION/VERSION
-        "DAKOTA Version ${Dakota_VERSION_SRC}
-Built from SVN revision ${Dakota_SVN_REV}
-" )
-  set(DAKOTA_VERSION_file_path "${Dakota_BINARY_DIR}/generated/VERSION/")
-  install(FILES ${Dakota_BINARY_DIR}/generated/VERSION/VERSION DESTINATION
-	  .)
-
-  message(STATUS "Dakota release version is: ${Dakota_VERSION_SRC}")
-  message(STATUS "Dakota subversion revision is: ${Dakota_SVN_REV}")
-
-else() # source tree NOT an SVN checkout
-  set(DAKOTA_SVN_checkout FALSE)
-  message(STATUS "Dakota release version is: ${Dakota_VERSION_SRC}")
-  message(STATUS "Appear to building from source package.")
-endif() # .svn directory conditional
 
 # More widely distributed packages exclude more content
 # So smaller number implies less content
@@ -124,8 +48,8 @@ set(CPACK_DAKOTA_BINARY_DIR "${Dakota_BINARY_DIR}")
 
 # Always omit .svn directories, duplicate TPLs, and GPL packages
 # FFTW is GPL, CDDLIB is GPL
+# TODO: review whether want to include FFTW
 set(CPACK_SOURCE_IGNORE_FILES ".*\\\\.svn/"
-  "^${Dakota_SOURCE_DIR}/packages/fftw/"
   "^${Dakota_SOURCE_DIR}/packages/hopspack/src/src-citizens/citizen-gss/cddlib/"
   "^${Dakota_SOURCE_DIR}/packages/pecos/packages/teuchos/"
   "^${Dakota_SOURCE_DIR}/packages/pecos/packages/fftw/"
@@ -138,9 +62,7 @@ if(DAKOTA_DISTRO LESS ${DAKOTA_InternalFull})
   list(APPEND CPACK_SOURCE_IGNORE_FILES
     "^${Dakota_SOURCE_DIR}/local/buildscripts/"
     "^${Dakota_SOURCE_DIR}/local/examples/"
-    "^${Dakota_SOURCE_DIR}/local/jenkins/"
     "^${Dakota_SOURCE_DIR}/local/miscscripts/"
-    "^${Dakota_SOURCE_DIR}/local/project_management/"
     "^${Dakota_SOURCE_DIR}/local/sqa/"
     "^${Dakota_SOURCE_DIR}/local/tracking/"
     "^${Dakota_SOURCE_DIR}/local/www.sandia.gov/"
@@ -153,6 +75,8 @@ if(DAKOTA_DISTRO LESS ${DAKOTA_InternalSupervised})
   # Be aggressive and remove from source tree
   execute_process(COMMAND ${CMAKE_COMMAND} -E remove_directory
     ${Dakota_SOURCE_DIR}/packages/DOT/)
+  # This is now redundant, leave until verified
+  #list(APPEND CPACK_SOURCE_IGNORE_FILES "^${Dakota_SOURCE_DIR}/packages/DOT/")
 endif()
 
 if(DAKOTA_DISTRO LESS ${DAKOTA_InternalWeb})
@@ -168,6 +92,11 @@ if(DAKOTA_DISTRO LESS ${DAKOTA_InternalWeb})
     COMMAND "${CMAKE_COMMAND}" -E remove_directory
       "${Dakota_SOURCE_DIR}/packages/NPSOL"
     )
+  # This is now redundant, leave until verified
+  #list(APPEND CPACK_SOURCE_IGNORE_FILES
+  #  "^${Dakota_SOURCE_DIR}/packages/NPSOL/"
+  #  "^${Dakota_SOURCE_DIR}/packages/NLPQL/"
+  #)
 endif()
 
 
@@ -180,8 +109,14 @@ elseif (DevDistro)
   include(DakotaDev)
 endif()
 
+# Attempt to detect MPI if not specified
+option(DAKOTA_HAVE_MPI "Enable MPI in DAKOTA" OFF)
+if(DAKOTA_HAVE_MPI AND NOT DEFINED MPI_INCLUDE_PATH AND NOT DEFINED MPI_LIBRARY)
+  include(DakotaHaveMPI)
+  DakotaHaveMPI()
+endif()
 
-# Now check languages after compiler flags and options are set
+# Now check languages after MPI compilers are processed
 enable_language(C)
 enable_language(CXX)
 enable_language(Fortran)
@@ -190,21 +125,6 @@ if(MSVC_VERSION EQUAL 1400 OR MSVC_VERSION GREATER 1400 OR MSVC10)
     -D_CRT_SECURE_NO_WARNINGS)
   add_definitions(-D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS)
 endif()
-
-# Perl is required for examples, docs, and system tests
-find_package(Perl REQUIRED)
-
-# Python is optionally required by Dakota, Teuchos, and Acro; probe
-# for the interpreter here at top-level:
-include(FindPythonInterp)
-
-# Locate MPI compiler and library settings (must be after lanugages enabled)
-include(DakotaMPI)
-option(DAKOTA_HAVE_MPI "Enable MPI in DAKOTA" OFF)
-if(DAKOTA_HAVE_MPI)
-  DakotaFindMPI()
-endif()
-
 
 include(FortranCInterface)
 include(CheckFunctionExists)
@@ -262,17 +182,9 @@ endif()
 # and src subdirectories
 option(DAKOTA_HAVE_GSL "Toggle GSL support, default is disabled" OFF)
 if(DAKOTA_HAVE_GSL)
-  # One may want to provide an alternate CBLAS library via
-  # DAKOTA_CBLAS_LIBS to use in place of GSL's CBLAS.  On many
-  # platforms, linking the GSL CBLAS induces numerical DIFFs in other
-  # parts of Dakota. (Might prefer to probe for a library containing
-  # cblas_ symbols, then conditionally set this option automatically.)
-  if(DAKOTA_CBLAS_LIBS)
-    set(GSL_WITHOUT_CBLAS TRUE CACHE BOOL "Omit GSL CBLAS libraries")
-  endif()
+  set(GSL_WITHOUT_CBLAS TRUE)
   find_package(GSL REQUIRED)
-  message(STATUS "Found GSL libraries: ${GSL_LIBRARIES}")
-endif()
+endif(DAKOTA_HAVE_GSL)
 
 # HDF5 check at top-level due to need for settings in BOTH src
 # and test subdirectories
@@ -286,43 +198,30 @@ if(DAKOTA_HAVE_HDF5)
   endif() # HDF5_FOUND
 
   #message( "Using pre-installed HDF5 in ${FIND_PACKAGE_MESSAGE_DETAILS_HDF5}" )
-
-  #find_package(ZLIB REQUIRED)
-  #message( "Using pre-installed ZLIB in ${ZLIB_LIBRARIES}" )
-
 endif() # DAKOTA_HAVE_HDF5
 
 # Mandate a system or user-provided Boost, including some libraries
-set(dakota_boost_components
-  "filesystem;program_options;regex;serialization;system")
+set(dakota_boost_components "regex;filesystem;serialization;system")
 
 # Acro requires the signals library in addition
 option(HAVE_ACRO "Build the ACRO package." ON)
 if(HAVE_ACRO)
   list(APPEND dakota_boost_components "signals")
-  # Acro uses Boost.Signals (deprecated) instead of Boost.Signals2
-  add_definitions("-DBOOST_SIGNALS_NO_DEPRECATION_WARNING")
 endif()
 
 # Queso requires the program_options library in addition
 option(HAVE_QUESO "Build the QUESO package." OFF)
 option(HAVE_QUESO_GPMSA "Use the QUESO GPMSA package when QUESO enabled." ON)
 option(HAVE_QUESO_GRVY "Use optional QUESO GRVY package; not recommended." OFF)
-option(DAKOTA_QUESO_CMAKE "Experimental: Dakota building QUESO with CMake" ON)
+if (HAVE_QUESO)
+  list(APPEND dakota_boost_components "program_options")
+endif()
 
-
-option(HAVE_APPROXNN "Build the Approximate Nearest Neighbor package." ON)
 
 # Options for adaptive sampling that affect both packages and src
 option(HAVE_ADAPTIVE_SAMPLING "Enable Morse-Smale-related sampling" ON)
 option(HAVE_MORSE_SMALE 
-  "Use Morse-Smale; requires APPROXNN and Dionysus libraries" OFF)
-if(HAVE_ADAPTIVE_SAMPLING AND HAVE_MORSE_SMALE)
-  if (NOT HAVE_APPROXNN)
-    set(HAVE_APPROXNN TRUE CACHE BOOL 
-      "HAVE_APPROXNN enabled for Morse-Smale Adaptive Sampling")
-  endif()
-endif()
+  "Use Morse-Smale; requires ANN and Dionysus libraries" OFF)
 
 # Options that affect both src/ and test/
 option(DAKOTA_MODELCENTER "Toggle ModelCenter support, default is disabled" OFF)
@@ -330,8 +229,8 @@ option(DAKOTA_MODELCENTER "Toggle ModelCenter support, default is disabled" OFF)
 if(WIN32)
   set(Boost_USE_STATIC_LIBS TRUE)
 endif()
-# Dakota requires Boost 1.49 or newer; enforce for all libs in the build
-find_package(Boost 1.49 REQUIRED COMPONENTS "${dakota_boost_components}")
+# DAKOTA requires Boost 1.44 or newer; IBM xlC compiler may demand 1.47 or newer
+find_package(Boost 1.44 REQUIRED COMPONENTS "${dakota_boost_components}")
 
 
 include(CTest)
@@ -349,8 +248,8 @@ set(DAKOTA_TOPFILES_INSTALL . CACHE FILEPATH
 
 # Set the export name for install targets; parent packages likely want
 # to override this to the name of their target
-set(ExportTarget DakotaTargets CACHE STRING 
-  "Export set name for ${CMAKE_PROJECT_NAME}")
+set(ExportTarget ${CMAKE_PROJECT_NAME}-targets CACHE STRING 
+  "Name for the export target for ${CMAKE_PROJECT_NAME}")
 
 # TODO: Have etphipp remove Trilinos-specific code and instead set in TriKota
 # when building inside Trilinos, the path to Teuchos will already be set
@@ -372,11 +271,9 @@ if (NOT BUILD_IN_TRILINOS)
           "ENABLE TriBITS build of teuchos" FORCE )
 
         # Map key Dakota variables to TriBITS variables
+        set( TPL_ENABLE_MPI ${DAKOTA_HAVE_MPI} )
         set( TPL_BLAS_LIBRARIES ${BLAS_LIBS} )
         set( TPL_LAPACK_LIBRARIES ${LAPACK_LIBS} )
-	# Dakota doesn't use any Teuchos MPI features; may want to force off
-        #set( TPL_ENABLE_MPI ${DAKOTA_HAVE_MPI} )
-
 
 # This doesn't do as name implies; setting OFF doesn't generate Config.cmake 
 # at all; doesn't just control whether installed!  Want Config.cmake in build
@@ -388,14 +285,11 @@ if (NOT BUILD_IN_TRILINOS)
         set( Teuchos_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/teuchos )
       endif() # tribits source directory EXISTS
 
-      message(STATUS "Dakota setting Teuchos_DIR to ${Teuchos_DIR}" )
-      set(DAKOTA_BUILDING_TEUCHOS TRUE CACHE BOOL
-        "Dakota is building Teuchos in its build tree" FORCE)
+      message( "Setting Teuchos_DIR to ${Teuchos_DIR}" )
       add_subdirectory(packages/teuchos)
 
     else()
-      message(STATUS
-	"In ${CMAKE_CURRENT_BINARY_DIR} using Teuchos_DIR: ${Teuchos_DIR}")
+      message("in ${CMAKE_CURRENT_BINARY_DIR} Teuchos_DIR is: ${Teuchos_DIR}")
     endif() # NOT Teuchos_DIR
 
     # Additional setting to prevent multiple targets with the same name
@@ -411,31 +305,35 @@ endif() # NOT BUILD_IN_TRILINOS
 
 
 # Manage option for graphics (default ON if possible)
-include(DakotaXGraphics)
-option(HAVE_X_GRAPHICS "Build the Dakota/Motif Graphics package." ON)
-if(HAVE_X_GRAPHICS)
-  if(WIN32)
-    message(STATUS "HAVE_X_GRAPHICS requested, but not supported on Windows; "
-      "disabling.")
-    set(HAVE_X_GRAPHICS OFF CACHE BOOL 
-      "X graphics not supported on Windows; disabling" FORCE)
-  else()
-    dakota_x_graphics()
-    # TODO: option to force even when deps not found?
-    if(DAKOTA_X_DEPS_FOUND)
-      message(STATUS "All Dakota X_GRAPHICS dependencies found; 2D graphics "
-	"will be enabled as requested.")
+option(HAVE_X_GRAPHICS "Build the DAKOTA/Motif Graphics package." ON)
+if (HAVE_X_GRAPHICS)
+  find_package(X11)
+  if (X11_FOUND)
+    find_package(Motif)
+    if (MOTIF_FOUND)
+      find_library(LIBXMU Xmu)
+      include(FindThreads)
+      if (Threads_FOUND AND LIBXMU)
+        message("  All X_GRAPHICS dependencies have been found;
+                2D graphics will be ENABLED in dakota as requested.")
+      else()
+        message(WARNING "HAVE_X_GRAPHICS requested, but threads not found;
+                disabling.")
+        set(HAVE_X_GRAPHICS OFF CACHE BOOL
+            "X graphics OFF on MOST PLATFORMS" FORCE)
+      endif()
     else()
-      message(WARNING "HAVE_X_GRAPHICS requested, but X11 dependencies not "
-	"found; disabling. (Dakota graphics require X11, Xmu, Xpm, and "
-	"Motif/Lesstif, including development headers and libraries, as well as "
-	"pthreads.)"
-	)
-      set(HAVE_X_GRAPHICS OFF CACHE BOOL 
-	"X graphics dependencies not found; disabling" FORCE)
-    endif()
-  endif()  # WIN32
-endif()  # HAVE_X_GRAPHICS
+      message(WARNING "HAVE_X_GRAPHICS requested, but Motif not found;
+              disabling.")
+      set(HAVE_X_GRAPHICS OFF CACHE BOOL
+          "X graphics OFF on MOST PLATFORMS" FORCE)
+    endif(MOTIF_FOUND)
+  else()
+    message(WARNING "HAVE_X_GRAPHICS requested, but X11 not found; disabling.")
+    set(HAVE_X_GRAPHICS OFF CACHE BOOL 
+        "X graphics OFF on MOST PLATFORMS" FORCE)
+  endif(X11_FOUND)
+endif(HAVE_X_GRAPHICS)
 
 # Manage option for f90 (default ON)
 option(DAKOTA_F90 "Build the f90, bvls_wrapper." ON)
@@ -463,52 +361,34 @@ else()
 endif()
 
 add_subdirectory(packages)
-
-# The Dakota DLL API should build on all platforms, though the
-# ModelCenter portion will not
-option(DAKOTA_DLL_API "Enable DAKOTA DLL API." ON)
-
-option(ENABLE_SPEC_MAINT "Enable DAKOTA specification maintenance mode." OFF)
-if(ENABLE_SPEC_MAINT AND NOT UNIX)
-  message(FATAL_ERROR 
-    "DAKOTA specification maintenance mode only available on UNIX platforms")
-endif()
-
-option(ENABLE_DAKOTA_DOCS "Enable DAKOTA documentation build." OFF)
-if(ENABLE_DAKOTA_DOCS AND NOT UNIX)
-  message(FATAL_ERROR 
-    "DAKOTA documentation build only available on UNIX platforms")
-endif()
-
-option(DAKOTA_API_JAVA "Enable Dakota library Java API" OFF)
-
-if (ENABLE_SPEC_MAINT OR ENABLE_DAKOTA_DOCS OR DAKOTA_API_JAVA)
-  # Each of these requires compiling Java code with Java 1.6 or newer 
-  find_package(Java 1.6 REQUIRED)
-  # BMA: Not sure why Java_FOUND doesn't work here:
-  if (NOT Java_JAVA_EXECUTABLE OR NOT Java_JAVAC_EXECUTABLE OR 
-      NOT Java_JAR_EXECUTABLE)
-    message(SEND_ERROR "Dakota spec maint, docs, and Java API require JDK.")
-  endif()
-  include(UseJava)
-endif()
-
-
 add_subdirectory(src)
 # Build the executables in the test directory even if BUILD_TESTING is OFF
 if(DAKOTA_ENABLE_TESTS)
   add_subdirectory(test)
 endif()
 
-if(ENABLE_DAKOTA_DOCS)
-  add_subdirectory(docs)
+option(ENABLE_SPEC_MAINT "Enable DAKOTA specification maintenance mode."
+  OFF)
+if(ENABLE_SPEC_MAINT AND NOT UNIX)
+  message(FATAL_ERROR "DAKOTA specification maintenance mode only available on UNIX platforms")
 endif()
+
+
+option(ENABLE_DAKOTA_DOCS "Enable DAKOTA documentation build." OFF)
+if(ENABLE_DAKOTA_DOCS)
+  if(UNIX)
+    add_subdirectory(docs)
+  else()
+    message(FATAL_ERROR "DAKOTA documentation build only available on UNIX platforms")
+  endif()
+endif()
+
+option(DAKOTA_DLL_API "Enable DAKOTA DLL API." OFF)
 
 add_subdirectory(examples)
 
 # Top-level install rules from source (binary rules are in subdirs)
-install(FILES INSTALL LICENSE COPYRIGHT README
-	${DAKOTA_VERSION_file_path}VERSION
+install(FILES INSTALL LICENSE COPYRIGHT README 
   DESTINATION ${DAKOTA_TOPFILES_INSTALL})
 
 install(DIRECTORY examples DESTINATION ${DAKOTA_EXAMPLES_INSTALL}
@@ -528,45 +408,38 @@ install(DIRECTORY test DESTINATION ${DAKOTA_TEST_INSTALL}
   PATTERN "*.f" EXCLUDE 
   )
 
-# Install helper scripts to bin/:
-install(PROGRAMS "scripts/dprepro" DESTINATION "bin")
-# dakota.bat is useful in both native and Cygwin due to command prompt usage
-if (MSVC OR CYGWIN)
-  install(PROGRAMS "scripts/dakota.bat" DESTINATION "bin")
-endif()
-# dakota.sh is useful for all except native windows builds
-if(NOT MSVC)
-  install(PROGRAMS "scripts/dakota.sh" DESTINATION "bin")
-endif()
-
 
 # Final CPack settings
+if(NOT WIN32)
 
-# Create Add generated files to source package
-if(DAKOTA_SVN_checkout)
-  SET(CPACK_SOURCE_INSTALLED_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR};/") 
-  LIST(APPEND CPACK_SOURCE_INSTALLED_DIRECTORIES
-	"${Dakota_BINARY_DIR}/generated/src/;/src")
-  LIST(APPEND CPACK_SOURCE_INSTALLED_DIRECTORIES
-	"${Dakota_BINARY_DIR}/generated/VERSION/;/")
-endif()
+  # if(APPLE)
+  #else if(NOT CYGWIN)
+  if(NOT CYGWIN)
+    # All unix-like systems EXCEPT cygwin (WJB - ToDo:  MacOSX)
+    set(CPACK_GENERATOR TGZ)
+    set(CPACK_SOURCE_GENERATOR TGZ)
 
-if(WIN32)
-  set(CPACK_GENERATOR ZIP)
-  set(CPACK_SOURCE_GENERATOR ZIP)
-elseif(CYGWIN)
-  # The Cygwin-specific generators require additional information to
-  # create packages that work with Cygwin's package manager (we suspect)
-  #set(CPACK_GENERATOR CygwinBinary)
-  #set(CPACK_SOURCE_GENERATOR CygwinSource)
-  set(CPACK_GENERATOR ZIP)
-  set(CPACK_SOURCE_GENERATOR ZIP)
+  else()
+
+    # Workaround for surprising error with Source TGZ creation on Cygwin
+    #set(CPACK_GENERATOR CygwinBinary)
+    set(CPACK_GENERATOR ZIP)
+
+    #message("BROKEN!  Will NOT create a custom, Cygwin SOURCE archive")
+    # Unfortunately, FAILS too -- set(CPACK_SOURCE_GENERATOR CygwinSource)
+    # Need to rely on windows builds for the source distro format (zip)
+
+  endif() # NOT CYGWIN
+
 else()
-  # All unix-like systems EXCEPT cygwin (WJB - ToDo:  MacOSX-specific packages)
-  set(CPACK_GENERATOR TGZ)
-  set(CPACK_SOURCE_GENERATOR TGZ)
-endif()
 
+  #message("Debugging CPACK logic -- In the Windows ZIP branch")
+  set(CPACK_GENERATOR ZIP)
+  set(CPACK_SOURCE_GENERATOR ZIP)
+
+  message("Verify CPACK GENERATOR on windows: ${CPACK_GENERATOR}")
+
+endif() # NOT WIN32
 
 include(CPack)
 

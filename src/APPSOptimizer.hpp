@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale
-    Applications Copyright 2014 Sandia Corporation.
+    Applications Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota
     directory.
@@ -23,14 +23,13 @@
 #include "HOPSPACK_LinConstr.hpp"
 #include "HOPSPACK_Hopspack.hpp"
 
-
 namespace Dakota {
 
-/// Wrapper class for HOPSPACK 
+/// Wrapper class for APPSPACK 
 
-/** The APPSOptimizer class provides a wrapper for HOPSPACK, a
+/** The APPSOptimizer class provides a wrapper for APPSPACK, a
     Sandia-developed C++ library for generalized pattern search.
-    HOPSPACK defaults to a coordinate pattern search but also allows
+    APPSPACK defaults to a coordinate pattern search but also allows
     for augmented search patterns.  It can solve problems with bounds,
     linear constraints, and general nonlinear constraints.
     APPSOptimizer uses an APPSEvalMgr object to manage the function
@@ -40,13 +39,14 @@ namespace Dakota {
     max_function_evaluations, \c constraint_tol \c initial_delta, \c
     contraction_factor, \c threshold_delta, \c solution_target, \c
     synchronization, \c merit_function, \c constraint_penalty, and \c
-    smoothing_factor are mapped into HOPS's \c "Display", "Maximum
-    Evaluations", "Active Tolerance"/"Nonlinear Active Tolerance",
-    "Initial Step", "Contraction Factor", "Step Tolerance", "Objective
-    Target", "Synchronous Evaluations", "Penalty Function", "Penalty
-    Parameter", and "Penalty Smoothing Value" data attributes.  Refer
-    to the HOPS web site (https://software.sandia.gov/trac/hopspack)
-    for additional information on HOPS objects and controls. */
+    smoothing_factor are mapped into APPS's \c "Debug", "Maximum
+    Evaluations", "Bounds Tolerance"/"Machine Epsilon"/"Constraint
+    Tolerance", "Initial Step", "Contraction Factor", "Step
+    Tolerance", "Function Tolerance", "Synchronous", "Method",
+    "Initial Penalty Value", and "Initial Smoothing Value" data
+    attributes.  Refer to the APPS web site
+    (http://software.sandia.gov/appspack) for additional information
+    on APPS objects and controls. */
 
 class APPSOptimizer : public Optimizer
 {
@@ -57,22 +57,18 @@ public:
   //
 
   /// constructor
-  APPSOptimizer(ProblemDescDB& problem_db, Model& model);
-
-  /// alternate constructor for on-the-fly instantiation without ProblemDescDB
   APPSOptimizer(Model& model);
+
+  /// alternate constructor for on-the-fly instantiations
+  APPSOptimizer(NoDBBaseConstructor, Model& model);
 
   /// destructor
   ~APPSOptimizer() {
     if (evalMgr) delete evalMgr;
   }
 
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  /// compute the optimal solution
-  void core_run();
+  /// Performs the iterations to determine the optimal solution.
+  void find_optimum();
 
 protected:
 
@@ -89,9 +85,6 @@ protected:
   //
   //- Heading: Private data
   //
-
-  /// Total across all types of variables
-  int numTotalVars;
 
   /// Pointer to APPS parameter list
   HOPSPACK::ParameterList  params;

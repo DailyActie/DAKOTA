@@ -1,13 +1,13 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
 
 //- Class:        TestDriverInterface
-//- Description:  Direct interfaces to test drivers and "simple" linked
+//- Description:  Direct interfaces to test drivers and "simple" linked 
 //-               applications that don't require separate setup and tear-down
 //- Owner:        Mike Eldred, Brian Adams
 //- Version: $Id$
@@ -19,7 +19,7 @@
 
 namespace Dakota {
 
-/** Specialization of DirectApplicInterface to embed algebraic test function
+/** Specialization of DirectApplicInterface to embed algebraic test function 
     drivers directly in Dakota */
 class TestDriverInterface: public DirectApplicInterface
 {
@@ -63,35 +63,14 @@ private:
   int side_impact_perf(); ///< the side_impact_perf UQ/OUU test function
 
   int rosenbrock();  ///< the Rosenbrock optimization and least squares test fn
-  int modified_rosenbrock();  ///< the modified Rosenbrock optimization and
-  /// least squares test fn. The modification is the addition of an sin^2
-  /// term so that function can not be exactly approximated by a low degree polynomial
   int generalized_rosenbrock(); ///< n-dimensional Rosenbrock (Schittkowski)
   int extended_rosenbrock();    ///< n-dimensional Rosenbrock (Nocedal/Wright)
   int lf_rosenbrock(); ///< a low fidelity version of the Rosenbrock function
   int mf_rosenbrock(); ///< alternate Rosenbrock formulations for
                        ///< multifidelity or model form studies
 
-  int lf_poly_prod(); ///< modified low fidelity Rosenbrock to test SBO with
-                      ///< hierarchical approximations
-  int poly_prod();    ///< modified low fidelity Rosenbrock to test SBO with
-                      ///< hierarchical approximations
-
   int gerstner(); ///< the isotropic/anisotropic Gerstner test function family
   int scalable_gerstner(); ///< scalable versions of the Gerstner test family
-
-  /// define coefficients needs for genz model
-  void get_genz_coefficients( int num_dims, Real factor,
-			      int c_type,
-			      RealVector &c, RealVector &w );
-  int genz(); ///< scalable test functions from the Genz test suite
-
-  int damped_oscillator(); ///< 1d-6d that returns field values (ode solution)
-  int steady_state_diffusion_1d(); ///< solve the 1d steady-state diffusion eqn
-                                   ///< with uncertain field diffusivity
-  int transient_diffusion_1d(); ///< solve the 1d transient diffusion equation
-                                ///< with uncertain scalar diffusivity
-  int predator_prey(); /// solve a predator prey population dynamics model
 
   int steel_column_cost(); ///< the steel_column_cost UQ/OUU test function
   int steel_column_perf(); ///< the steel_column_perf UQ/OUU test function
@@ -108,17 +87,6 @@ private:
   int scalable_text_book(); ///< scalable version of the text_book test function
   int scalable_monomials(); ///< simple monomials for UQ exactness testing
 
-  // multi-objective test functions
-  int mogatest1();  ///< MOP2 from Van Veldhuizen, pp. 5-13
-  int mogatest2();  ///< MOP2? from Van Veldhuizen, pp. 5-13
-  int mogatest3();  ///< Srinivas' from Van Veldhuizen, pp. B-5
-
-  int illumination(); ///< illumination example in Boyd as a general
-                      ///< minimization problem
-  int barnes();     ///< barnes test for SBO perforamnce from Rodriguez,
-                    ///< Perez, Renaud, et al.
-  int barnes_lf();  ///< lo-fi barnes test for SBO perforamnce
-
   // suite of separable test functions TODO add docs
 
   /// 1D components of herbie function
@@ -132,18 +100,10 @@ private:
   int herbie();        ///< returns the N-D herbie function
   int smooth_herbie(); ///< returns the N-D smooth herbie function
   int shubert();       ///< returns the N-D shubert function
- 
-  /// Scalable test function for Bayesian methods, to estimate parameters 
-  //  and error terms
-  int bayes_linear();
 
   /// utility to combine components of separable fns
   void separable_combine(Real mult_scale_factor, std::vector<Real> & w,
 			 std::vector<Real> & d1w, std::vector<Real> & d2w);
-  /// Compute Levenshtein distance between v and LEV_REF
-  Real levenshtein_distance(const String &v);
-  /// Cache results of Levenshtein distance calc for efficiency
-  static StringRealMap levenshteinDistanceCache;
 
 #ifdef DAKOTA_SALINAS
   int salinas(); ///< direct interface to the SALINAS structural dynamics code
@@ -152,11 +112,6 @@ private:
 #ifdef DAKOTA_MODELCENTER
   int mc_api_run(); ///< direct interface to ModelCenter via API, HKIM 4/3/03
 #endif
-
-  // test functions for high dimensional models with active subspace structure
-
-  int aniso_quad_form();     ///< 1-D function using a anisotropic quadratic
-                             ///< form
 
 };
 

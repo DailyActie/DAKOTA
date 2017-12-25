@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -38,20 +38,14 @@ public:
   //- Heading: Constructor and destructor
   //
 
-  /// constructor
-  SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~SurrBasedLocalMinimizer();
+  SurrBasedLocalMinimizer(Model& model); ///< constructor
+  ~SurrBasedLocalMinimizer();            ///< destructor
 
 protected:
 
   //
   //- Heading: Virtual function redefinitions
   //
-
-  /// Performs local surrogate-based minimization by minimizing local,
-  /// global, or hierarchical surrogates over a series of trust regions.
-  void core_run();
 
   /// reset convergence controls in case of multiple SBLM executions
   void reset();
@@ -61,6 +55,10 @@ private:
   //
   //- Heading: Convenience member functions
   //
+
+  /// Performs local surrogate-based minimization by minimizing local,
+  /// global, or hierarchical surrogates over a series of trust regions.
+  void minimize_surrogates();
 
   /// compute current trust region bounds
   bool tr_bounds(const RealVector& global_lower_bnds,
@@ -171,10 +169,10 @@ private:
   short convergenceFlag;
   /// number of consecutive candidate point rejections.  If the
   /// count reaches softConvLimit, stop SBLM.
-  unsigned short softConvCount;
+  short softConvCount;
   /// the limit on consecutive candidate point rejections.  If
   /// exceeded by softConvCount, stop SBLM.
-  unsigned short softConvLimit;
+  short softConvLimit;
 
   /// flags the use/availability of truth gradients within the SBLM process
   bool truthGradientFlag;

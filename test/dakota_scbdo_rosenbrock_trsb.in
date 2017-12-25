@@ -1,7 +1,6 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
-environment,
+strategy,
 #	graphics
+	single_method
 	method_pointer = 'SBLO'
 
 method,
@@ -67,8 +66,8 @@ responses,
 	id_responses = 'OPTIM_R_TRUTH'
 	objective_functions = 1
 	analytic_gradients
-	no_hessians				#s0,#s2
-#	quasi_hessians sr1			#s1,#s3
+	no_hessians				#0,#2
+#	quasi_hessians sr1			#1,#3
 
 ##########################
 # begin UQ specification #
@@ -77,8 +76,8 @@ method,
 	id_method = 'UQ'
 	model_pointer = 'UQ_M'
 	stoch_collocation
-	  quadrature_order = 5			#s0,#s1
-#	  sparse_grid_level = 1			#s2,#s3
+	  quadrature_order = 5			#0,#1
+#	  sparse_grid_level = 1			#2,#3
 # Inverse mapping:
 #	  reliability_levels = 3.
 # Forward mapping:

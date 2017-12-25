@@ -1,0 +1,10 @@
+Blurb::
+Nonsmoothed merit function
+Description::
+\li \c merit1: based on \f$ \ell_1\f$ norm
+
+Topics::	not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	

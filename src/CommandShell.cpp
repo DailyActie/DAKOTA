@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -24,17 +24,18 @@ namespace Dakota {
     sysCommand to Cout if suppressOutputFlag is not set. */
 CommandShell& CommandShell::flush()
 {
-  if (asynchFlag) {
+  if (asynchFlag)
 #if !defined(_MSC_VER)
     sysCommand += " &";
 #else
-    // using /B to keep the started command in the same Command Prompt
-    sysCommand = "start \"SystemInterface-Evaluation\" /B " + sysCommand;
+    sysCommand = "start \"SystemInterface-Evaluation\" " + sysCommand;
 #endif
-  }
 
   if (!suppressOutputFlag)
     Cout << sysCommand << std::endl;  // output the cmd string for verification
+
+  if ( !workDir.empty() )
+    WorkdirHelper::change_cwd(workDir);
 
 #ifdef HAVE_SYSTEM
   std::system(sysCommand.c_str());
@@ -43,6 +44,9 @@ CommandShell& CommandShell::flush()
        << " NOT support system calls" << std::endl;
   abort_handler(-1);
 #endif
+
+  if ( !workDir.empty() )
+    WorkdirHelper::reset();
 
   sysCommand.clear();
   return *this;

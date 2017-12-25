@@ -130,22 +130,12 @@ else()
     endif( RET EQUAL 0 )
 
     # run the gsl-config program to get the libs
-    if (GSL_WITHOUT_CBLAS)
-      execute_process(
-	COMMAND sh "${GSL_CONFIG_EXECUTABLE}" --libs-without-cblas
-	OUTPUT_VARIABLE GSL_LIB_OUTPUT
-	RESULT_VARIABLE RET
-	ERROR_QUIET
-	)
-    else()
-      execute_process(
-	COMMAND sh "${GSL_CONFIG_EXECUTABLE}" --libs
-	OUTPUT_VARIABLE GSL_LIB_OUTPUT
-	RESULT_VARIABLE RET
-	ERROR_QUIET
-	)
-    endif()
-
+    execute_process(
+      COMMAND sh "${GSL_CONFIG_EXECUTABLE}" --libs
+      OUTPUT_VARIABLE GSL_LIB_OUTPUT
+      RESULT_VARIABLE RET
+      ERROR_QUIET
+      )
     if( RET EQUAL 0 )
       string(STRIP "${GSL_LIB_OUTPUT}" GSL_LIB_OUTPUT )
       separate_arguments( GSL_LIB_OUTPUT )

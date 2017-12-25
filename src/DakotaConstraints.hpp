@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -74,6 +74,9 @@ public:
   /// read a variable constraints object from an std::istream
   virtual void read(std::istream& s);
 
+  /// reshape the lower/upper bound arrays within the Constraints hierarchy
+  virtual void reshape(const SizetArray& vc_totals);
+
   //
   //- Heading: Member functions
   //
@@ -82,16 +85,12 @@ public:
 
   /// return the active continuous variable lower bounds
   const RealVector& continuous_lower_bounds() const;
-  /// return an active continuous variable lower bound
-  Real continuous_lower_bound(size_t i) const;
   /// set the active continuous variable lower bounds
   void continuous_lower_bounds(const RealVector& cl_bnds);
   /// set an active continuous variable lower bound
   void continuous_lower_bound(Real cl_bnd, size_t i);
   /// return the active continuous variable upper bounds
   const RealVector& continuous_upper_bounds() const;
-  /// return an active continuous variable upper bound
-  Real continuous_upper_bound(size_t i) const;
   /// set the active continuous variable upper bounds
   void continuous_upper_bounds(const RealVector& cu_bnds);
   /// set an active continuous variable upper bound
@@ -99,16 +98,12 @@ public:
 
   /// return the active discrete variable lower bounds
   const IntVector& discrete_int_lower_bounds() const;
-  /// return an active discrete variable lower bound
-  int discrete_int_lower_bound(size_t i) const;
   /// set the active discrete variable lower bounds
   void discrete_int_lower_bounds(const IntVector& dil_bnds);
   /// set an active discrete variable lower bound
   void discrete_int_lower_bound(int dil_bnd, size_t i);
   /// return the active discrete variable upper bounds
   const IntVector& discrete_int_upper_bounds() const;
-  /// return an active discrete variable upper bound
-  int discrete_int_upper_bound(size_t i) const;
   /// set the active discrete variable upper bounds
   void discrete_int_upper_bounds(const IntVector& diu_bnds);
   /// set an active discrete variable upper bound
@@ -116,16 +111,12 @@ public:
 
   /// return the active discrete variable lower bounds
   const RealVector& discrete_real_lower_bounds() const;
-  /// return an active discrete variable lower bound
-  Real discrete_real_lower_bound(size_t i) const;
   /// set the active discrete variable lower bounds
   void discrete_real_lower_bounds(const RealVector& drl_bnds);
   /// set an active discrete variable lower bound
   void discrete_real_lower_bound(Real drl_bnd, size_t i);
   /// return the active discrete variable upper bounds
   const RealVector& discrete_real_upper_bounds() const;
-  /// return an active discrete variable upper bound
-  Real discrete_real_upper_bound(size_t i) const;
   /// set the active discrete variable upper bounds
   void discrete_real_upper_bounds(const RealVector& dru_bnds);
   /// set an active discrete variable upper bound
@@ -256,16 +247,13 @@ public:
   /// for use when a deep copy is needed (the representation is _not_ shared)
   Constraints copy() const;
 
-  /// shape the lower/upper bound arrays based on sharedVarsData
-  void shape();
-  /// reshape the linear/nonlinear/bound constraint arrays arrays and
-  /// the lower/upper bound arrays
+  /// reshape the linear/nonlinear/bound constraint arrays arrays within the
+  /// Constraints hierarchy
   void reshape(size_t num_nln_ineq_cons, size_t num_nln_eq_cons,
 	       size_t num_lin_ineq_cons, size_t num_lin_eq_cons,
-	       const SharedVariablesData& svd);
-  /// reshape the lower/upper bound arrays based on sharedVarsData
-  void reshape();
-  /// reshape the linear/nonlinear constraint arrays
+	       const SizetArray& vc_totals);
+  /// reshape the linear/nonlinear constraint arrays within the
+  /// Constraints hierarchy
   void reshape(size_t num_nln_ineq_cons, size_t num_nln_eq_cons,
 	       size_t num_lin_ineq_cons, size_t num_lin_eq_cons);
 
@@ -292,15 +280,20 @@ protected:
   Constraints(BaseConstructor, const SharedVariablesData& svd);
 
   //
+  //- Heading: Virtual functions
+  //
+
+  /// construct active views of all variables bounds arrays
+  virtual void build_active_views();
+  /// construct inactive views of all variables bounds arrays
+  virtual void build_inactive_views();
+
+  //
   //- Heading: Member functions
   //
 
   /// construct active/inactive views of all variables arrays
   void build_views();
-  /// construct active views of all variables bounds arrays
-  void build_active_views();
-  /// construct inactive views of all variables bounds arrays
-  void build_inactive_views();
 
   /// perform checks on user input, convert linear constraint
   /// coefficient input to matrices, and assign defaults
@@ -420,13 +413,6 @@ inline const RealVector& Constraints::continuous_lower_bounds() const
 }
 
 
-inline Real Constraints::continuous_lower_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->continuousLowerBnds[i] : continuousLowerBnds[i];
-}
-
-
 inline void Constraints::continuous_lower_bounds(const RealVector& cl_bnds)
 {
   if (constraintsRep) constraintsRep->continuousLowerBnds.assign(cl_bnds);
@@ -445,13 +431,6 @@ inline const RealVector& Constraints::continuous_upper_bounds() const
 {
   return (constraintsRep) ?
     constraintsRep->continuousUpperBnds : continuousUpperBnds;
-}
-
-
-inline Real Constraints::continuous_upper_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->continuousUpperBnds[i] : continuousUpperBnds[i];
 }
 
 
@@ -476,13 +455,6 @@ inline const IntVector& Constraints::discrete_int_lower_bounds() const
 }
 
 
-inline int Constraints::discrete_int_lower_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->discreteIntLowerBnds[i] : discreteIntLowerBnds[i];
-}
-
-
 inline void Constraints::discrete_int_lower_bounds(const IntVector& dil_bnds)
 {
   if (constraintsRep) constraintsRep->discreteIntLowerBnds.assign(dil_bnds);
@@ -501,13 +473,6 @@ inline const IntVector& Constraints::discrete_int_upper_bounds() const
 {
   return (constraintsRep) ?
     constraintsRep->discreteIntUpperBnds : discreteIntUpperBnds;
-}
-
-
-inline int Constraints::discrete_int_upper_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->discreteIntUpperBnds[i] : discreteIntUpperBnds[i];
 }
 
 
@@ -532,13 +497,6 @@ inline const RealVector& Constraints::discrete_real_lower_bounds() const
 }
 
 
-inline Real Constraints::discrete_real_lower_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->discreteRealLowerBnds[i] : discreteRealLowerBnds[i];
-}
-
-
 inline void Constraints::discrete_real_lower_bounds(const RealVector& drl_bnds)
 {
   if (constraintsRep) constraintsRep->discreteRealLowerBnds.assign(drl_bnds);
@@ -557,13 +515,6 @@ inline const RealVector& Constraints::discrete_real_upper_bounds() const
 {
   return (constraintsRep) ?
     constraintsRep->discreteRealUpperBnds : discreteRealUpperBnds;
-}
-
-
-inline Real Constraints::discrete_real_upper_bound(size_t i) const
-{
-  return (constraintsRep) ?
-    constraintsRep->discreteRealUpperBnds[i] : discreteRealUpperBnds[i];
 }
 
 
@@ -986,9 +937,9 @@ inline void Constraints::build_views()
 {
   // called only from letters
   const std::pair<short,short>& view = sharedVarsData.view();
-  if (view.first  != EMPTY_VIEW)
+  if (view.first)  //!= EMPTY)
     build_active_views();
-  if (view.second != EMPTY_VIEW)
+  if (view.second) //!= EMPTY)
     build_inactive_views();
 }
 

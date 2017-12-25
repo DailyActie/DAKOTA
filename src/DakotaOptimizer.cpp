@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,8 +14,6 @@
 #include "dakota_system_defs.hpp"
 #include "dakota_data_io.hpp"
 #include "DakotaModel.hpp"
-#include "DataTransformModel.hpp"
-#include "ScalingModel.hpp"
 #include "DakotaOptimizer.hpp"
 #include "ParamResponsePair.hpp"
 #include "PRPMultiIndex.hpp"
@@ -32,31 +30,24 @@ extern PRPCache data_pairs; // global container
 // initialization of static needed by RecastModel
 Optimizer* Optimizer::optimizerInstance(NULL);
 
-
-Optimizer::Optimizer(ProblemDescDB& problem_db, Model& model):
-  Minimizer(problem_db, model),
-  // initial value from Minimizer as accounts for fields and transformations
-  numObjectiveFns(numUserPrimaryFns), localObjectiveRecast(false)
+/** This constructor extracts the inherited data for the optimizer
+    branch and performs sanity checking on gradient and constraint
+    settings. */
+Optimizer::Optimizer(Model& model): Minimizer(model),
+  numObjectiveFns(probDescDB.get_sizet("responses.num_objective_functions"))
 {
-  optimizationFlag = true; // default; may be overridden below
-
-  bool err_flag = false;
-  // Check for correct bit associated within methodName
-  if ( !(methodName & OPTIMIZER_BIT) ) {
-    Cerr << "\nError: optimizer bit not activated for method instantiation "
-	 << "within Optimizer branch." << std::endl;
-    err_flag = true;
-  }
   // Check for bound constraint support/requirement in method selection
-  if ( boundConstraintFlag && methodName == OPTPP_CG ) {
+  if ( boundConstraintFlag && methodName == "optpp_cg" ) {
     Cerr << "\nError: bound constraints not currently supported by "
-         << method_enum_to_string(methodName) << ".\n       Please select a "
-	 << "different method for bound constrained problems." << std::endl;
-    err_flag = true;
+         << methodName << ".\n       Please select a different method for "
+         << "bound constrained problems." << std::endl;
+    abort_handler(-1);
   }
  
   // Check for nongradient method with speculative flag set
-  if ( speculativeFlag && methodName < NONLINEAR_CG ) {
+  if ( speculativeFlag && ( methodName == "optpp_pds" ||
+       strbegins(methodName, "coliny_") || strbegins(methodName, "ncsu_") ||
+       methodName == "moga" || methodName == "soga" ) ) {
     Cerr << "\nWarning: Speculative specification for a nongradient-based "
 	 << "optimizer is ignored.\n";
     speculativeFlag = false;
@@ -64,63 +55,112 @@ Optimizer::Optimizer(ProblemDescDB& problem_db, Model& model):
 
   // Check for full Newton method w/o Hessian support (direct or via recast)
   bool require_hessians = false;
-  bool have_lsq = (model.primary_fn_type() == CALIB_TERMS);
-  if (methodName == OPTPP_NEWTON) { // || ...) {
+  size_t num_lsq = probDescDB.get_sizet("responses.num_least_squares_terms");
+  if ( methodName == "optpp_newton") { // || ...) {
     require_hessians = true;
-    if ( ( !have_lsq && iteratedModel.hessian_type()  == "none" ) ||
-	 (  have_lsq && iteratedModel.gradient_type() == "none" ) ) {
+    if ( ( num_lsq == 0 && hessianType  == "none" ) ||
+	 ( num_lsq      && gradientType == "none" ) ) {
       Cerr << "\nError: full Newton optimization requires objective Hessians."
 	   << std::endl;
+      abort_handler(-1);
+    }
+  }
+
+  // Check for proper response function definition (optimization data set)
+  // and manage requirements for local recasting
+
+  bool local_nls_recast = false;  // recasting LSQ to Opt in Optimizer
+  bool local_moo_recast = false;  // recasting multiple to single objective
+
+  if (numObjectiveFns == 0) { // no user spec for num_objective_functions
+    optimizationFlag = false; // used to distinguish NLS from MOO
+    // allow solution of NLS problems as single-objective optimization
+    // through local recasting
+    bool err_flag = false;
+    if (num_lsq) {
+      // Distinguish NLS case requiring a local recast from one where the
+      // incoming model has already been recast (surrogate-based NLS with
+      // "approx_subproblem single_objective").  Note that numFunctions
+      // and numNonlinearConstraints have been set in the ctor chain based
+      // on the incoming model.  Honoring the (rare) case of a user spec
+      // of num_least_squares_terms = 1 requires special logic.
+      if (numUserPrimaryFns == num_lsq) { // local recasting _may_ be required
+	if (num_lsq == 1) // ambiguous; use local recast if not already recast
+	  local_nls_recast = (model.model_type() != "recast");
+	else              // not yet recast; local recasting is required
+	  local_nls_recast = true;
+      }
+      else { // a recasting of LSQ has already occurred
+	if (numUserPrimaryFns == 1) // since not equal, num_lsq > 1
+	  local_nls_recast = false;
+	else // prior recasting must be LSQ --> single obj fn
+	  err_flag = true;
+      }
+    }
+    else
       err_flag = true;
+    if (err_flag) {
+      Cerr << "\nError: responses specification is incompatible with "
+	   << "optimization methods." << std::endl;
+      abort_handler(-1);
+    }
+    if (local_nls_recast)
+      Cerr << "Warning: coercing least squares data set into optimization data "
+	   << "set." << std::endl;
+    // For all NLS cases, reset numObjectiveFns to 1: optimizers see single
+    // objective in recast model, whether local or prior recast.
+    numObjectiveFns = 1;
+  }
+  else { // user specification for num_objective_functions
+    optimizationFlag = true; // used to distinguish NLS from MOO
+    if (numObjectiveFns > 1 && methodName != "moga")
+      { local_moo_recast = true; numObjectiveFns = 1; }
+  }
+
+  // update number of functions being Iterated; used at Minimizer level
+  numIterPrimaryFns = numObjectiveFns; 
+  // whether a local objective reduction is to be performed
+  localObjectiveRecast = (local_nls_recast || local_moo_recast);
+  // optimizationFlag indicates whether optimization or least-squares
+
+  // Wrap the iteratedModel, which initially is the userDefinedModel,
+  // in 0 -- 3 RecastModels, potentially resulting in reduce(scale(data(model)))
+
+  // this might set weights based on exp std deviations!
+  if (local_nls_recast && obsDataFlag) {
+    data_transform_model(!iteratedModel.primary_response_fn_weights().empty());
+    ++minimizerRecasts;
+  }
+  if (scaleFlag) {
+    scale_model();
+    ++minimizerRecasts;
+  }
+  if (localObjectiveRecast) {
+    reduce_model(local_nls_recast, require_hessians);
+    ++minimizerRecasts;
+  }
+
+  if (minimizerRecasts) {
+    // for gradient-based Optimizers, maxConcurrency has already been determined
+    // from derivative concurrency in the Iterator initializer, so initialize
+    // communicators in the RecastModel.  For nongradient methods (many COLINY
+    // methods, OPT++ PDS, eventually JEGA), maxConcurrency is defined in the
+    // derived constructors, so init_communicators() is invoked there.
+    if ( !( methodName == "optpp_pds" || strbegins(methodName, "coliny_") ||
+	    methodName == "moga"      || methodName == "soga" ) ) {
+      bool recurse_flag = true;  // explicit default: recurse down models
+      iteratedModel.init_communicators(maxConcurrency, recurse_flag);
     }
   }
 
   // Initialize a best variables instance; bestVariablesArray should
   // be in calling context; so initialized before any recasts
-  bestVariablesArray.push_back(iteratedModel.current_variables().copy());
-
-  // Check for proper response function definition (optimization or
-  // calibration) and manage local recasting (necessary if inbound
-  // model contains calibration terms)
-  if (have_lsq) {
-    // use local recast to solve NLS problems as single-objective optimization
-    Cerr << "Warning: coercing least squares data set into optimization data "
-	 << "set." << std::endl;
-    optimizationFlag = false; // used to distinguish NLS from MOO
-    localObjectiveRecast = true;
-  }
-  else if (model.primary_fn_type() == OBJECTIVE_FNS) {
-    // we allow SOGA to manage weighted multiple objectives where
-    // possible, so we can better retrieve final results
-    if (numUserPrimaryFns > 1 && 
-	(methodName != MOGA && methodName != SOGA))
-      localObjectiveRecast = true;
-  }
-  else {
-    Cerr << "\nError: responses specification is incompatible with "
-	 << "optimization methods." << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
-    abort_handler(-1);
-
-  // TODO: can't allow experimental data with SBNLS for now!  Can we
-  // data transform, scale, weight?
-
-  // Wrap the iteratedModel in 0 -- 3 RecastModels, potentially resulting
-  // in reduce(scale(data(model)))
-  if (calibrationDataFlag)
-    data_transform_model();
-  if (scaleFlag)
-    scale_model();
-  if (localObjectiveRecast)
-    reduce_model(have_lsq, require_hessians);
+  bestVariablesArray.push_back(model.current_variables().copy());
 }
 
 
-Optimizer::Optimizer(unsigned short method_name, Model& model):
-  Minimizer(method_name, model), numObjectiveFns(numUserPrimaryFns),
+Optimizer::Optimizer(NoDBBaseConstructor, Model& model):
+  Minimizer(NoDBBaseConstructor(), model), numObjectiveFns(numUserPrimaryFns),
   localObjectiveRecast(false)
 {
   if (numObjectiveFns > 1) {
@@ -137,32 +177,30 @@ Optimizer::Optimizer(unsigned short method_name, Model& model):
 
 
 Optimizer::
-Optimizer(unsigned short method_name, size_t num_cv, size_t num_div,
-	  size_t num_dsv, size_t num_drv, size_t num_lin_ineq,
-	  size_t num_lin_eq, size_t num_nln_ineq, size_t num_nln_eq):
-  Minimizer(method_name, num_lin_ineq, num_lin_eq, num_nln_ineq, num_nln_eq),
+Optimizer(NoDBBaseConstructor, size_t num_cv, size_t num_div, size_t num_drv,
+	  size_t num_lin_ineq, size_t num_lin_eq, size_t num_nln_ineq,
+	  size_t num_nln_eq):
+  Minimizer(NoDBBaseConstructor(), num_lin_ineq, num_lin_eq, num_nln_ineq,
+	    num_nln_eq),
   numObjectiveFns(1), localObjectiveRecast(false)
 {
-  numContinuousVars     = num_cv;
-  numDiscreteIntVars    = num_div;
-  numDiscreteStringVars = num_dsv;
-  numDiscreteRealVars   = num_drv;
-  numFunctions          = numUserPrimaryFns + numNonlinearConstraints;
-  optimizationFlag      = true;
+  numContinuousVars   = num_cv;
+  numDiscreteIntVars  = num_div;
+  numDiscreteRealVars = num_drv;
+  numFunctions        = numUserPrimaryFns + numNonlinearConstraints;
+  optimizationFlag    = true;
 
   // The following "best" initializations are done here instead of in
   // Minimizer for this lightweight case
-  std::pair<short,short> view(MIXED_DESIGN, EMPTY_VIEW);
-  SizetArray vc_totals(NUM_VC_TOTALS, 0);
-  vc_totals[TOTAL_CDV] = num_cv;  vc_totals[TOTAL_DDIV] = num_div;
-  vc_totals[TOTAL_DDSV] = num_dsv; vc_totals[TOTAL_DDRV] = num_drv;
-  BitArray all_relax_di, all_relax_dr; // empty: no relaxation of discrete
-  SharedVariablesData svd(view, vc_totals, all_relax_di, all_relax_dr);
+  std::pair<short,short> view(MIXED_DESIGN, EMPTY);
+  SizetArray vc_totals(12, 0);
+  vc_totals[0] = num_cv; vc_totals[1] = num_div; vc_totals[2] = num_drv;
+  SharedVariablesData svd(view, vc_totals);
   bestVariablesArray.push_back(Variables(svd));
 
   activeSet.reshape(numFunctions, numContinuousVars);
   activeSet.request_values(1); activeSet.derivative_start_value(1);
-  bestResponseArray.push_back(Response(SIMULATION_RESPONSE, activeSet));
+  bestResponseArray.push_back(Response(activeSet));
 }
 
 
@@ -180,13 +218,10 @@ void Optimizer::print_results(std::ostream& s)
   // initialize the results archive for this dataset
   archive_allocate_best(num_best);
 
-  // must search in the inbound Model's space (and even that may not
-  // suffice if there are additional recastings underlying this
-  // Optimizer's Model) to find the function evaluation ID number
-  Model orig_model = original_model();
-  const String& interface_id = orig_model.interface_id(); 
-  // use asv = 1's
-  ActiveSet search_set(orig_model.num_functions(), numContinuousVars);
+  // data for looking up the function evaluation ID number
+  const String& interface_id = iteratedModel.interface_id(); 
+  int eval_id; 
+  ActiveSet search_set(numFunctions, numContinuousVars); // asv = 1's
  
   // -------------------------------------
   // Single and Multipoint results summary
@@ -200,71 +235,94 @@ void Optimizer::print_results(std::ostream& s)
     // output best response
     // TODO: based on local_nls_recast due to SurrBasedMinimizer?
     const RealVector& best_fns = bestResponseArray[i].function_values(); 
-
+    // the functions may have been expanded for data differencing, so
+    // can't use the number of user-provided functions (numUserPrimaryFns)
+    size_t num_primary_fns = best_fns.length() - numNonlinearConstraints;
     if (optimizationFlag) {
-      if (numUserPrimaryFns > 1) s << "<<<<< Best objective functions "; 
+      if (num_primary_fns > 1) s << "<<<<< Best objective functions "; 
       else                       s << "<<<<< Best objective function  "; 
       if (num_best > 1) s << "(set " << i+1 << ") "; s << "=\n"; 
-      write_data_partial(s, (size_t)0, numUserPrimaryFns, best_fns); 
+      write_data_partial(s, 0, num_primary_fns, best_fns); 
     }
     else {
-      if (calibrationDataFlag) {
-        // first use the data difference model to print data differenced
-        // residuals, perhaps most useful to the user
-        Response residual_resp = dataTransformModel.current_response();
-        DataTransformModel* dt_model_rep = 
-          static_cast<DataTransformModel*>(dataTransformModel.model_rep());
-        dt_model_rep->data_transform_response(bestVariablesArray[i], 
-                                              bestResponseArray[i], 
-                                              residual_resp);
-        const RealVector& resid_fns = residual_resp.function_values(); 
-        
-        // must use the expanded weight set from the data difference model
-        const RealVector& lsq_weights = 
-          dataTransformModel.primary_response_fn_weights();
-        print_residuals(numTotalCalibTerms, resid_fns, lsq_weights, 
-                        num_best, i, s);
-
-        // then print the original userModel Responses
-        print_model_resp(numUserPrimaryFns, best_fns, num_best, i, s);
+      const RealVector& lsq_weights
+        = iteratedModel.subordinate_model().primary_response_fn_weights();
+      Real t = 0.;
+      for(size_t j=0; j<num_primary_fns; ++j) {
+	const Real& t1 = best_fns[j];
+        if (lsq_weights.empty())
+	  t += t1*t1;
+	else
+          t += t1*t1*lsq_weights[j];
       }
-      else {
-        // the original model had least squares terms
-        const RealVector& lsq_weights 
-          = orig_model.primary_response_fn_weights();
-        print_residuals(numUserPrimaryFns, best_fns, lsq_weights, 
-                        num_best, i, s);
-      }
+      s << "<<<<< Best residual norm ";
+      if (num_best > 1) s << "(set " << i+1 << ") ";
+      s << "= " << std::setw(write_precision+7)
+	<< std::sqrt(t) << "; 0.5 * norm^2 = " << std::setw(write_precision+7)
+	<< 0.5*t << '\n';
+      if (num_primary_fns > 1) s << "<<<<< Best residual terms "; 
+      else                       s << "<<<<< Best residual term  "; 
+      if (num_best > 1) s << "(set " << i+1 << ") "; s << "=\n"; 
+      write_data_partial(s, 0, num_primary_fns, best_fns); 
     }
 
     if (numNonlinearConstraints) { 
       s << "<<<<< Best constraint values   "; 
       if (num_best > 1) s << "(set " << i+1 << ") "; s << "=\n"; 
-      write_data_partial(s, numUserPrimaryFns, numNonlinearConstraints, 
-                         best_fns);
+      write_data_partial(s, num_primary_fns, numNonlinearConstraints, best_fns); 
     } 
     // lookup evaluation id where best occurred.  This cannot be catalogued
     // directly because the optimizers track the best iterate internally and
     // return the best results after iteration completion.  Therfore, perform a
     // search in data_pairs to extract the evalId for the best fn eval.
-    PRPCacheHIter cache_it = lookup_by_val(data_pairs, interface_id,
-                                           bestVariablesArray[i], search_set);
-    if (cache_it == data_pairs.get<hashed>().end())
-      s << "<<<<< Best data not found in evaluation cache\n\n";
-    else {
-      int eval_id = cache_it->eval_id();
-      if (eval_id > 0)
-	s << "<<<<< Best data captured at function evaluation " << eval_id
-	  << "\n\n";
-      else // should not occur
-	s << "<<<<< Best data not found in evaluations from current execution,"
-	  << "\n      but retrieved from restart archive with evaluation id "
-	  << -eval_id << "\n\n";
-    }
+    if (lookup_by_val(data_pairs, interface_id, bestVariablesArray[i], 
+                      search_set, eval_id))
+      s << "<<<<< Best data captured at function evaluation " << eval_id
+        << "\n\n";
+    else 
+      s << "<<<<< Best data not found in evaluation cache\n\n"; 
 
     // pass data to the results archive
     archive_best(i, bestVariablesArray[i], bestResponseArray[i]);
+
+  } 
+}
+
+
+/** Retrieve a MOO/NLS response based on the data returned by a single
+    objective optimizer by performing a data_pairs search. This may
+    get called even for a single user-specified function, since we may
+    be recasting a single NLS residual into a squared objective. */
+void Optimizer::
+local_objective_recast_retrieve(const Variables& vars, Response& response) const
+{
+  // The returned response needs to be in the user space, but possible
+  // expanded by the experimental data replicates
+  // BMA TODO: Could have two retrieve functions to avoid extra copies
+  ActiveSet lookup_set(response.active_set());
+  if (obsDataFlag) {
+    lookup_set.reshape(numUserPrimaryFns);
+    lookup_set.request_values(1);
   }
+
+  Response desired_resp;
+  if (lookup_by_val(data_pairs, iteratedModel.interface_id(), vars,
+		    lookup_set, desired_resp)) {
+    if (obsDataFlag) {
+      for (size_t i=0; i<numUserPrimaryFns; i++) {
+	for (size_t j=0; j<numRowsExpData; j++) {
+	  response.function_value(desired_resp.function_value(i),
+				  i*numRowsExpData+j);
+	}
+      }
+    }
+    else {
+      response.update(desired_resp);
+    }
+  }
+  else
+    Cerr << "Warning: failure in recovery of final values for locally recast "
+	 << "optimization." << std::endl;
 }
 
 
@@ -277,12 +335,9 @@ void Optimizer::reduce_model(bool local_nls_recast, bool require_hessians)
   if (outputLevel >= DEBUG_OUTPUT)
     Cout << "Initializing reduction transformation" << std::endl;
 
-  // numObjectiveFns is as seen by this Iterator after reduction
-  // update Minimizer sizes as well
-  numIterPrimaryFns = numObjectiveFns = 1;
-  numFunctions = numObjectiveFns + numNonlinearConstraints;
-
-  size_t i, num_recast_fns = numFunctions;
+  // numObjectiveFns is as seen by this iteration after reduction
+  size_t i;
+  size_t num_recast_fns = numObjectiveFns + numNonlinearConstraints;
   Sizet2DArray var_map_indices(numContinuousVars), 
     primary_resp_map_indices(numObjectiveFns), 
     secondary_resp_map_indices(numNonlinearConstraints);
@@ -297,10 +352,12 @@ void Optimizer::reduce_model(bool local_nls_recast, bool require_hessians)
   // reduce to a single primary response, with all user primary
   // responses contributing
   if (local_nls_recast) {
-    // TODO: when reduce_model is called, model.primary_functions() should
-    // have the right size... Add model.secondary_functions() as well?
-    size_t total_calib_terms = (calibrationDataFlag) ?
-      numTotalCalibTerms : numUserPrimaryFns;
+    size_t total_calib_terms; 
+    if (!obsDataFlag)
+      total_calib_terms = numUserPrimaryFns;
+    else 
+      total_calib_terms = numRowsExpData * numUserPrimaryFns;
+    Cout << "total_calib_terms in reduce_model " << total_calib_terms <<'\n';
     primary_resp_map_indices[0].resize(total_calib_terms);
     nonlinear_resp_map[0].resize(total_calib_terms);
     for (i=0; i<total_calib_terms; i++) {
@@ -341,30 +398,22 @@ void Optimizer::reduce_model(bool local_nls_recast, bool require_hessians)
   void (*vars_recast) (const Variables&, Variables&) = NULL;
   // recast active set if needed for Gauss-Newton LSQ
   void (*set_recast) (const Variables&, const ActiveSet&, ActiveSet&)
-    = (local_nls_recast && require_hessians &&
-       iteratedModel.hessian_type() == "none") ? gnewton_set_recast : NULL;
+    = (local_nls_recast && require_hessians && hessianType == "none") ?
+    gnewton_set_recast : NULL;
   void (*pri_resp_recast) (const Variables&, const Variables&,
-                           const Response&, Response&) = primary_resp_reducer;
+			   const Response&, Response&) = primary_resp_reducer;
   void (*sec_resp_recast) (const Variables&, const Variables&,
-                           const Response&, Response&) = NULL;
+			   const Response&, Response&) = secondary_resp_copier;
 
   size_t recast_secondary_offset = numNonlinearIneqConstraints;
   SizetArray recast_vars_comps_total; // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  const Response& orig_resp = iteratedModel.current_response();
-  short recast_resp_order = 1; // may differ from orig response
-  if (!orig_resp.function_gradients().empty()) recast_resp_order |= 2;
-  if (require_hessians)                        recast_resp_order |= 4;
 
   iteratedModel.assign_rep(new
     RecastModel(iteratedModel, var_map_indices, recast_vars_comps_total, 
-		all_relax_di, all_relax_dr, nonlinear_vars_map, vars_recast,
-		set_recast, primary_resp_map_indices,
-		secondary_resp_map_indices, recast_secondary_offset,
-		recast_resp_order, nonlinear_resp_map, pri_resp_recast,
-		sec_resp_recast), false);
-  ++myModelLayers;
-
+		nonlinear_vars_map, vars_recast, set_recast, 
+		primary_resp_map_indices, secondary_resp_map_indices, 
+		recast_secondary_offset, nonlinear_resp_map, 
+		pri_resp_recast, sec_resp_recast), false);
 
   // if Gauss-Newton recasting, then the RecastModel Response needs to
   // allocate space for a Hessian (default copy of sub-model response
@@ -373,9 +422,6 @@ void Optimizer::reduce_model(bool local_nls_recast, bool require_hessians)
     Response recast_resp = iteratedModel.current_response(); // shared rep
     recast_resp.reshape(num_recast_fns, numContinuousVars, true, true);
   }
-
-  // this recast results in a single primary response of type objective
-  iteratedModel.primary_fn_type(OBJECTIVE_FNS);
 
   // This transformation consumes weights, so the resulting wrapped
   // model doesn't need them any longer, however don't want to recurse
@@ -388,6 +434,7 @@ void Optimizer::reduce_model(bool local_nls_recast, bool require_hessians)
   // (reflects the minimize default), but might as well be explicit.
   BoolDeque max_sense(1, false);
   iteratedModel.primary_response_fn_sense(max_sense);
+
 }
 
 
@@ -446,8 +493,8 @@ void Optimizer::objective_reduction(const Response& full_response,
 		       full_response.function_gradients(), sense, full_wts,
 		       obj_grad);
     if (outputLevel > NORMAL_OUTPUT) {
-      write_col_vector_trans(Cout, 0, reduced_response.function_gradients(),
-			     true, true, false);
+      write_col_vector_trans(Cout, 0, true, true, false,
+			     reduced_response.function_gradients());
       Cout << " obj_fn gradient\n";
     }
   }
@@ -482,11 +529,9 @@ void Optimizer::initialize_run()
   // needed in the multi-recast case.  Can we make this update
   // sufficiently flexible to catch the subIterator and inactive case?
 
-  // pull any late updates into the RecastModel; may need to update
-  // from the underlying user model in case of hybrid methods, so
-  // should recurse through any local transformations
-  if (myModelLayers > 0)
-    iteratedModel.update_from_subordinate_model(myModelLayers-1);
+  // pull any late updates into the RecastModel
+  if (minimizerRecasts)
+    iteratedModel.update_from_subordinate_model(false); // recursion not reqd
 
   // Track any previous object instance in case of recursion.  Note that
   // optimizerInstance and minimizerInstance must be tracked separately since
@@ -503,12 +548,10 @@ void Optimizer::initialize_run()
     implementations of post_run() (which would otherwise hide it). */
 void Optimizer::post_run(std::ostream& s)
 {
-  // Note: Historically bestResponseArray data varied: simulation
-  // responses or data-differenced residuals.  Now it's standardized
-  // to return in the same space as the original inbound Model.
 
-  // Default is to assume the Iterator posted in the transformed space
-  // and either map back, or where needed, lookup.
+  // Note: bestArrays are in iteratorSpace which may be single
+  // objective and we don't unapply any data transformation on
+  // residuals as the user may want to see them.
 
   // scaling transformation needs to be performed on each best point
   size_t num_points = bestVariablesArray.size();
@@ -524,16 +567,15 @@ void Optimizer::post_run(std::ostream& s)
     Response&  best_resp = bestResponseArray[point_index];
 
     // Reverse transformations on each point in best data: expand
-    // (unreduce via lookup), unscale, remove data (lookup)
+    // (unreduce), unscale, but leave differenced with data (for
+    // LeastSq problems, always report the residuals)
 
     // transform variables back to user space (for local obj recast or scaling)
     // must do before lookup in retrieve, which is in user space
-    if (scaleFlag) {
-      ScalingModel* scale_model_rep = 
-        static_cast<ScalingModel*>(scalingModel.model_rep());
-      best_vars.continuous_variables
-        (scale_model_rep->cv_scaled2native(best_vars.continuous_variables()));
-    }
+    if (varsScaleFlag)
+      best_vars.continuous_variables(
+        modify_s2n(best_vars.continuous_variables(), cvScaleTypes,
+		   cvScaleMultipliers, cvScaleOffsets));
 
     // transform primary responses back to user space via lookup for
     // local obj recast or simply via scaling transform
@@ -543,31 +585,59 @@ void Optimizer::post_run(std::ostream& s)
     // this will retrieve primary functions of size best (possibly
     // expanded, but not differenced with replicate data)
     if (localObjectiveRecast) {
-
-      local_recast_retrieve(best_vars, best_resp);
+      local_objective_recast_retrieve(best_vars, best_resp);
       // BMA TODO: if retrieved the best fns/cons from DB, why unscaling cons?
-      // Would need this if looking up only primary fns in DB
-      // if (secondaryRespScaleFlag || 
-      // 	  need_resp_trans_byvars(best_resp.active_set_request_vector(),
-      // 				 numUserPrimaryFns, numNonlinearConstraints)) {
-      // 	Response tmp_response = best_resp.copy();
-      // 	response_modify_s2n(best_vars, best_resp, tmp_response,
-      // 			    numUserPrimaryFns, numNonlinearConstraints);
-      // 	best_resp.update_partial(numUserPrimaryFns, numNonlinearConstraints,
-      // 				 tmp_response, numUserPrimaryFns);
-      // }
-      //    }
+      if (secondaryRespScaleFlag || 
+	  need_resp_trans_byvars(best_resp.active_set_request_vector(),
+				 numUserPrimaryFns, numNonlinearConstraints)) {
+	Response tmp_response = best_resp.copy();
+	response_modify_s2n(best_vars, best_resp, tmp_response,
+			    numUserPrimaryFns, numNonlinearConstraints);
+	best_resp.update_partial(numUserPrimaryFns, numNonlinearConstraints,
+				 tmp_response, numUserPrimaryFns);
+      }
     }
     // just unscale if needed
-    else if (scaleFlag) {
-      // ScalingModel manages which transformations are needed
-      ScalingModel* scale_model_rep = 
-        static_cast<ScalingModel*>(scalingModel.model_rep());
-      scale_model_rep->resp_scaled2native(best_vars, best_resp);
+    else if (primaryRespScaleFlag || secondaryRespScaleFlag ||
+	     need_resp_trans_byvars(best_resp.active_set_request_vector(), 0,
+				    numUserPrimaryFns+numNonlinearConstraints)){
+      Response tmp_response = best_resp.copy();
+      if (primaryRespScaleFlag || 
+	  need_resp_trans_byvars(tmp_response.active_set_request_vector(), 0,
+				 numUserPrimaryFns)) {
+	response_modify_s2n(best_vars, best_resp, tmp_response, 0, 
+			    numUserPrimaryFns);
+	best_resp.update_partial(0, numUserPrimaryFns, tmp_response, 0 );
+      }
+      if (secondaryRespScaleFlag || 
+	  need_resp_trans_byvars(tmp_response.active_set_request_vector(),
+				 numUserPrimaryFns, numNonlinearConstraints)) {
+	response_modify_s2n(best_vars, best_resp, tmp_response,
+			    numUserPrimaryFns, numNonlinearConstraints);
+	best_resp.update_partial(numUserPrimaryFns, numNonlinearConstraints,
+				 tmp_response, numUserPrimaryFns);
+      }
     }
+
+    // if looked up in DB, need to reapply the data transformation so
+    // user will see final residuals, possibly expanded by experimental data
+    if (/* local_nls_recast && (implicit in localObjectiveRecast) */ 
+	localObjectiveRecast && obsDataFlag) {
+      //size_t num_experiments = obsData.numRows();
+      const RealVector& fn_vals = best_resp.function_values();
+      size_t fn_index = 0;
+      for (size_t i=0; i<numUserPrimaryFns; ++i)
+        for (size_t j=0; j<numExperiments; ++j)
+          for (size_t k=0; k<numReplicates(j); ++k) {
+	    best_resp.function_value
+	      (fn_vals[fn_index] - expData.scalar_data(i,j,k), fn_index);
+	    ++fn_index;
+	  }
+    }
+
   }
-  
-  Minimizer::post_run(s);
+
+  Iterator::post_run(s);
 }
 
 } // namespace Dakota

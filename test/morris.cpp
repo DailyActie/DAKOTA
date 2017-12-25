@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -18,6 +18,9 @@
 
 int main(int argc, char** argv)
 {
+  using namespace std;
+  using namespace boost;
+
   // The 20-input/1-output screening design test problem that appeared in 
   //   Morris, M.D. Technometrics. 33 (1991), 161--174.
   // See also p. 88 in Sensitivity Analysis in Practice by Saltelli, Tarantola,
@@ -31,18 +34,18 @@ int main(int argc, char** argv)
 
   // This application program reads and writes parameter and response data 
   // directly so no input/output filters are needed.
-  std::ifstream fin(argv[1]);
+  ifstream fin(argv[1]);
   if (!fin) {
-    std::cerr << "\nError: failure opening " << argv[1] << std::endl;
-    std::exit(-1);
+    cerr << "\nError: failure opening " << argv[1] << endl;
+    exit(-1);
   }
-  std::size_t i, num_vars, num_fns;
-  std::string vars_text, fns_text;
+  size_t i, num_vars, num_fns;
+  string vars_text, fns_text;
 
   // Get the parameter vector and ignore the labels
   // (using 1-based indexing for clarity with Saltelli text
   fin >> num_vars >> vars_text;
-  std::vector<double> x(num_vars+1);
+  vector<double> x(num_vars+1);
   for (i=1; i<=num_vars; i++) {
     fin >> x[i];
     fin.ignore(256, '\n');
@@ -50,19 +53,19 @@ int main(int argc, char** argv)
 
   // Get the ASV vector and ignore the labels
   fin >> num_fns >> fns_text;
-  std::vector<int> ASV(num_fns);
+  vector<int> ASV(num_fns);
   for (i=0; i<num_fns; i++) {
     fin >> ASV[i];
     fin.ignore(256, '\n');
   }
 
   if (num_vars != 20) {
-    std::cerr << "Wrong number of variables for the morris problem\n";
-    std::exit(-1);
+    cerr << "Wrong number of variables for the morris problem\n";
+    exit(-1);
   }
   if (num_fns != 1) { 
-    std::cerr << "Wrong number of functions in morris problem\n";
-    std::exit(-1);
+    cerr << "Wrong number of functions in morris problem\n";
+    exit(-1);
   }
 
   // deprecated: need total of 185 random numbers to read in from randn_185.dat
@@ -70,11 +73,11 @@ int main(int argc, char** argv)
   // NOTE!  This driver depends on a file randn_185.dat, which must contain 185
   //        numbers sampled from a standard normal distribution, one per line
   /*
-  std::vector<double> randnums(185);
-  std::ifstream rin("randn_185.dat");
+  vector<double> randnums(185);
+  ifstream rin("randn_185.dat");
   if (!rin) {
-    std::cerr << "\nError: failure opening randn_185.dat" << std::endl;
-    std::exit(-1);
+    cerr << "\nError: failure opening randn_185.dat" << endl;
+    exit(-1);
   }
   for (int rc=0; rc<185; rc++) {
     rin >> randnums[rc];
@@ -84,14 +87,13 @@ int main(int argc, char** argv)
 
   // random number generation (Boost mersenne_twister) with fixed seed
   // for repeatability
-  namespace bran = boost::random;
-  bran::mt19937 generator(41u);
-  bran::normal_distribution<> n;
-  bran::variate_generator<bran::mt19937&,bran::normal_distribution<> > ran_gaussian(generator, n);
+  mt19937 generator(41u);
+  normal_distribution<> n;
+  variate_generator<mt19937&,normal_distribution<> > ran_gaussian(generator, n);
 
   // compute response
   // create weights from inputs x
-  std::vector<double> w(num_vars+1);
+  vector<double> w(num_vars+1);
   for (int i=1; i<=20; i++) {
     
     if (i == 3 || i == 5 || i == 7)
@@ -144,14 +146,14 @@ int main(int argc, char** argv)
   } // end for i
 
   // output response
-  std::ofstream fout(argv[2]);
+  ofstream fout(argv[2]);
   if (!fout) {
-    std::cerr << "\nError: failure creating " << argv[2] << std::endl;
-    std::exit(-1);
+    cerr << "\nError: failure creating " << argv[2] << endl;
+    exit(-1);
   }
   fout.precision(15); // 16 total digits
-  fout.setf(std::ios::scientific);
-  fout.setf(std::ios::right);
+  fout.setf(ios::scientific);
+  fout.setf(ios::right);
 
   if (ASV[0] & 1) // **** f:
     fout << "                     " << y << " f\n";

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -19,7 +19,6 @@
 #include "DakotaAnalyzer.hpp"
 #include "ProblemDescDB.hpp"
 #include "ParallelLibrary.hpp"
-#include "IteratorScheduler.hpp"
 #include "PRPMultiIndex.hpp"
 
 static const char rcsId[]="@(#) $Id: DakotaAnalyzer.cpp 7035 2010-10-22 21:45:39Z mseldre $";
@@ -29,24 +28,16 @@ static const char rcsId[]="@(#) $Id: DakotaAnalyzer.cpp 7035 2010-10-22 21:45:39
 namespace Dakota {
 
 
-Analyzer::Analyzer(ProblemDescDB& problem_db, Model& model):
-  Iterator(BaseConstructor(), problem_db), compactMode(true),
-  numObjFns(0), numLSqTerms(0), // default: no best data tracking
-  writePrecision(probDescDB.get_int("environment.output_precision"))
+Analyzer::Analyzer(Model& model):
+  Iterator(BaseConstructor(), model), compactMode(true)
 {
-  // set_db_list_nodes() is set by a higher context
   iteratedModel = model;
-  update_from_model(iteratedModel); // variable/response counts & checks
-
-  if (model.primary_fn_type() == OBJECTIVE_FNS)
-    numObjFns = model.num_primary_fns();
-  else if (model.primary_fn_type() == CALIB_TERMS)
-    numLSqTerms = model.num_primary_fns();
-  else if (model.primary_fn_type() != GENERIC_FNS) {
-    Cerr << "\nError: Unknown primary function type in Analyzer." << std::endl;
-    abort_handler(-1);
+  if (probDescDB.get_sizet("responses.num_response_functions"))
+    numObjFns = numLSqTerms = 0; // no best data tracking
+  else {
+    numObjFns   = probDescDB.get_sizet("responses.num_objective_functions");
+    numLSqTerms = probDescDB.get_sizet("responses.num_least_squares_terms");
   }
-  
   if (probDescDB.get_bool("method.variance_based_decomp")) 
     vbdDropTol = probDescDB.get_real("method.vbd_drop_tolerance");
 
@@ -55,132 +46,15 @@ Analyzer::Analyzer(ProblemDescDB& problem_db, Model& model):
 }
 
 
-Analyzer::Analyzer(unsigned short method_name, Model& model):
-  Iterator(NoDBBaseConstructor(), method_name, model), compactMode(true),
-  numObjFns(0), numLSqTerms(0), // default: no best data tracking
-  writePrecision(0)
-{
-  update_from_model(iteratedModel); // variable/response counts & checks
-}
+Analyzer::Analyzer(NoDBBaseConstructor, Model& model):
+  Iterator(NoDBBaseConstructor(), model), compactMode(true),
+  numObjFns(0), numLSqTerms(0) // no best data tracking
+{ iteratedModel = model; }
 
 
-Analyzer::Analyzer(unsigned short method_name):
-  Iterator(NoDBBaseConstructor(), method_name), compactMode(true),
-  numObjFns(0), numLSqTerms(0), // default: no best data tracking
-  writePrecision(0)
+Analyzer::Analyzer(NoDBBaseConstructor): Iterator(NoDBBaseConstructor()),
+  compactMode(true), numObjFns(0), numLSqTerms(0) // no best data tracking
 { }
-
-
-bool Analyzer::resize()
-{
-  bool parent_reinit_comms = Iterator::resize();
-
-  numContinuousVars = iteratedModel.cv();
-  numDiscreteIntVars = iteratedModel.div();
-  numDiscreteStringVars = iteratedModel.dsv();
-  numDiscreteRealVars = iteratedModel.drv();
-  numFunctions = iteratedModel.num_functions();
-
-  return parent_reinit_comms;
-}
-
-void Analyzer::update_from_model(const Model& model)
-{
-  Iterator::update_from_model(model);
-
-  numContinuousVars     = model.cv();  numDiscreteIntVars  = model.div();
-  numDiscreteStringVars = model.dsv(); numDiscreteRealVars = model.drv();
-  numFunctions          = model.num_functions();
-
-  bool err_flag = false;
-  // Check for correct bit associated within methodName
-  if ( !(methodName & ANALYZER_BIT) ) {
-    Cerr << "\nError: analyzer bit not activated for method instantiation "
-	 << "(case " << methodName << ") within Analyzer branch." << std::endl;
-    err_flag = true;
-  }
-  // Check for active design variables and discrete variable support
-  if (methodName == CENTERED_PARAMETER_STUDY ||
-      methodName == LIST_PARAMETER_STUDY     ||
-      methodName == MULTIDIM_PARAMETER_STUDY ||
-      methodName == VECTOR_PARAMETER_STUDY   || methodName == RANDOM_SAMPLING ||
-      methodName == GLOBAL_INTERVAL_EST      || methodName == GLOBAL_EVIDENCE ||
-      methodName == ADAPTIVE_SAMPLING ) {
-    if (!numContinuousVars && !numDiscreteIntVars && !numDiscreteStringVars &&
-	!numDiscreteRealVars) {
-      Cerr << "\nError: " << method_enum_to_string(methodName)
-	   << " requires active variables." << std::endl;
-      err_flag = true;
-    }
-  }
-  else { // methods supporting only continuous design variables
-    if (!numContinuousVars) {
-      Cerr << "\nError: " << method_enum_to_string(methodName)
-	   << " requires active continuous variables." << std::endl;
-      err_flag = true;
-    }
-    if (numDiscreteIntVars || numDiscreteStringVars || numDiscreteRealVars)
-      Cerr << "\nWarning: discrete design variables ignored by "
-	   << method_enum_to_string(methodName) << std::endl;
-  }
-  // Check for response functions
-  if ( numFunctions <= 0 ) {
-    Cerr << "\nError: number of response functions must be greater than zero."
-	 << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
-    abort_handler(-1);
-}
-
-
-void Analyzer::initialize_run()
-{
-  // Verify that iteratedModel is not null (default ctor and some
-  // NoDBBaseConstructor ctors leave iteratedModel uninitialized).
-  if (!iteratedModel.is_null()) {
-    // update context data that is outside scope of local DB specifications.
-    // This is needed for reused objects.
-    //iteratedModel.db_scope_reset(); // TO DO: need better name?
-
-    // This is to catch un-initialized models used by local iterators that
-    // are not called through IteratorScheduler::run_iterator()
-    if (!iteratedModel.mapping_initialized()) {
-      ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator();
-      bool var_size_changed = iteratedModel.initialize_mapping(pl_iter);
-      if (var_size_changed) {
-        // Ignore return value
-        bool reinit_comms = resize();
-      }
-    }
-
-    // Do not reset the evaluation reference for sub-iterators
-    // (previously managed via presence/absence of ostream)
-    //if (!subIteratorFlag)
-    if (summaryOutputFlag)
-      iteratedModel.set_evaluation_reference();
-  }
-}
-
-
-void Analyzer::pre_run()
-{ bestVarsRespMap.clear(); }
-
-
-void Analyzer::post_run(std::ostream& s)
-{
-  if (summaryOutputFlag) {
-    // Print the function evaluation summary for all Iterators
-    if (!iteratedModel.is_null())
-      iteratedModel.print_evaluation_summary(s); // full hdr, relative counts
-
-    // The remaining final results output varies by iterator branch
-    print_results(s);
-  }
-
-  resultsDB.write_databases();
-}
 
 
 /** Convenience function for derived classes with sets of function
@@ -196,9 +70,7 @@ evaluate_parameter_sets(Model& model, bool log_resp_flag, bool log_best_flag)
   size_t i, num_evals
     = (compactMode) ? allSamples.numCols() : allVariables.size();
   bool header_flag = (allHeaders.size() == num_evals);
-  bool asynch_flag = model.asynch_flag();
-
-  if (!asynch_flag && log_resp_flag) allResponses.clear();
+  if (!asynchFlag && log_resp_flag) allResponses.clear();
 
   // Loop over parameter sets and compute responses.  Collect data
   // and track best evaluations based on flags.
@@ -213,10 +85,10 @@ evaluate_parameter_sets(Model& model, bool log_resp_flag, bool log_best_flag)
       update_model_from_variables(model, allVariables[i]);
 
     // compute the response
-    if (asynch_flag)
-      model.evaluate_nowait(activeSet);
+    if (asynchFlag)
+      model.asynch_compute_response(activeSet);
     else {
-      model.evaluate(activeSet);
+      model.compute_response(activeSet);
       const Response& resp = model.current_response();
       int eval_id = model.evaluation_id();
       if (log_best_flag) // update best variables/response
@@ -227,7 +99,7 @@ evaluate_parameter_sets(Model& model, bool log_resp_flag, bool log_best_flag)
   }
 
   // synchronize asynchronous evaluations
-  if (asynch_flag) {
+  if (asynchFlag) {
     const IntResponseMap& resp_map = model.synchronize();
     if (log_resp_flag) // log response data
       allResponses = resp_map;
@@ -263,7 +135,6 @@ void Analyzer::update_model_from_sample(Model& model, const Real* sample_vars)
 }
 
 
-/** Default mapping that maps into continuous part of Variables only */
 void Analyzer::
 sample_to_variables(const Real* sample_c_vars, Variables& vars)
 {
@@ -274,9 +145,6 @@ sample_to_variables(const Real* sample_c_vars, Variables& vars)
     vars = Variables(model_vars.shared_data());
   for (j=0; j<numContinuousVars; ++j)
     vars.continuous_variable(sample_c_vars[j], j); // jth row
-  // BMA: this may be needed if vars wasn't initialized off the model
-  vars.inactive_continuous_variables(
-    model_vars.inactive_continuous_variables());
   // preserve any active discrete vars (unsupported by sample_matrix)
   if (num_adiv)
     vars.all_discrete_int_variables(model_vars.all_discrete_int_variables());
@@ -298,16 +166,6 @@ samples_to_variables_array(const RealMatrix& sample_matrix,
 }
 
 
-/** Default implementation maps active continuous variables only */
-void Analyzer::
-variables_to_sample(const Variables& vars, Real* sample_c_vars)
-{
-  const RealVector& c_vars = vars.continuous_variables();
-  for (size_t j=0; j<numContinuousVars; ++j)
-    sample_c_vars[j] = c_vars[j]; // jth row of samples_matrix
-}
-
-
 void Analyzer::
 variables_array_to_samples(const VariablesArray& vars_array,
 			   RealMatrix& sample_matrix)
@@ -317,64 +175,12 @@ variables_array_to_samples(const VariablesArray& vars_array,
   if (sample_matrix.numRows() != numContinuousVars ||
       sample_matrix.numCols() != num_samples)
     sample_matrix.reshape(numContinuousVars, num_samples); // #vars by #samples
-  // populate each colum of the sample matrix (one col per sample)
-  for (i=0; i<num_samples; ++i)
-    variables_to_sample(vars_array[i], sample_matrix[i]);
-}
-
-
-
-/** Generate (numvars + 2)*num_samples replicate sets for VBD,
-    populating allSamples( numvars, (numvars + 2)*num_samples ) */
-void Analyzer::get_vbd_parameter_sets(Model& model, int num_samples)
-{
-  if (!compactMode) {
-    Cerr << "\nError: get_vbd_parameter_sets requires compactMode.\n";
-    abort_handler(-1);
-  }
-
-  // BMA TODO: This may not be right for all LHS active/inactive
-  // sampling modes, but is equivalent to previous code.
-  size_t num_vars = numContinuousVars + numDiscreteIntVars + 
-    numDiscreteStringVars + numDiscreteRealVars;
-  size_t num_replicates = num_vars + 2;
-
-  allSamples.shape(num_vars, (num_vars+2)*num_samples);
-
-  // run derived sampling routine generate two initial matrices
-  vary_pattern(true);
-
-  // populate the first num_samples cols of allSamples
-  RealMatrix sample_1(Teuchos::View, allSamples, num_vars, num_samples, 0, 0);
-  get_parameter_sets(model, num_samples, sample_1);
-  if (sample_1.numCols() != num_samples) {
-    Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
-	 << num_samples << " variable samples; received "
-	 << sample_1.numCols() << std::endl;
-    abort_handler(-1);
-  }
-  
-  // populate the second num_samples cols of allSamples
-  RealMatrix sample_2(Teuchos::View, allSamples, num_vars, num_samples, 0, 
-		     num_samples);
-  get_parameter_sets(model, num_samples, sample_2);
-  if (sample_2.numCols() != num_samples) {
-    Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
-	 << num_samples << " variable samples; received "
-	 << sample_2.numCols() << std::endl;
-    abort_handler(-1);
-  }
-
-  // one additional replicate per variable
-  for (int i=0; i<num_vars; ++i) {
-    int replicate_index = i+2;
-    RealMatrix sample_r(Teuchos::View, allSamples, num_vars, num_samples, 0, 
-			replicate_index * num_samples);
-    // initialize the replicate to the second sample
-    sample_r.assign(sample_2);
-    // now swap in a row from the first sample
-    for (int j=0; j<num_samples; ++j)
-      sample_r(i, j) = sample_1(i, j);
+  const Variables& vars = iteratedModel.current_variables();
+  for (i=0; i<num_samples; ++i) {
+    const RealVector& c_vars_i = vars_array[i].continuous_variables();
+    Real* sample_c_vars = sample_matrix[i]; // ith column
+    for (j=0; j<numContinuousVars; ++j)
+      sample_c_vars[j] = c_vars_i[j]; // jth row
   }
 }
 
@@ -384,45 +190,171 @@ void Analyzer::get_vbd_parameter_sets(Model& model, int num_samples)
     of the Sobol VBD which uses (K+2)*N function evaluations, where K
     is the number of dimensions (uncertain vars) and N is the number
     of samples.  */
-void Analyzer::compute_vbd_stats(const int num_samples, 
-				 const IntResponseMap& resp_samples)
+void Analyzer::
+variance_based_decomp(int ncont, int ndiscint, int ndiscreal, int num_samples)
 {
   using boost::multi_array;
   using boost::extents;
+  size_t i, j, k;
+  int ndimtotal = ncont + ndiscreal + ndiscint;
 
-  // BMA TODO: This may not be right for all LHS active/inactive
-  // sampling modes, but is equivalent to previous code.
-  size_t i, j, k, num_vars = numContinuousVars + numDiscreteIntVars + 
-    numDiscreteStringVars + numDiscreteRealVars;
+  // run derived sampling routine twice to generate input matrices, M1 and M2
 
-  if (resp_samples.size() != num_samples*(num_vars+2)) {
-    Cerr << "\nError in Analyzer::compute_vbd_stats: expected "
-	 << num_samples << " responses; received " << resp_samples.size()
-	 << std::endl;
-    abort_handler(-1);
+  // WJB - ToDo: confer with MSE: RealVector2DArray total_c_vars(ncont+2);
+  multi_array<RealVector, 2> total_c_vars(extents[ndimtotal+2][num_samples]);
+
+  multi_array<IntVector, 2> total_di_vars = (ndiscint > 0) ?
+    multi_array<IntVector, 2>(extents[ndimtotal+2][num_samples]):
+    multi_array<IntVector, 2>();
+
+  multi_array<RealVector, 2> total_dr_vars = (ndiscreal > 0 ) ? 
+    multi_array<RealVector, 2>(extents[ndimtotal+2][num_samples]):
+    multi_array<RealVector, 2>();
+
+  // get first sample block
+  vary_pattern(true);
+  get_parameter_sets(iteratedModel);
+  if (compactMode) {
+    if (allSamples.numCols() != num_samples) {
+      Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
+	   << num_samples << " variable samples; received "
+	   << allSamples.numCols() << std::endl;
+      abort_handler(-1);
+    }
+    for (j=0; j<num_samples; ++j) {
+      const Real* sample_j = allSamples[j];
+      if (ncont)
+	copy_data(sample_j, ncont, total_c_vars[0][j]);
+      if (ndiscint) {
+	IntVector& t_div_0j = total_di_vars[0][j];
+        t_div_0j.sizeUninitialized(ndiscint);
+	for (k=0; k<ndiscint; ++k)
+	  t_div_0j[k] = (int)sample_j[ncont+k];
+      }
+      if (ndiscreal)
+	copy_data(&sample_j[ncont+ndiscint], ndiscreal, total_dr_vars[0][j]);
+    }
   }
+  else {
+    if (allVariables.size() != num_samples) {
+      Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
+	   << num_samples << " variables sets; received "
+	   << allVariables.size() << std::endl;
+      abort_handler(-1);
+    }
+    for (j=0; j<num_samples; ++j) {
+      const Variables& all_vars_j = allVariables[j];
+      if (ncont)
+	copy_data(all_vars_j.continuous_variables(),    total_c_vars[0][j]);
+      if (ndiscint)
+	copy_data(all_vars_j.discrete_int_variables(),  total_di_vars[0][j]);
+      if (ndiscreal)
+	copy_data(all_vars_j.discrete_real_variables(), total_dr_vars[0][j]);
+    }
+  }
+
+  // get second sample block
+  get_parameter_sets(iteratedModel);
+  if (compactMode) {
+    if (allSamples.numCols() != num_samples) {
+      Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
+	   << num_samples << " variable samples; received "
+	   << allSamples.numCols() << std::endl;
+      abort_handler(-1);
+    }
+    for (j=0; j<num_samples; ++j) {
+      const Real* sample_j = allSamples[j];
+      if (ncont)
+	copy_data(sample_j, ncont, total_c_vars[1][j]);
+      if (ndiscint) {
+	IntVector& t_div_1j = total_di_vars[1][j];
+        t_div_1j.sizeUninitialized(ndiscint);
+	for (k=0; k<ndiscint; ++k)
+	  t_div_1j[k] = (int)sample_j[ncont+k];
+      }
+      if (ndiscreal)
+	copy_data(&sample_j[ncont+ndiscint], ndiscreal, total_dr_vars[1][j]);
+    }
+  }
+  else {
+    if (allVariables.size() != num_samples) {
+      Cerr << "\nError in Analyzer::variance_based_decomp(): Expected "
+	   << num_samples << " variables sets; received "
+	   << allVariables.size() << std::endl;
+      abort_handler(-1);
+    }
+    for (j=0; j<num_samples; ++j) {
+      const Variables& all_vars_j = allVariables[j];
+      if (ncont)
+	copy_data(all_vars_j.continuous_variables(),    total_c_vars[1][j]);
+      if (ndiscint)
+	copy_data(all_vars_j.discrete_int_variables(),  total_di_vars[1][j]);
+      if (ndiscreal)
+	copy_data(all_vars_j.discrete_real_variables(), total_dr_vars[1][j]);
+    }
+  }
+
+  for (i=2; i<ndimtotal+2; ++i) {
+    total_c_vars[i]  = total_c_vars[1];
+    total_di_vars[i] = total_di_vars[1];
+    total_dr_vars[i] = total_dr_vars[1];
+  }
+ 
+  for (i=0; i<ncont; ++i)
+    for (j=0; j<num_samples; ++j)   
+      total_c_vars[i+2][j][i] = total_c_vars[0][j][i];
+
+  for (i=0; i<ndiscint; ++i)
+    for (j=0; j<num_samples; ++j)   
+      total_di_vars[ncont+i+2][j][i] = total_di_vars[0][j][i];
   
-  // BMA: for now copy the data to previous data structure 
-  //      total_fn_vals[respFn][replicate][sample]
-  // This is making the assumption that the responses are ordered as allSamples
-  // BMA TODO: compute statistics on finite samples only
+  for (i=0; i<ndiscreal; ++i)
+    for (j=0; j<num_samples; ++j)   
+      total_dr_vars[ncont+ndiscint+i+2][j][i] = total_dr_vars[0][j][i];
+  
+  // call evaluate parameter sets (ncont)*num_samples to get data
+  //WJB - ToDo: confer with MSE: Array<Real2DArray> total_fn_vals(numFunctions);
   multi_array<Real,3>
-    total_fn_vals(extents[numFunctions][num_vars+2][num_samples]);
-  IntRespMCIter r_it = resp_samples.begin();
-  for (i=0; i<(num_vars+2); ++i)
-    for (j=0; j<num_samples; ++r_it, ++j)
-      for (k=0; k<numFunctions; ++k)
-	total_fn_vals[k][i][j] = r_it->second.function_value(k);
+    total_fn_vals(extents[numFunctions][ndimtotal+2][num_samples]);
 
-#ifdef DEBUG
-    Cout << "allSamples:\n" << allSamples << '\n';
+  for (i=0; i<ndimtotal+2; ++i) {
+    if (compactMode)
+      for (j=0; j<num_samples; ++j) {
+	Real* sample_j = allSamples[j];
+	if (ncont)
+	  copy_data(total_c_vars[i][j],  sample_j,                  ncont);
+	if (ndiscint) {
+	  const IntVector& t_div_ij = total_di_vars[i][j];
+	  for (k=0; k<ndiscint; ++k)
+	    sample_j[ncont+k] = (Real)t_div_ij[k];
+	}
+	if (ndiscreal)
+	  copy_data(total_dr_vars[i][j], &sample_j[ncont+ndiscint], ndiscreal);
+      }
+    else
+      for (j=0; j<num_samples; ++j) {   
+	Variables& all_vars_j = allVariables[j];
+	if (ncont)
+	  all_vars_j.continuous_variables(total_c_vars[i][j]);
+	if (ndiscint)
+	  all_vars_j.discrete_int_variables(total_di_vars[i][j]);
+	if (ndiscreal)
+	  all_vars_j.discrete_real_variables(total_dr_vars[i][j]);
+      }
+
+    // evaluate each of the parameter sets in allVariables
+    evaluate_parameter_sets(iteratedModel, true, false);
+    if (allResponses.size() != num_samples) {
+      Cerr << "\nError in Analyzer::variance_based_decomp(): expected "
+	   << num_samples << " responses; received " << allResponses.size()
+	   << std::endl;
+      abort_handler(-1);
+    }
+    IntRespMCIter r_it;
     for (k=0; k<numFunctions; ++k)
-      for (i=0; i<num_vars+2; ++i)
-	for (j=0; j<num_samples; ++j)
-	  Cout << "Response " << k << " for replicate " << i << ", sample " << j 
-	       << ": " << total_fn_vals[k][i][j] << '\n';
-#endif
-
+      for (r_it=allResponses.begin(), j=0; j<num_samples; ++r_it, ++j)
+	total_fn_vals[k][i][j] = r_it->second.function_value(k);
+  }
   // There are four versions of the indices being calculated. 
   // S1 is a corrected version from Saltelli's 2004 "Sensitivity 
   // Analysis in Practice" book.  S1 does not have scaled output Y, 
@@ -442,15 +374,35 @@ void Analyzer::compute_vbd_stats(const int num_samples,
   //RealVectorArray S1(numFunctions), T1(numFunctions);
   //RealVectorArray S2(numFunctions), T2(numFunctions);
   //RealVectorArray S3(numFunctions), T3(numFunctions);
-  S4.resize(numFunctions, RealVector(num_vars)); 
-  T4.resize(numFunctions, RealVector(num_vars));
-
+  S4.resize(numFunctions); T4.resize(numFunctions);
+  for (k=0; k<numFunctions; ++k) {
+//    S1[k].resize(ndimtotal);
+//    T1[k].resize(ndimtotal);
+//    S2[k].resize(ndimtotal);
+//    T2[k].resize(ndimtotal);
+//    S3[k].resize(ndimtotal);
+//    T3[k].resize(ndimtotal);
+      S4[k].resize(ndimtotal);
+      T4[k].resize(ndimtotal);
+  }
   multi_array<Real,3>
-    total_norm_vals(extents[numFunctions][num_vars+2][num_samples]);
+    total_norm_vals(extents[numFunctions][ndimtotal+2][num_samples]);
 
   // Loop over number of responses to obtain sensitivity indices for each
   for (k=0; k<numFunctions; ++k) {
  
+#ifdef DEBUG
+    Cout << "Total Samples\n"; 
+    for (i=0; i<ndimtotal+2; ++i) {
+      for (j=0; j<num_samples; ++j) {
+	Cout << "Cvar " << j << '\n' << total_c_vars[i][j] << " " ;
+	Cout << "DRVar " << j << '\n' << total_dr_vars[i][j] << " " ;
+	Cout << "DIVar " << j << '\n' << total_di_vars[i][j] << " " ;
+	Cout << "Response " << i << '\n' << total_fn_vals[k][i][j] << '\n';
+      }
+    }
+#endif
+
     // calculate expected value of Y
     Real mean_hatY = 0., var_hatYS = 0., var_hatYT = 0.,
       mean_sq1=0., mean_sq2 = 0., var_hatYnom = 0., 
@@ -478,15 +430,15 @@ void Analyzer::compute_vbd_stats(const int num_samples,
       var_hatYT += std::pow(total_fn_vals[k][1][j], 2.);
     var_hatYT = var_hatYT/(Real)(num_samples) - (mean_hatB*mean_hatB);
     for (j=0; j<num_samples; j++){
-      for(i=0; i<(num_vars+2); i++){ 
+      for(i=0; i<(ndimtotal+2); i++){ 
         total_norm_vals[k][i][j]=total_fn_vals[k][i][j];
         overall_mean += total_norm_vals[k][i][j];
       } 
     }
    
-    overall_mean /= Real((num_samples)* (num_vars+2));
+    overall_mean /= Real((num_samples)* (ndimtotal+2));
     for (j=0; j<num_samples; j++)
-      for(i=0; i<(num_vars+2); i++)
+      for(i=0; i<(ndimtotal+2); i++)
         total_norm_vals[k][i][j]-=overall_mean;
     mean_C=mean_hatB*(Real)(num_samples)+mean_hatY*(Real)(num_samples);
     mean_C=mean_C/(2*(Real)(num_samples));
@@ -519,7 +471,7 @@ void Analyzer::compute_vbd_stats(const int num_samples,
 #endif
 
     // calculate first order sensitivity indices and first order total indices
-    for (i=0; i<num_vars; i++) {
+    for (i=0; i<ndimtotal; i++) {
       Real sum_S = 0., sum_T = 0., sum_J = 0., sum_J2 = 0., sum_3 = 0., sum_32=0.,sum_5=0, sum_6=0;
       for (j=0; j<num_samples; j++) {
 	//sum_S += total_fn_vals[k][0][j]*total_fn_vals[k][i+2][j];
@@ -551,17 +503,17 @@ void Analyzer::compute_vbd_stats(const int num_samples,
   }
 }
 
-
 /** Generate tabular output with active variables (compactMode) or all
     variables with their labels and response labels, with no data.
     Variables are sequenced {cv, div, drv} */
 void Analyzer::pre_output()
 {
   // distinguish between defaulted pre-run and user-specified
-  if (!parallelLib.command_line_user_modes())
+  if (!iteratedModel.parallel_library().command_line_user_modes())
     return;
 
-  const String& filename = parallelLib.command_line_pre_run_output();
+  const String& filename =
+    iteratedModel.parallel_library().command_line_pre_run_output();
   if (filename.empty()) {
     if (outputLevel > QUIET_OUTPUT)
       Cout << "\nPre-run phase complete: no output requested.\n" << std::endl;
@@ -582,50 +534,41 @@ void Analyzer::pre_output()
   // try to mitigate errors resulting from lack of precision in output
   // the full 17 digits might surprise users, but will reduce
   // numerical errors between pre/post phases
-  // TODO: consider passing precision to helper functions instead of using global
+  // consider passing precision to helper functions instead of using global
   int save_precision;
   if (writePrecision == 0) {
     save_precision = write_precision;
     write_precision = 17;
   }
-
-  // Write all variables in input spec ordering; always annotated.
-  // When in compactMode, get the inactive variables off the Model and
-  // use sample_to_variables to set the discrete variables not treated
-  // by allSamples.
-  unsigned short tabular_format = 
-    parallelLib.program_options().pre_run_output_format();
-  TabularIO::write_header_tabular(tabular_file,
-				  iteratedModel.current_variables(), 
-				  iteratedModel.current_response(),
-				  "eval_id",
-				  tabular_format);
-
+ 
+  bool active_only = compactMode;  // compactMode uses only active
+  bool response_labels = true;     // write response labels for user
+  bool annotated = true;           // pre/post only supports annotated
+  if (annotated)
+    TabularIO::write_header_tabular(tabular_file,
+				    iteratedModel.current_variables(), 
+				    iteratedModel.current_response(),
+				    "eval_id", active_only,
+				    response_labels);
   tabular_file << std::setprecision(write_precision) 
 	       << std::resetiosflags(std::ios::floatfield);
 
-  Variables vars = iteratedModel.current_variables().copy();
+  // TODO: consider helper to output allSamples or allVariables directly
+  // TODO: consider supplementing compactMode with inactive vars from model
   for (size_t eval_index = 0; eval_index < num_evals; eval_index++) {
-
-    TabularIO::write_leading_columns(tabular_file, eval_index+1, 
-				     iteratedModel.interface_id(),
-				     tabular_format);
+    if (annotated)
+      tabular_file << std::setw(8) << eval_index + 1 << ' ';
     if (compactMode) {
       // allSamples num_vars x num_evals, so each col becomes tabular file row
-      // populate the active discrete variables that aren't in sample_matrix
-      size_t num_vars = allSamples.numRows();
-      sample_to_variables(allSamples[eval_index], vars);
-      vars.write_tabular(tabular_file);
+      write_data_tabular(tabular_file, 
+			 getCol(Teuchos::View, allSamples, (int) eval_index));
     }
     else
       allVariables[eval_index].write_tabular(tabular_file);
-    // no response data, so terminate the record
     tabular_file << '\n';
   }
-
   tabular_file.flush();
   tabular_file.close();
-
   if (writePrecision == 0)
     write_precision = save_precision;
   if (outputLevel > QUIET_OUTPUT)
@@ -638,10 +581,11 @@ void Analyzer::pre_output()
 void Analyzer::read_variables_responses(int num_evals, size_t num_vars)
 {
   // distinguish between defaulted post-run and user-specified
-  if (!parallelLib.command_line_user_modes())
+  if (!iteratedModel.parallel_library().command_line_user_modes())
     return;
 
-  const String& filename = parallelLib.command_line_post_run_input();
+  const String& filename = 
+    iteratedModel.parallel_library().command_line_post_run_input();
   if (filename.empty()) {
     if (outputLevel > QUIET_OUTPUT)
       Cout << "\nPost-run phase initialized: no input requested.\n" 
@@ -658,59 +602,47 @@ void Analyzer::read_variables_responses(int num_evals, size_t num_vars)
 
   std::ifstream tabular_file;
   TabularIO::open_file(tabular_file, filename, "post-run input");
-  // pre/post only supports annotated; could detect
-  unsigned short tabular_format = 
-    parallelLib.program_options().post_run_input_format();
+  bool annotated = true;  // pre/post only supports annotated
 
   if (outputLevel > NORMAL_OUTPUT)
     Cout << "\nAttempting to read " << num_evals << " samples from file "
 	 << filename << "..." << std::endl;
   
-  TabularIO::read_header_tabular(tabular_file, tabular_format); 
+  if (annotated)
+    TabularIO::read_header_tabular(tabular_file); // discard header with labels
 
-  Variables vars;  // temporary container to use for read in compact case
-  if (compactMode) {
-    vars = iteratedModel.current_variables().copy();
+  if (compactMode)
     allSamples.shapeUninitialized(num_vars, num_evals);
-  }
   else 
     allVariables.resize(num_evals);
   allResponses.clear();
 
   // now read variables and responses (minimal error checking for now)
-  int eval_id, cntr; size_t i;
-  for (i=0, cntr=1; i<num_evals; ++i, ++cntr) {
+  int cntr = -1; // use negative ids for file import if not annotated with IDs
+  for (size_t i=0; i<num_evals; ++i, --cntr) {
 
     if (outputLevel >= DEBUG_OUTPUT)
-      Cout << "   reading sample " << (i + 1) << std::endl;
+      Cout << "   reading sample " << i << std::endl;
+
+    int eval_id = cntr;  // default eval_id is the (negative) cntr
 
     try {
-      tabular_file >> std::ws;
-      if (tabular_format & TABULAR_EVAL_ID) {
-	eval_id = TabularIO::read_leading_columns(tabular_file, tabular_format);
-	if (eval_id != cntr) {
+      if (annotated) {
+	tabular_file >> eval_id;
+	if (eval_id != i+1) {
 	  Cerr << "\nError in post-run input: unexpected eval_id from leading "
 	       << "column in file." << std::endl;
 	  tabular_file.close();
 	  abort_handler(-1);
 	}
       }
-      // Previous rationale:
-      // use negative ids for file import in this context, since repeated use
-      // of 0 is not acceptable for the allResponses IntResponseMap below.  As
-      // a result, this differs from the logic for approximation data import.
-      //      eval_id = -cntr;
-      // Currently:
-      // Until we review uses of post-run in conjunction with restart
-      // and possibly change how the array of Variables and Responses
-      // are stored, we use positive ids so order of the Variables and
-      // Response lists are consistent for statistics calculation.
       if (compactMode) {
-	// read a Variables object; copy it into the i-th column in allSamples
-	vars.read_tabular(tabular_file);
-	variables_to_sample(vars, allSamples[i]);
-	if (outputLevel >= DEBUG_OUTPUT)
-	  Cout << vars;
+	// this doesn't work because getCol is returning a copy;
+	// could construct a View...
+	//read_data_tabular(tabular_file, 
+	//		  Teuchos::getCol(Teuchos::View, allSamples, (int)i));
+	for (size_t var_index = 0; var_index < num_vars; ++var_index) 
+	  tabular_file >> allSamples(var_index, i);
       }
       else {
 	allVariables[i] = iteratedModel.current_variables().copy();
@@ -718,13 +650,11 @@ void Analyzer::read_variables_responses(int num_evals, size_t num_vars)
       }
       allResponses[eval_id] = iteratedModel.current_response().copy();
       allResponses[eval_id].read_tabular(tabular_file);
-      if (outputLevel >= DEBUG_OUTPUT)
-	Cout << allResponses[eval_id];
     }
     catch (const std::ios_base::failure& failorbad_except) {
       Cerr << "\nError: insufficient data in post-run input file;\n       "
-	   << "expected " << num_evals << " samples, read " << i << '\n'
-	   << std::endl;
+	   << "expected " << num_evals << " samples, read " << i 
+	   << '\n' << std::endl;
       tabular_file.close();
       abort_handler(-1);
     }
@@ -734,9 +664,11 @@ void Analyzer::read_variables_responses(int num_evals, size_t num_vars)
       update_best(allVariables[i], i+1, allResponses[eval_id]);
   }
 
-  if (TabularIO::exists_extra_data(tabular_file))
-    TabularIO::print_unexpected_data(Cout, filename, "post-run input",
-				     tabular_format);
+  if (TabularIO::exists_extra_data(tabular_file)) { 
+    Cout << "\nWarning (post-run input): found unexpected extra data in " 
+	 << (annotated ? "header-annotated" : "free-form")
+	 << "\nfile " << filename << "." << std::endl; 
+  }
   
   tabular_file.close();
   if (outputLevel > QUIET_OUTPUT)
@@ -782,8 +714,6 @@ void Analyzer::print_sobol_indices(std::ostream& s) const
 	  << S4[k][i+offset] << ' ' << std::setw(write_precision+7)
 	  << T4[k][i+offset] << ' ' << div_labels[i] << '\n';
     offset += numDiscreteIntVars;
-    //for (i=0; i<numDiscreteStringVars; ++i) // LPS TO DO
-    //offset += numDiscreteStringVars;
     for (i=0; i<numDiscreteRealVars; ++i)
       if (std::abs(S4[k][i]) > vbdDropTol || std::abs(T4[k][i]) > vbdDropTol)
 	s << "                     " << std::setw(write_precision+7) 
@@ -936,23 +866,23 @@ void Analyzer::print_results(std::ostream& s)
   size_t i, offset, num_fns, num_best_map = bestVarsRespMap.size();
   for (i=1; it!=bestVarsRespMap.end(); ++i, ++it) {
     const ParamResponsePair& best_pr = it->second;
-    const Variables&  best_vars = best_pr.variables();
-    const RealVector& best_fns  = best_pr.response().function_values();
+    const Variables&  best_vars = best_pr.prp_parameters();
+    const RealVector& best_fns  = best_pr.prp_response().function_values();
     s << "<<<<< Best parameters          ";
     if (num_best_map > 1) s << "(set " << i << ") ";
     s << "=\n" << best_vars;
-    num_fns = best_fns.length(); offset = 0;
+    num_fns = best_fns.length();
     if (numObjFns) {
       if (numObjFns > 1) s << "<<<<< Best objective functions ";
       else               s << "<<<<< Best objective function  ";
       if (num_best_map > 1) s << "(set " << i << ") "; s << "=\n";
-      write_data_partial(s, offset, numObjFns, best_fns);
+      write_data_partial(s, 0, numObjFns, best_fns);
       offset = numObjFns;
     }
     else if (numLSqTerms) {
       s << "<<<<< Best residual terms      ";
       if (num_best_map > 1) s << "(set " << i << ") "; s << "=\n";
-      write_data_partial(s, offset, numLSqTerms, best_fns);
+      write_data_partial(s, 0, numLSqTerms, best_fns);
       offset = numLSqTerms;
     }
     if (num_fns > offset) {
@@ -977,17 +907,8 @@ void Analyzer::vary_pattern(bool pattern_flag)
 
 void Analyzer::get_parameter_sets(Model& model)
 {
-  Cerr << "Error: Analyzer lacking redefinition of virtual get_parameter_sets"
-       << "(1) function.\n       This analyzer does not support parameter sets."
-       << std::endl;
-  abort_handler(-1);
-}
-
-void Analyzer::get_parameter_sets(Model& model, const int num_samples, 
-				  RealMatrix& design_matrix)
-{
-  Cerr << "Error: Analyzer lacking redefinition of virtual get_parameter_sets"
-       << "(3) function.\n       This analyzer does not support parameter sets."
+  Cerr << "Error: Analyzer lacking redefinition of virtual get_parameter_sets()"
+       << " function.\n       This analyzer does not support parameter sets."
        << std::endl;
   abort_handler(-1);
 }

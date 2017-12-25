@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -52,23 +52,17 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// constructor
-  NonDLocalReliability(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~NonDLocalReliability();
+  NonDLocalReliability(Model& model); ///< constructor
+  ~NonDLocalReliability();            ///< destructor
 
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Member functions
   //
-
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
 
   /// performs an uncertainty propagation using analytical reliability 
-  /// methods which solve constrained optimization problems to obtain
+  /// methods which solve constrained optimization  problems to obtain
   /// approximations of the cumulative distribution function of response 
-  void core_run();
+  void quantify_uncertainty(); // pure virtual, called by run_iterator
 
   /// print the approximate mean, standard deviation, and importance factors
   /// when using the mean value method or the CDF/CCDF information when using
@@ -76,7 +70,7 @@ public:
   void print_results(std::ostream& s);
 
   /// return name of active MPP optimizer
-  unsigned short uses_method() const;
+  String uses_method() const;
   /// perform an MPP optimizer method switch due to a detected conflict
   void method_recourse();
 
@@ -293,10 +287,6 @@ private:
   // p=0.5 -> median function values).  Used to determine the sign of beta.
   //RealVector medianFnVals;
 
-  /// vector of means for all uncertain random variables in x-space
-  RealVector ranVarMeansX;
-  /// vector of std deviations for all uncertain random variables in x-space
-  RealVector ranVarStdDevsX;
   /// vector of means for all uncertain random variables in u-space
   RealVector ranVarMeansU;
   /// flag indicating user specification of (any portion of) initialPtU
@@ -345,7 +335,7 @@ private:
   /// cut-off value for 1/sqrt() term in second-order probability corrections.
   Real curvatureThresh;
   /// order of Taylor series approximations (1 or 2) in MV/AMV/AMV+
-  /// derived from hessian type
+  /// derived from hessianType
   short taylorOrder;
   /// importance factors predicted by MV
   RealMatrix impFactor;
@@ -358,10 +348,10 @@ private:
 };
 
 
-inline unsigned short NonDLocalReliability::uses_method() const
+inline String NonDLocalReliability::uses_method() const
 {
-  if (mppSearchType) return (npsolFlag) ? NPSOL_SQP : OPTPP_Q_NEWTON;
-  else               return DEFAULT_METHOD;
+  if (mppSearchType) return (npsolFlag) ? "npsol_sqp" : "optpp_q_newton";
+  else               return String();
 }
 
 
@@ -377,7 +367,7 @@ inline Real NonDLocalReliability::signed_norm(Real norm_mpp_u)
 // generalized reliability --> probability
 // or     FORM reliability --> probability
 inline Real NonDLocalReliability::probability(Real beta)
-{ return Pecos::NormalRandomVariable::std_cdf(-beta); }
+{ return Pecos::Phi(-beta); }
 
 
 inline Real NonDLocalReliability::
@@ -407,7 +397,7 @@ inline Real NonDLocalReliability::reliability(Real p)
 	   << "reliability()." << std::endl; abort_handler(-1); return  0.;
     }
   }
-  else return -Pecos::NormalRandomVariable::inverse_std_cdf(p);
+  else return -Pecos::Phi_inverse(p);
 }
 
 

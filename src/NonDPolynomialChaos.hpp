@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -38,40 +38,19 @@ public:
   //
  
   /// standard constructor
-  NonDPolynomialChaos(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor for numerical integration (tensor, sparse, cubature)
+  NonDPolynomialChaos(Model& model);
+  /// alternate constructor
   NonDPolynomialChaos(Model& model, short exp_coeffs_approach,
-		      const UShortArray& num_int_seq,
-		      const RealVector& dim_pref, short u_space_type,
+		      unsigned short num_int_level, short u_space_type,
 		      bool piecewise_basis, bool use_derivs);
-  /// alternate constructor for regression (least squares, CS, OLI)
-  NonDPolynomialChaos(Model& model, short exp_coeffs_approach,
-		      const UShortArray& exp_order_seq,
-		      const RealVector& dim_pref,
-		      const SizetArray& colloc_pts_seq, Real colloc_ratio,
-		      int seed, short u_space_type, bool piecewise_basis,
-		      bool use_derivs, bool cv_flag,
-		      const String& import_build_points_file,
-		      unsigned short import_build_format,
-		      bool import_build_active_only);
   /// destructor
   ~NonDPolynomialChaos();
-
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
 
 protected:
 
   //
   //- Heading: Virtual function redefinitions
   //
-
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
 
   void resolve_inputs(short& u_space_type, short& data_order);
 
@@ -82,20 +61,8 @@ protected:
   /// form or import an orthogonal polynomial expansion using PCE methods
   void compute_expansion();
 
-  void multifidelity_expansion();
-
-  void select_refinement_points(const RealVectorArray& candidate_samples,
-				unsigned short batch_size,
-				RealMatrix& best_samples);
-
-  void select_refinement_points_deprecated(
-    const RealVectorArray& candidate_samples, unsigned short batch_size,
-    RealMatrix& best_samples);
-
-  void append_expansion(const RealMatrix& samples,
-			const IntResponseMap& resp_map);
-
-  void increment_order_and_grid();
+  /// uniformly increment the order of the polynomial chaos expansion
+  void increment_order();
 
   /// print the PCE coefficient array for the orthogonal basis
   void print_coefficients(std::ostream& s);
@@ -103,36 +70,16 @@ protected:
   /// archive the PCE coefficient array for the orthogonal basis
   void archive_coefficients();
 
-  //
-  //- Heading: Member functions
-  //
-
-  /// special case of multifidelity_expansion() for multilevel allocation of
-  /// samples, mirroring NonDMultilevelSampling for least sq/compressed sensing
-  void multilevel_regression(size_t model_form);
-  /// increment the sequence in numSamplesOnModel for multilevel_regression()
-  void increment_sample_sequence(size_t new_samp, size_t total_samp);
-  /// generate new samples from numSamplesOnModel and update expansion
-  void append_expansion();
-
 private:
-
-  /// define a grid increment that is consistent with an advancement in
-  /// expansion order
-  void increment_grid_from_order();
-  /// define an expansion order that is consistent with an advancement in
-  /// structured/unstructured grid level/density
-  void increment_order_from_grid();
 
   /// convert number of expansion terms and collocation ratio to a
   /// number of collocation samples
-  int  terms_ratio_to_samples(size_t num_exp_terms, Real colloc_ratio);
+  int  terms_ratio_to_samples(size_t num_exp_terms, Real colloc_ratio,
+			      Real terms_order);
   /// convert number of expansion terms and number of collocation samples
   /// to a collocation ratio
-  Real terms_samples_to_ratio(size_t num_exp_terms, int samples);
-  /// convert collocation ratio and number of samples to expansion order
-  void ratio_samples_to_order(Real colloc_ratio, int num_samples,
-			      UShortArray& exp_order, bool less_than_or_equal);
+  Real terms_samples_to_ratio(size_t num_exp_terms, int samples,
+			      Real terms_order);
   /// convert an isotropic/anisotropic expansion_order vector into a scalar
   /// plus a dimension preference vector
   void order_to_dim_preference(const UShortArray& order, unsigned short& p,
@@ -142,8 +89,6 @@ private:
   //- Heading: Data
   //
 
-  /// filename for export of chaos coefficients
-  String expansionExportFile;
   /// filename for import of chaos coefficients
   String expansionImportFile;
 
@@ -154,32 +99,18 @@ private:
   /// number of regression points
   Real termsOrder;
 
-  /// seed for random number generator used for regression with LHS
-  /// and sub-sampled tensor grids
-  int randomSeed;
-
   /// option for regression PCE using a filtered set tensor-product points
   bool tensorRegression;
 
   /// flag for use of cross-validation for selection of parameter settings
   /// in regression approaches
   bool crossValidation;
-  /// flag to restrict cross-validation to only estimate the noise
-  /// tolerance in order to manage computational cost
-  bool crossValidNoiseOnly;
 
   /// noise tolerance for compressive sensing algorithms; vector form used
   /// in cross-validation
   RealVector noiseTols;
   /// L2 penalty for LASSO algorithm (elastic net variant)
   Real l2Penalty;
-
-  // initial grid level for adapted expansions with the
-  // ADAPTED_BASIS_GENERALIZED approach
-  //unsigned short initSGLevel;
-  /// number of frontier expansions per iteration with the
-  /// ADAPTED_BASIS_EXPANDING_FRONT approach
-  unsigned short numAdvance;
 
   /// user specification for expansion_order (array for multifidelity)
   UShortArray expOrderSeqSpec;
@@ -198,68 +129,16 @@ private:
 
   /// user request for use of normalization when outputting PCE coefficients
   bool normalizedCoeffOutput;
-
-  /// user requested expansion type
-  short uSpaceType;
-
-  /// user request of quadrature order
-  UShortArray quadOrderSeqSpec;
-
-  /// user request of sparse grid level
-  UShortArray ssgLevelSeqSpec;
-
-  /// cubature integrand
-  unsigned short cubIntSpec;
-
-  /// user specified import approx. points file
-  String importBuildPointsFile;
-
-  /// user specified import file format
-  unsigned short importBuildFormat;
-
-  /// user specified import build active only
-  bool importBuildActiveOnly;
-
-  /// local flag to signal a resizing occurred
-  bool resizedFlag;
-
-  /// local flag to signal an explicit call to resize
-  /// is necessary if resizedFlag is false
-  bool callResize;
 };
 
 
-inline void NonDPolynomialChaos::
-append_expansion(const RealMatrix& samples, const IntResponseMap& resp_map)
-{
-  // adapt the expansion in sync with the dataset
-  numSamplesOnModel += resp_map.size();
-  if (expansionCoeffsApproach != Pecos::ORTHOG_LEAST_INTERPOLATION)
-    increment_order_from_grid();
-
-  // utilize rebuild following expansion updates
-  uSpaceModel.append_approximation(samples, resp_map, true);
-}
-
-
-inline void NonDPolynomialChaos::append_expansion()
-{
-  // Reqmts: numSamplesOnModel updated and propagated to uSpaceModel
-  //         increment_order_from_grid() called
-
-  // Run uSpaceModel::daceIterator, append data sets, and rebuild expansion
-  uSpaceModel.subordinate_iterator().sampling_reset(numSamplesOnModel,
-						    true, false);
-  uSpaceModel.run_dace_iterator(true); // appends and rebuilds
-}
-
-
 inline int NonDPolynomialChaos::
-terms_ratio_to_samples(size_t num_exp_terms, Real colloc_ratio)
+terms_ratio_to_samples(size_t num_exp_terms, Real colloc_ratio,
+		       Real terms_order)
 {
   // for under-determined solves (compressed sensing), colloc_ratio can be < 1
-  size_t data_per_pt = (useDerivs) ? numContinuousVars + 1 : 1;
-  Real min_pts = std::pow((Real)num_exp_terms, termsOrder) / (Real)data_per_pt;
+  size_t data_per_pt = (useDerivs) ? numContinuousVars + 1 : 1;;
+  Real min_pts = std::pow((Real)num_exp_terms, terms_order) / (Real)data_per_pt;
   int tgt_samples = (int)std::floor(colloc_ratio*min_pts + .5); // rounded
   if (colloc_ratio >= 1.) {
     // logic is to round to the nearest integral sample count for the given
@@ -279,11 +158,11 @@ terms_ratio_to_samples(size_t num_exp_terms, Real colloc_ratio)
 
 
 inline Real NonDPolynomialChaos::
-terms_samples_to_ratio(size_t num_exp_terms, int samples)
+terms_samples_to_ratio(size_t num_exp_terms, int samples, Real terms_order)
 {
-  size_t data_per_pt = (useDerivs) ? numContinuousVars + 1 : 1;
+  size_t data_per_pt = (useDerivs) ? numContinuousVars + 1 : 1;;
   return (Real)(samples * data_per_pt) /
-    std::pow((Real)num_exp_terms, termsOrder);
+    std::pow((Real)num_exp_terms, terms_order);
 }
 
 } // namespace Dakota

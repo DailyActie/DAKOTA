@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -18,10 +18,6 @@
 
 #include "dakota_data_types.hpp"
 #include "DakotaNonD.hpp"
-#include "DakotaApproximation.hpp"
-#include "VPSApproximation.hpp"
-
-
 
 namespace Dakota {
 
@@ -48,23 +44,21 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  NonDPOFDarts(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDPOFDarts();                                       ///< destructor
+  NonDPOFDarts(Model& model); ///< constructor
+  ~NonDPOFDarts();            ///< destructor
 
   //
-  //- Heading: Virtual member function redefinitions
+  //- Heading: Member functions
   //
-
-  bool resize();
 
   /// perform POFDart analysis and return probability of failure 
-  void core_run();
+  void quantify_uncertainty(); // called by run_iterator
 
-protected:
-
+protected: 
   //
   //- Heading: Convenience functions
   //
+    
     
     void initiate_random_number_generator(unsigned long x);
     
@@ -76,9 +70,9 @@ protected:
   
     void execute(size_t kd);
     
+    void print_POF_results(double lower, double upper);
     /// print the final statistics
     void print_results(std::ostream& s);
-    
     
     //////////////////////////////////////////////////////////////
     // MPS METHODS
@@ -94,41 +88,37 @@ protected:
     
     void add_point(double* x);
     
-    void compute_response(double* x);
-    
-    void verify_neighbor_consistency();
-    
-    bool add_neighbor(size_t ipoint, size_t ineighbor);
-
-    void retrieve_neighbors(size_t ipoint, bool update_point_neighbors);
-    
-    void sample_furthest_vertex(size_t ipoint, double* fv);
-
-    
     ////////////////////////////////////////////////////////////////
-    // POF METHODS
+    // OPT / POF METHODS
     ////////////////////////////////////////////////////////////////
-    
-    void update_global_L();
-    
-    void assign_sphere_radius_POF(size_t isample);
-    
     void  shrink_big_spheres(); // shrink all disks by 90% to allow more sampling
     
-    double area_triangle(double x1, double y1, double x2, double y2, double x3, double y3);
-   
-    //////////////////////////////////////////////////////////////
-    // Surrogate METHODS
-    //////////////////////////////////////////////////////////////
-    void initialize_surrogates();
-    void add_surrogate_data(const Variables& vars, const Response& resp);
-    void build_surrogate();
-    double eval_surrogate(size_t fn_index, double *vin);
-    void estimate_pof_surrogate();
+    void assign_sphere_radius_POF(double* x, size_t isample);
     
-    bool trim_line_using_Hyperplane(size_t num_dim,                               // number of dimensions
-                                    double* st, double *end,                      // line segmenet end points
-                                    double* qH, double* nH);                      // a point on the hyperplane and it normal
+    void assign_sphere_radius_OPT(double* x, size_t isample);
+    
+    void resolve_overlap_POF(size_t ksample);
+    
+    void compute_response(double* x);
+    
+    void compute_response_for_FD_gradients(double* x);
+    
+    double get_dart_radius(double f, double fgrad, double fcurv);
+    
+    
+    ////////////////////////////////////////////////////////////////
+    // VOLUME OF SPHERE UNION METHODS
+    ////////////////////////////////////////////////////////////////
+    
+    void retrieve_POF_bounds(double &lower, double &upper);
+    
+    double estimate_spheres_volume_0d(double** spheres, size_t num_spheres, size_t num_dim, double* xmin, double* xmax);
+    
+    double get_sphere_volume(double r, size_t num_dim);
+    
+    void sample_uniformly_from_unit_sphere(double* dart, size_t num_dim);
+    
+    double area_triangle(double x1, double y1, double x2, double y2, double x3, double y3);
     
     
     ////////////////////////////////////////////////////////////////
@@ -137,9 +127,7 @@ protected:
     
     double f_true(double* x); // for debuging only
     
-    void plot_vertices_2d(bool plot_true_function, bool plot_suurogate);
-    
-    void plot_neighbors();
+    void plot_vertices_2d();
     
   //
   //- Heading: Data
@@ -151,15 +139,7 @@ protected:
     // user-specified seed
     int seed;
     
-    // number of samples on emulator  
-    int emulatorSamples;
-
-    // type of estimation for Lipschitz constants
-    String lipschitzType;
- 
-    // structure for storing extreme values of functions for PDF generation 
-    RealRealPairArray extremeValues;
-
+    
     // variables for Random number generator
     double Q[1220];
     int indx;
@@ -173,15 +153,13 @@ protected:
     
     // Variables of the POF dart algorithm
     
-    bool _eval_error;
-    size_t _test_function;
-    
     size_t _n_dim; // dimension of the problem
     double* _xmin; // lower left corner of the domain
     double* _xmax; // Upper right corner of the domain
-    double  _diag; // diagonal of the domain
     
+    bool   _global_optimization;
     double _failure_threshold;
+    double _global_minima;
     
     // Input
     double _num_darts;
@@ -190,17 +168,16 @@ protected:
     double _max_num_successive_misses;
     
     
+    double _max_radius; // maximum radius of a sphere
     double _accepted_void_ratio; // termination criterion for a maximal sample
     
     // Output
     size_t _num_inserted_points, _total_budget;
     double** _sample_points; // store radius as a last coordinate
-    size_t** _sample_neighbors;
-    double*  _sample_vsize;
-    double   _max_vsize; // size of biggest Voronoi cell
     
     // Darts
     double* _dart; // a dart for inserting a new sample point
+    double* _grad_vec; // Function gradient at a given point
     
     size_t _flat_dim;
     size_t* _line_flat;
@@ -209,12 +186,11 @@ protected:
     double* _line_flat_end;
     double* _line_flat_length;
     
-    double _safety_factor;
-    double* _Lip;
     double** _fval;
+    size_t _ieval;
     size_t _active_response_function;
-    
-    bool _use_local_L;
+    double _dx; // spacing for FD
+    size_t _num_sample_eval;
 
 };
 

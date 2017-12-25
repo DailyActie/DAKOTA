@@ -1,10 +1,9 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_DOT
 # DAKOTA Input File: dakota_ouu1_tbch.in
 # Optimization under uncertainty
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -79,7 +78,7 @@ method,
 	  seed = 12347 rng rnum2
 	  response_levels = 4.2e+11 1.6e+05 7.5e+05
 	  complementary distribution
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  output quiet
 
 model,

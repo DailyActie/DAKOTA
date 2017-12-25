@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -20,8 +20,7 @@
 
 namespace Dakota {
 
-NonDGlobalEvidence::NonDGlobalEvidence(ProblemDescDB& problem_db, Model& model):
-  NonDGlobalInterval(problem_db, model)
+NonDGlobalEvidence::NonDGlobalEvidence(Model& model): NonDGlobalInterval(model)
 {
   // if the user does not specify the number of samples, 
   // try to get at least one function evaluation in each cell 
@@ -116,7 +115,7 @@ void NonDGlobalEvidence::get_best_sample(bool maximize, bool eval_approx)
 
   // GT:
   // We want to make sure that we pick a data point that lies inside the cell
-  size_t i, j, index_star, num_data_pts = gp_data.points();
+  size_t i, j, index_star, num_data_pts = gp_data.size();
   truthFnStar = (maximize) ? -DBL_MAX : DBL_MAX;
   for (i=0; i<num_data_pts; ++i) {
     const Real&      truth_fn = gp_data.response_function(i);
@@ -150,8 +149,7 @@ void NonDGlobalEvidence::get_best_sample(bool maximize, bool eval_approx)
   }
 
   if (eval_approx) {
-    if ( ( !maximize && truthFnStar ==  DBL_MAX ) ||
-	 (  maximize && truthFnStar == -DBL_MAX ) ) {
+    if (truthFnStar == DBL_MAX || truthFnStar == -DBL_MAX) {
       Cout << "No function evaluations were found in cell. Truth function is "
 	   << "set to DBL_MAX and approxFnStar is evaluated at midpoint.\n";
       for (i=0; i<numContIntervalVars; ++i)
@@ -183,7 +181,7 @@ void NonDGlobalEvidence::get_best_sample(bool maximize, bool eval_approx)
 		
     ActiveSet set = fHatModel.current_response().active_set();
     set.request_values(0); set.request_value(1, respFnCntr);
-    fHatModel.evaluate(set);
+    fHatModel.compute_response(set);
     approxFnStar = fHatModel.current_response().function_value(respFnCntr);
   }
 #ifdef DEBUG

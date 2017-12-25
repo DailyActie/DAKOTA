@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,8 +14,6 @@
 #include "dakota_system_defs.hpp"
 #include "dakota_data_io.hpp"
 #include "DakotaModel.hpp"
-#include "DataTransformModel.hpp"
-#include "ScalingModel.hpp"
 #include "DakotaLeastSq.hpp"
 #include "ParamResponsePair.hpp"
 #include "PRPMultiIndex.hpp"
@@ -38,71 +36,72 @@ LeastSq* LeastSq::leastSqInstance(NULL);
 /** This constructor extracts the inherited data for the least squares
     branch and performs sanity checking on gradient and constraint
     settings. */
-LeastSq::LeastSq(ProblemDescDB& problem_db, Model& model):
-  Minimizer(problem_db, model),
-  // initial value from Minimizer as accounts for fields and transformations
-  numLeastSqTerms(numUserPrimaryFns),
-  weightFlag(!iteratedModel.primary_response_fn_weights().empty())
-				// TODO: wrong because of recasting layers
+LeastSq::LeastSq(Model& model): Minimizer(model),
+  numLeastSqTerms(probDescDB.get_sizet("responses.num_least_squares_terms")),
+  weightFlag(!model.primary_response_fn_weights().empty())
+				// TODO: wrong because of recastings layers
 {
-  optimizationFlag  = false;
-
-  bool err_flag = false;
-  // Check for proper function definition
-  if (model.primary_fn_type() != CALIB_TERMS) {
-    Cerr << "\nError: model must have calibration terms to apply least squares "
-	 << "methods." << std::endl;
-    err_flag = true;
-  }
-  // Check for correct bit associated within methodName
-  if ( !(methodName & LEASTSQ_BIT) ) {
-    Cerr << "\nError: least squares bit not activated for method instantiation "
-	 << "within LeastSq branch." << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
-    abort_handler(-1);
-
-  // Initialize a best variables instance; bestVariablesArray should
-  // be in calling context; so initialized before any recasts
-  bestVariablesArray.push_back(iteratedModel.current_variables().copy());
-
-  // Wrap the iteratedModel in 0 -- 3 RecastModels, potentially resulting
-  // in weight(scale(data(model)))
-  if (calibrationDataFlag) {
-    data_transform_model();
-    // update local data sizes
-    numLeastSqTerms = numTotalCalibTerms;
-  }
-  if (scaleFlag)
-    scale_model();
-  if (weightFlag)
-    weight_model();
-}
-
-
-LeastSq::LeastSq(unsigned short method_name, Model& model):
-  Minimizer(method_name, model),
-  numLeastSqTerms(numFunctions - numNonlinearConstraints),
-  weightFlag(false) //(!model.primary_response_fn_weights().empty()), // TO DO
-{
-  bool err_flag = false;
   // Check for proper function definition
   if (numLeastSqTerms <= 0) {
     Cerr << "\nError: number of least squares terms must be greater than zero "
          << "for least squares methods." << std::endl;
-    err_flag = true;
+    abort_handler(-1);
+  }
+
+  // Register RecastModel as needed.  Problem size doesn't change, so
+  // don't update numIter/numUserPrimaryFns
+  optimizationFlag  = false;
+
+  // Wrap the iteratedModel, which initially is the userDefinedModel,
+  // in 0 -- 3 RecastModels, potentially resulting in weight(scale(data(model)))
+  //numIterPrimaryFns = numUserPrimaryFns*numRowsExpData;
+  //numLeastSqTerms = numUserPrimaryFns*numRowsExpData;
+  
+  if (obsDataFlag) {
+    // this might set weights based on exp std deviations
+    weightFlag = data_transform_model(weightFlag);
+    ++minimizerRecasts;
+    numLeastSqTerms = numUserPrimaryFns*numRowsExpData;
+    numIterPrimaryFns = numUserPrimaryFns*numRowsExpData;
+  }
+  if (scaleFlag) {
+    scale_model();
+    ++minimizerRecasts;
+  }
+  if (weightFlag) {
+    weight_model();
+    ++minimizerRecasts;
+  }
+
+  if  (minimizerRecasts) {
+    // since all LeastSq iterators are currently gradient-based, maxConcurrency
+    // has already been defined in the Iterator initializer list, so init here:
+    bool recurse_flag = true;  // explicit default: recurse down models
+    iteratedModel.init_communicators(maxConcurrency, recurse_flag);
+  }
+
+  // Initialize a best variables instance
+  bestVariablesArray.push_back(model.current_variables().copy());
+}
+
+
+LeastSq::LeastSq(NoDBBaseConstructor, Model& model):
+  Minimizer(NoDBBaseConstructor(), model),
+  numLeastSqTerms(numFunctions - numNonlinearConstraints),
+  weightFlag(false) //(!model.primary_response_fn_weights().empty()), // TO DO
+{
+  // Check for proper function definition
+  if (numLeastSqTerms <= 0) {
+    Cerr << "\nError: number of least squares terms must be greater than zero "
+         << "for least squares methods." << std::endl;
+    abort_handler(-1);
   }
 
   if (!model.primary_response_fn_weights().empty()) { // TO DO: support this
     Cerr << "Error: on-the-fly LeastSq instantiations do not currently support "
 	 << "residual weightings." << std::endl;
-    err_flag = true;
-  }
-
-  if (err_flag)
     abort_handler(-1);
+  }
 
   optimizationFlag  = false;
 
@@ -111,10 +110,11 @@ LeastSq::LeastSq(unsigned short method_name, Model& model):
 }
 
 
-/** Setup Recast for weighting model.  The weighting transformation
+/** Setup Recast for weighting model the weighting transformation
     doesn't resize, so use numUserPrimaryFns.  No vars, active set or
     secondary mapping.  All indices are one-to-one mapped (no change
-    in counts). */
+    in counts)
+*/
 void LeastSq::weight_model()
 {
   if (outputLevel >= DEBUG_OUTPUT)
@@ -148,27 +148,21 @@ void LeastSq::weight_model()
   void (*vars_recast) (const Variables&, Variables&) = NULL;
   void (*set_recast) (const Variables&, const ActiveSet&, ActiveSet&) = NULL;
   void (*pri_resp_recast) (const Variables&, const Variables&,
-                           const Response&, Response&)
+			   const Response&, Response&)
     = primary_resp_weighter;
   void (*sec_resp_recast) (const Variables&, const Variables&,
-                           const Response&, Response&) = NULL;
+			   const Response&, Response&)
+    = secondary_resp_copier;
 
   size_t recast_secondary_offset = numNonlinearIneqConstraints;
-  SizetArray recast_vars_comps_total;  // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  const Response& curr_resp = iteratedModel.current_response();
-  short recast_resp_order = 1; // recast resp order to be same as original resp
-  if (!curr_resp.function_gradients().empty()) recast_resp_order |= 2;
-  if (!curr_resp.function_hessians().empty())  recast_resp_order |= 4;
+  SizetArray recast_vars_comps_total; // default: empty; no change in size
 
   iteratedModel.assign_rep(new
     RecastModel(iteratedModel, var_map_indices, recast_vars_comps_total, 
-		all_relax_di, all_relax_dr, nonlinear_vars_map, vars_recast,
-		set_recast, primary_resp_map_indices,
-		secondary_resp_map_indices, recast_secondary_offset,
-		recast_resp_order, nonlinear_resp_map, pri_resp_recast,
-		sec_resp_recast), false);
-  ++myModelLayers;
+		nonlinear_vars_map, vars_recast, set_recast, 
+		primary_resp_map_indices, secondary_resp_map_indices, 
+		recast_secondary_offset, nonlinear_resp_map, 
+		pri_resp_recast, sec_resp_recast), false);
 
   // This transformation consumes weights, so the resulting wrapped
   // model doesn't need them any longer, however don't want to recurse
@@ -189,9 +183,9 @@ void LeastSq::weight_model()
 void LeastSq::print_results(std::ostream& s)
 {
   // archive the single best point
-  size_t num_best = 1, best_ind = 0;
+  size_t num_best = 1, index = 0;
   archive_allocate_best(num_best);
-  archive_best(best_ind, bestVariablesArray.front(), bestResponseArray.front());
+  archive_best(index, bestVariablesArray.front(), bestResponseArray.front());
 
   // Print best design parameters.  Could just print all of best variables 
   // (as in ParamStudy::print_results), but restrict to just design 
@@ -202,77 +196,44 @@ void LeastSq::print_results(std::ostream& s)
   //best_vars.continuous_variables().write(s);
   //best_vars.discrete_variables().write(s);
 
-  // after post-run, responses should be back in user model space (no
-  // data, scaling, or weighting)
-  const RealVector& best_fns = bestResponseArray.front().function_values();
-  if (calibrationDataFlag) {
-
-    // TODO: approximate models with interpolation of field data may
-    // not have recovered the correct best residuals
-
-    // BMA TODO: Why copying the response, why not just update
-    // dataTransformModel?
-
-    // first use the data difference model to print data differenced
-    // residuals, perhaps most useful to the user
-    Response residual_resp(dataTransformModel.current_response().copy());
-    DataTransformModel* dt_model_rep = 
-      static_cast<DataTransformModel*>(dataTransformModel.model_rep());
-    dt_model_rep->data_transform_response(best_vars, bestResponseArray.front(), 
-                                          residual_resp);
-    const RealVector& resid_fns = residual_resp.function_values(); 
-
-    // must use the expanded weight set from the data difference model
-    const RealVector& lsq_weights 
-      = dataTransformModel.primary_response_fn_weights();
-    print_residuals(numTotalCalibTerms, resid_fns, lsq_weights, 
-		    num_best, best_ind, s);
-
-    // then print the original userModel Responses
-    print_model_resp(numUserPrimaryFns, best_fns, num_best, best_ind, s);
+  const RealVector& fn_vals_star = bestResponseArray.front().function_values();
+  const RealVector& lsq_weights
+	= iteratedModel.subordinate_model().primary_response_fn_weights();
+  Real t = 0.;
+  for(size_t i=0; i<numLeastSqTerms; i++) {
+    const Real& t1 = fn_vals_star[i];
+    if (lsq_weights.empty())
+      t += t1*t1;
+    else  
+      t += t1*t1*lsq_weights[i];
   }
-  else {
-    // the original model had least squares terms and numLeastSqTerms
-    // == numTotalCalibTerms
-    const RealVector& lsq_weights
-      = iteratedModel.subordinate_model().primary_response_fn_weights();
-    print_residuals(numUserPrimaryFns, best_fns, lsq_weights, 
-		    num_best, best_ind, s);
-  }
+  s << "<<<<< Best residual norm = " << std::setw(write_precision+7)
+    << std::sqrt(t) << "; 0.5 * norm^2 = " << std::setw(write_precision+7)
+    << 0.5*t << '\n';
 
-  if (numNonlinearConstraints) {
+  // Print best response functions
+  if (numLeastSqTerms > 1) s << "<<<<< Best residual terms      =\n";
+  else                     s << "<<<<< Best residual term       =\n";
+  write_data_partial(s, 0, numLeastSqTerms, fn_vals_star);
+
+  size_t num_cons = numFunctions - numLeastSqTerms;
+  if (num_cons) {
     s << "<<<<< Best constraint values   =\n";
-    write_data_partial(s, numUserPrimaryFns, numNonlinearConstraints, best_fns);
+    write_data_partial(s, numLeastSqTerms, num_cons, fn_vals_star);
   }
 
   // Print fn. eval. number where best occurred.  This cannot be catalogued 
   // directly because the optimizers track the best iterate internally and 
   // return the best results after iteration completion.  Therfore, perform a
   // search in the data_pairs cache to extract the evalId for the best fn. eval.
-
-  // must search in the inbound Model's space (and even that may not
-  // suffice if there are additional recastings underlying this
-  // solver's Model) to find the function evaluation ID number
-  Model orig_model = original_model();
-  const String& interface_id = orig_model.interface_id(); 
-  // use asv = 1's
-  ActiveSet search_set(orig_model.num_functions(), numContinuousVars);
-
+  int eval_id;
   activeSet.request_values(1);
-  PRPCacheHIter cache_it = lookup_by_val(data_pairs,
-    iteratedModel.interface_id(), best_vars, activeSet);
-  if (cache_it == data_pairs.get<hashed>().end())
-    s << "<<<<< Best data not found in evaluation cache\n\n";
-  else {
-    int eval_id = cache_it->eval_id();
-    if (eval_id > 0)
-      s << "<<<<< Best data captured at function evaluation " << eval_id
-	<< "\n\n";
-    else // should not occur
-      s << "<<<<< Best data not found in evaluations from current execution,"
-	<< "\n      but retrieved from restart archive with evaluation id "
-	<< -eval_id << "\n\n";
-  }
+  if (lookup_by_val(data_pairs, iteratedModel.interface_id(), best_vars,
+		    activeSet, eval_id))
+    s << "<<<<< Best data captured at function evaluation " << eval_id
+      << std::endl;
+  else
+    s << "<<<<< Best data not found in evaluation cache" << std::endl;
  
   // Print confidence intervals for each estimated parameter. 
   // These CIs are based on a linear approximation of the underlying 
@@ -386,11 +347,9 @@ void LeastSq::initialize_run()
 {
   Minimizer::initialize_run();
 
-  // pull any late updates into the RecastModel; may need to update
-  // from the underlying user model in case of hybrid methods, so
-  // should recurse through any local transformations
-  if (myModelLayers > 0)
-    iteratedModel.update_from_subordinate_model(myModelLayers-1);
+  // pull any late updates into the RecastModel
+  if (scaleFlag || obsDataFlag)
+    iteratedModel.update_from_subordinate_model(false); // recursion not reqd
 
   // Track any previous object instance in case of recursion.  Note that
   // leastSqInstance and minimizerInstance must be tracked separately since
@@ -416,64 +375,50 @@ void LeastSq::post_run(std::ostream& s)
     abort_handler(-1);
   }
 
-  // transformations must precede confidence interval calculation
   for (size_t point_index = 0; point_index < num_points; ++point_index) {
     
     Variables& best_vars = bestVariablesArray[point_index];
     Response&  best_resp = bestResponseArray[point_index];
 
-    /// transform variables back to inbound model, before any potential lookup
-    if (scaleFlag) {
-      ScalingModel* scale_model_rep = 
-        static_cast<ScalingModel*>(scalingModel.model_rep());
-      best_vars.continuous_variables
-        (scale_model_rep->cv_scaled2native(best_vars.continuous_variables()));
+    // Reverse transformations on each point in best data: unweight,
+    // unscale, but leave differenced with data (for LeastSq problems,
+    // always report the residuals)
+
+    if (weightFlag) {
+      const RealVector& lsq_weights
+	= iteratedModel.subordinate_model().primary_response_fn_weights();
+      const RealVector& fn_vals = best_resp.function_values();
+      for (size_t i=0; i<numLeastSqTerms; i++)
+	best_resp.function_value(fn_vals[i]/std::sqrt(lsq_weights[i]),i);
     }
 
-    if (calibrationDataFlag && expData.interpolate_flag()) {
-      // When interpolation is active, best we can do is a lookup.
-      // This will fail for surrogate models; need approx eval DB
-      local_recast_retrieve(best_vars, best_resp);
-    }
-    else {
-      // Derived classes populated best response with first
-      // experiment's block of residuals as seen by the
-      // solver. Reverse transformations on each point in best data:
-      // unweight, unscale, restore data
-
-      if (weightFlag) {
-        // the weighting transformation consumes weights; get some sub-model
-        const RealVector& lsq_weights
-          = iteratedModel.subordinate_model().primary_response_fn_weights();
-        const RealVector& fn_vals = best_resp.function_values();
-        for (size_t i=0; i<numLeastSqTerms; i++)
-          best_resp.function_value(fn_vals[i]/std::sqrt(lsq_weights[i]),i);
-      }
+    if (varsScaleFlag)
+      best_vars.continuous_variables(
+        modify_s2n(best_vars.continuous_variables(), cvScaleTypes,
+		   cvScaleMultipliers, cvScaleOffsets));
   
-      // unscaling should be based on correct size in data difference case
-      // scaling does not work in conjunction with data diff...
-      if (scaleFlag) {
-        // ScalingModel manages which transformations are needed
-        ScalingModel* scale_model_rep = 
-          static_cast<ScalingModel*>(scalingModel.model_rep());
-        scale_model_rep->resp_scaled2native(best_vars, best_resp);
+    if (primaryRespScaleFlag || secondaryRespScaleFlag) {
+      Response tmp_response = best_resp.copy();
+      if (primaryRespScaleFlag || 
+	  need_resp_trans_byvars(tmp_response.active_set_request_vector(), 0,
+				 numLeastSqTerms)) {
+	response_modify_s2n(best_vars, best_resp, tmp_response, 0,
+			    numLeastSqTerms);
+	best_resp.update_partial(0, numLeastSqTerms, tmp_response, 0);
       }
-
-      if (calibrationDataFlag) {
-        // restore residuals to original model's primary responses
-        // (leaving any constraints)
-        // BMA TODO: verify that numUserPrimaryFns is correct
-        RealVector resid_fns = best_resp.function_values_view();
-        expData.recover_model(numUserPrimaryFns, resid_fns);
+      if (secondaryRespScaleFlag || 
+	  need_resp_trans_byvars(tmp_response.active_set_request_vector(),
+				 numLeastSqTerms, numNonlinearConstraints)) {
+	response_modify_s2n(best_vars, best_resp, tmp_response, numLeastSqTerms,
+			    numNonlinearConstraints);
+	best_resp.update_partial(numLeastSqTerms, numNonlinearConstraints,
+				 tmp_response, numLeastSqTerms);
       }
     }
-    
+
   }
 
-  // confidence interval calculation requires best_response
-  get_confidence_intervals();
-
-  Minimizer::post_run(s);
+  Iterator::post_run(s);
 }
 
 
@@ -508,27 +453,8 @@ void LeastSq::get_confidence_intervals()
  
   Teuchos::LAPACK<int, Real> la;
 
-  // The CI should be based on the residuals the solver worked on
-  // (including data differences), but they are only stored in the
-  // user model space
-  RealVector fn_vals_star;
-  if (calibrationDataFlag) {
-    // TODO: when interpolating field data, best may not be populated
-
-    // NOTE: This doesn't assume current_response() contains best;
-    // just uses it as a temporary object for computing the residuals
-    Response residual_resp(dataTransformModel.current_response().copy());
-    DataTransformModel* dt_model_rep = 
-      static_cast<DataTransformModel*>(dataTransformModel.model_rep());
-    dt_model_rep->data_transform_response(bestVariablesArray.front(),
-                                          bestResponseArray.front(), 
-                                          residual_resp);
-    fn_vals_star = residual_resp.function_values(); 
-  }
-  else 
-    fn_vals_star = bestResponseArray.front().function_values();
-
-  // first calculate the estimate of sigma-squared.
+  //first calculate the estimate of sigma-squared.  
+  const RealVector& fn_vals_star = bestResponseArray.front().function_values();
   for (i=0; i<numLeastSqTerms; i++)
     sse_total += (fn_vals_star[i]*fn_vals_star[i]);
   sigma_sq_hat = sse_total/dof;
@@ -543,7 +469,7 @@ void LeastSq::get_confidence_intervals()
   short asv_request = 2;
   iteratedModel.continuous_variables(best_c_vars);
   activeSet.request_values(asv_request);
-  iteratedModel.evaluate(activeSet);
+  iteratedModel.compute_response(activeSet);
   const RealMatrix& fn_grads
     = iteratedModel.current_response().function_gradients();
 
@@ -588,8 +514,6 @@ void LeastSq::get_confidence_intervals()
       diag(i) += Jmatrix[j*numLeastSqTerms+i]*Jmatrix[j*numLeastSqTerms+i];
     standard_error[i] = std::sqrt(diag(i)*sigma_sq_hat);
   }
-  delete[] Jmatrix;
-
   confBoundsLower.sizeUninitialized(numContinuousVars);
   confBoundsUpper.sizeUninitialized(numContinuousVars); 
 //#ifdef HAVE_BOOST

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -115,7 +115,7 @@ derived_map(const Variables& vars, const ActiveSet& set, Response& response,
     abort_handler(-1);
   }
   wait_local_evaluations(prp_queue); // rebuilds completionSet
-  response = prp_queue.front().response();
+  response = prp_queue.front().prp_response();
   completionSet.clear();
 #if 0
   //
@@ -125,18 +125,17 @@ derived_map(const Variables& vars, const ActiveSet& set, Response& response,
     if (evalCommRank == 0)
       read_results_files(response, fn_eval_id);
   }
-  catch(const FileReadException& fr_except) {
-    // a FileReadException exception involves detection of an
-    // incomplete file/data set.  In the synchronous case, there is no
-    // potential for an incomplete file resulting from a race
-    // condition -> echo the error and abort.
-    Cerr << "\nError reading results file:\n  " << fr_except.what() << std::endl;
-    abort_handler(INTERFACE_ERROR);
+  catch(String& err_msg) {
+    // a String exception involves detection of an incomplete file/data
+    // set.  In the synchronous case, there is no potential for an incomplete
+    // file resulting from a race condition -> echo the error and abort.
+    Cerr << err_msg << std::endl;
+    abort_handler(-1);
   }
-  catch(const FunctionEvalFailure& fneval_except) {
-    // The approach here is to have catch(FunctionEvalFailure) rethrow
-    // the exception to an outer catch (either the catch within
-    // manage_failure or a catch that calls manage_failure).
+  catch(int fail_code) {
+    // The approach here is to have catch(int) rethrow the exception to an 
+    // outer catch (either the catch within manage_failure or a catch that 
+    // calls manage_failure).
     throw;
   }
 #endif
@@ -150,8 +149,8 @@ void GridApplicInterface::derived_map_asynch(const ParamResponsePair& pair)
   //
   int fn_eval_id = pair.eval_id();
   define_filenames(fn_eval_id);
-  write_parameters_files(pair.variables(), pair.active_set(),
-			 pair.response(),  fn_eval_id);
+  write_parameters_files(pair.prp_parameters(), pair.active_set(),
+			 pair.prp_response(),   fn_eval_id);
   //
   // Launch the grid solver
   //
@@ -185,20 +184,21 @@ void GridApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
       // File exists; test for complete/valid set of results (an incomplete
       // set can result from a race condition in which Dakota is reading a
       // file that a simulator has not finished writing).  Response::read
-      // throws a FileReadException if data is missing/misformatted.
+      // throws a String exception if data is missing/misformatted.
       //
-      PRPQueueIter queue_it = lookup_by_eval_id(prp_queue, fn_eval_id);
-      if (queue_it == prp_queue.end()) {
+      ParamResponsePair pr_pair;
+      bool found = lookup_by_eval_id(prp_queue, fn_eval_id, pr_pair);
+      if (!found) {
 	Cerr << "Error: failure in queue lookup within GridApplicInterface::"
 	     << "test_local_evaluations()." << std::endl;
 	abort_handler(-1);
       }
-      Response response = queue_it->response(); // shallow copy
+      Response response = pr_pair.prp_response(); // shallow copy
 
       try { read_results_files(response, fn_eval_id); }
-      catch(const FileReadException& fr_except) {
+      catch(String& err_msg) {
 	//
-	// If a FileReadException exception (incomplete file) is caught, set
+	// If a String exception (incomplete file) is caught, set
 	// err_msg_caught to true so that processing is not performed below.
 	// The for loop will then cycle through the other active asynch. evals.
 	// before coming back to the one with the exception.  This should allow
@@ -210,10 +210,8 @@ void GridApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
 	IntShMIter map_iter = failCountMap.find(fn_eval_id);
 	if (map_iter != failCountMap.end()) {
 	  if (++map_iter->second > 100) {
-	    Cerr << "Error: too many failed reads for results file " 
-		 << file_to_test
-		 << "\n       check data format and completeness;\n       " 
-		 << fr_except.what() << std::endl;
+	    Cerr << "Error: too many failed reads for file " << file_to_test
+		 << "\n       check data format and completeness" << std::endl;
 	    abort_handler(-1);
 	  }
 	}
@@ -227,18 +225,18 @@ void GridApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
 #endif // HAVE_UNISTD_H
 #ifdef ASYNCH_DEBUG
 	Cerr << "Warning: exception caught in reading response file "
-	     << file_to_test << "\nException = \"" << fr_except.what()
+	     << file_to_test << "\nException = \"" << err_msg
 	     << "\"\nException recovery: returning " << file_to_test
 	     << " to processing queue.\n";
 #endif
       }
-      catch(const FunctionEvalFailure& fneval_except) {
+      catch(int fail_code) {
 	//
-	// If a FunctionEvalFailure ("fail" detected in results file) is caught,
+	// If an int exception ("fail" detected in results file) is caught,
 	// call manage_failure which will either (1) repair the failure and
 	// populate response, or (2) abort the run.
 	//
-	manage_failure(queue_it->variables(), response.active_set(),
+	manage_failure(pr_pair.prp_parameters(), response.active_set(),
 		       response, fn_eval_id);
       }
       //
@@ -247,8 +245,8 @@ void GridApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
       // add evaluation id to completion set.
       //
       if (!err_msg_caught) {
-	//queue_it->response(response);                    // not needed
-	//replace_by_eval_id(prp_queue, fn_eval_id, *queue_it);// not needed
+	//pr_pair.prp_response(response);                    // not needed
+	//replace_by_eval_id(prp_queue, fn_eval_id, pr_pair);// not needed
 	completionSet.insert(fn_eval_id);
 	failCountMap.erase(fn_eval_id); // if present
       }

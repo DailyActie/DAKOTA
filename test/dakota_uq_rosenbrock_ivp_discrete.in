@@ -1,7 +1,7 @@
-#@ s1: DakotaConfig=HAVE_ACRO
-#@ s2: DakotaConfig=HAVE_ACRO
 
-environment,
+
+strategy,
+	single_method
 	  method_pointer = 'EPISTEMIC'
 
 #################################
@@ -10,11 +10,11 @@ environment,
 method,
 	id_method = 'EPISTEMIC'
 	model_pointer = 'EPIST_M'
-	global_interval_est lhs					#s0
-#	global_interval_est sbo					#s1
-	  samples = 10						#s0,#s1
-#	global_interval_est ea					#s2
-#	  max_iterations = 5					#s2
+	global_interval_est lhs					#0
+#	global_interval_est sbo					#1
+	  samples = 10						#0,#1
+#	global_interval_est ea					#2
+#	  max_iterations = 5					#2
 	  seed = 12347
 	  output quiet
 
@@ -36,11 +36,10 @@ variables,
 	  lower_bounds = -1. -1.
 	  upper_bounds =  1.  1.
 	  descriptors = 'x1_mean' 'x2_mean'		
-	discrete_uncertain_set
-	  integer = 1
-#	    set_probs  = .5 .5
-	    set_values =  1  2
-	    descriptors = 'EpistModelForm'		
+	discrete_uncertain_set_int = 1
+#	  set_probs  = .5 .5
+	  set_values =  1  2
+	  descriptors = 'EpistModelForm'		
 
 responses,
 	id_responses = 'EPIST_R'
@@ -72,10 +71,9 @@ variables,
 	  means          =   0.  0.
 	  std_deviations =   1.  1.
 	  descriptors      'x1' 'x2'
-	discrete_state_set
-	  integer = 1
-	    set_values     = 1 2
-	    descriptors    = 'ModelForm'	
+	discrete_state_set_integer = 1
+	  set_values     = 1 2
+	  descriptors    = 'ModelForm'	
 
 interface,
 	id_interface = 'ALEAT_I'

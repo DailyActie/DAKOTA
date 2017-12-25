@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,8 +21,7 @@
 #include "DataModel.hpp"
 
 
-namespace Dakota
-{
+namespace Dakota {
 
 // define special values for componentParallelMode
 #define LF_MODEL 1
@@ -33,15 +32,11 @@ namespace Dakota
 /// hierarchical surrogates (models of varying fidelity).
 
 /** The HierarchSurrModel class manages hierarchical models of varying
-    fidelity.  The class contains an ordered array of model forms
-    (fidelity ordered from low to high), where each model form may
-    also contain a set of solution levels (space/time discretization,
-    convergence tolerances, etc.).  At run time, one of these
-    combinations is activated as the low fidelity model and used to
-    perform approximate function evaluations, while another of these
-    combinations is activated as the high fidelity model and used to
-    provide truth evaluations for computing corrections to the low
-    fidelity results. */
+    fidelity.  In particular, it uses a low fidelity model as a
+    surrogate for a high fidelity model.  The class contains a
+    lowFidelityModel which performs the approximate low fidelity
+    function evaluations and a highFidelityModel which provides truth
+    evaluations for computing corrections to the low fidelity results. */
 
 class HierarchSurrModel: public SurrogateModel
 {
@@ -54,105 +49,97 @@ public:
   HierarchSurrModel(ProblemDescDB& problem_db); ///< constructor
   ~HierarchSurrModel();                         ///< destructor
 
-  DiscrepancyCorrection& discrepancy_correction();
-
 protected:
 
   //
   //- Heading: Virtual function redefinitions
   //
 
-  /// portion of evaluate() specific to HierarchSurrModel
-  void derived_evaluate(const ActiveSet& set);
-  /// portion of evaluate_nowait() specific to HierarchSurrModel
-  void derived_evaluate_nowait(const ActiveSet& set);
+  // Perform the response computation portions specific to this derived 
+  // class.  In this case, it simply applies a correction to  
+  // lowFidelityModel.compute_response()/synchronize()/synchronize_nowait()
+  //
+  /// portion of compute_response() specific to HierarchSurrModel
+  void derived_compute_response(const ActiveSet& set);
+  /// portion of asynch_compute_response() specific to HierarchSurrModel
+  void derived_asynch_compute_response(const ActiveSet& set);
   /// portion of synchronize() specific to HierarchSurrModel
   const IntResponseMap& derived_synchronize();
   /// portion of synchronize_nowait() specific to HierarchSurrModel
   const IntResponseMap& derived_synchronize_nowait();
 
-  /// return the active low fidelity model
+  /// return lowFidelityModel
   Model& surrogate_model();
-  /// set the indices identifying the active low fidelity model
-  void surrogate_model_indices(size_t lf_model_index,
-                               size_t lf_soln_lev_index = _NPOS);
-  /// set the index pair identifying the active low fidelity model
-  void surrogate_model_indices(const SizetSizetPair& lf_form_level);
-  /// return the indices identifying the active low fidelity model
-  const SizetSizetPair& surrogate_model_indices() const;
-
-  /// return the active high fidelity model
+  /// return highFidelityModel
   Model& truth_model();
-  /// set the indices identifying the active high fidelity model
-  void truth_model_indices(size_t hf_model_index,
-                           size_t hf_soln_lev_index = _NPOS);
-  /// set the index pair identifying the active high fidelity model
-  void truth_model_indices(const SizetSizetPair& hf_form_level);
-  /// return the indices identifying the active high fidelity model
-  const SizetSizetPair& truth_model_indices() const;
-
-  /// return orderedModels and, optionally, their sub-model recursions
+  /// return lowFidelityModel and highFidelityModel
   void derived_subordinate_models(ModelList& ml, bool recurse_flag);
 
   /// set the relative weightings for multiple objective functions or least
   /// squares terms and optionally recurses into LF/HF models
   void primary_response_fn_weights(const RealVector& wts,
-                                   bool recurse_flag = true);
+				   bool recurse_flag = true);
 
-  /// set responseMode and pass any bypass request on to the high
-  /// fidelity model for any lower-level surrogate recursions
+  /// set responseMode and pass any bypass request on to highFidelityModel
+  /// for any lower-level surrogate recursions.
   void surrogate_response_mode(short mode);
 
   /// (re)set the surrogate index set in SurrogateModel::surrogateFnIndices
   void surrogate_function_indices(const IntSet& surr_fn_indices);
 
-  /// use the high fidelity model to compute the truth values needed for
-  /// correction of the low fidelity model results
+  /// use highFidelityModel to compute the truth values needed for
+  /// correction of lowFidelityModel results
   void build_approximation();
   // Uses the c_vars/response anchor point to define highFidResponse
   //bool build_approximation(const RealVector& c_vars,const Response& response);
 
   /// update component parallel mode for supporting parallelism in
-  /// the low ad high fidelity models
+  /// lowFidelityModel and highFidelityModel
   void component_parallel_mode(short mode);
 
-  IntIntPair estimate_partition_bounds(int max_eval_concurrency);
-
-  /// set up parallel operations for the array of ordered model fidelities
-  void derived_init_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-                                  bool recurse_flag = true);
-  /// set up serial operations for the array of ordered model fidelities
+  /// set up lowFidelityModel and highFidelityModel for parallel operations
+  void derived_init_communicators(int max_iterator_concurrency,
+				  bool recurse_flag = true);
+  /// set up lowFidelityModel and highFidelityModel for serial operations.
   void derived_init_serial();
-  /// set active parallel configuration within the current low and
-  /// high fidelity models identified by {low,high}FidelityIndices
-  void derived_set_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-                                 bool recurse_flag = true);
+  /// set active parallel configuration within lowFidelityModel and
+  /// highFidelityModel
+  void derived_set_communicators(int max_iterator_concurrency,
+				 bool recurse_flag = true);
   /// deallocate communicator partitions for the HierarchSurrModel
-  /// (request forwarded to the the array of ordered model fidelities)
-  void derived_free_communicators(ParLevLIter pl_iter, int max_eval_concurrency,
-                                  bool recurse_flag = true);
+  /// (request forwarded to lowFidelityModel and highFidelityModel)
+  void derived_free_communicators(int max_iterator_concurrency,
+				  bool recurse_flag = true);
 
-  /// Service the low and high fidelity model job requests received from the
-  /// master; completes when termination message received from stop_servers().
-  void serve_run(ParLevLIter pl_iter, int max_eval_concurrency);
-  /// Executed by the master to terminate the low and high fidelity model
-  /// server operations when iteration on the HierarchSurrModel is complete
+  /// Service lowFidelityModel and highFidelityModel job requests received
+  /// from the master.  Completes when a termination message is received from
+  /// stop_servers().
+  void serve(int max_iterator_concurrency);
+  /// Executed by the master to terminate lowFidelityModel and
+  /// highFidelityModel server operations when iteration on the
+  /// HierarchSurrModel is complete.
   void stop_servers();
 
   /// update the Model's inactive view based on higher level (nested)
-  /// context and optionally recurse into
+  /// context and optionally recurse into 
   void inactive_view(short view, bool recurse_flag = true);
 
+  /// Return the current evaluation id for the HierarchSurrModel
+  int evaluation_id() const;
+
   /// set the evaluation counter reference points for the HierarchSurrModel
-  /// (request forwarded to the low and high fidelity models)
+  /// (request forwarded to lowFidelityModel and highFidelityModel)
   void set_evaluation_reference();
-  /// request fine-grained evaluation reporting within the low and high
-  /// fidelity models
+  /// request fine-grained evaluation reporting within lowFidelityModel
+  /// and highFidelityModel
   void fine_grained_evaluation_counters();
   /// print the evaluation summary for the HierarchSurrModel
-  /// (request forwarded to the low and high fidelity models)
+  /// (request forwarded to lowFidelityModel and highFidelityModel)
   void print_evaluation_summary(std::ostream& s, bool minimal_header = false,
-                                bool relative_count = true) const;
+				bool relative_count = true) const;
+
+  /// set the hierarchical eval ID tag prefix
+  virtual void eval_tag_prefix(const String& eval_id_str);
 
 private:
 
@@ -160,79 +147,38 @@ private:
   //- Heading: Convenience functions
   //
 
-  /// update sameInterfaceInstance based on interface ids for models
-  /// identified by current {low,high}FidelityIndices
-  void check_interface_instance();
-
-  /// update the passed model (low or high fidelity) with current variable
-  /// values/bounds/labels
+  /// update the incoming model (lowFidelityModel or highFidelityModel)
+  /// with current variable values/bounds/labels
   void update_model(Model& model);
-
-  /// called from derived_synchronize() and derived_synchronize_nowait() to
-  /// extract and rekey response maps using blocking or nonblocking
-  /// synchronization on the LF and HF models
-  void derived_synchronize_sequential(IntResponseMap& hf_resp_map_rekey,
-                                      IntResponseMap& lf_resp_map_rekey,
-                                      bool block);
-  /// called from derived_synchronize() for case of distinct models/interfaces
-  /// with competing LF/HF job queues
-  void derived_synchronize_competing();
-  /// combine the HF and LF response maps into a combined response map
-  void derived_synchronize_combine(const IntResponseMap& hf_resp_map,
-                                   IntResponseMap& lf_resp_map,
-                                   IntResponseMap& combined_resp_map);
-  /// combine the available components from HF and LF response maps
-  /// into a combined response map
-  void derived_synchronize_combine_nowait(const IntResponseMap& hf_resp_map,
-                                          IntResponseMap& lf_resp_map,
-                                          IntResponseMap& combined_resp_map);
-
-  /// resize currentResponse based on responseMode
-  void resize_response();
-
-  /// helper function used in the AUTO_CORRECTED_SURROGATE responseMode
-  /// for computing a correction and applying it to lf_resp_map
-  void compute_apply_delta(IntResponseMap& lf_resp_map);
 
   //
   //- Heading: Data members
   //
 
-  /// manages construction and application of correction functions that
-  /// are applied to a surrogate model (DataFitSurr or HierarchSurr) in
-  /// order to reproduce high fidelity data.
-  std::map<std::pair<SizetSizetPair,SizetSizetPair>,DiscrepancyCorrection>
-  deltaCorr;
+  /// number of calls to derived_compute_response()/
+  /// derived_asynch_compute_response()
+  int hierModelEvalCntr;
 
-  short corrOrder;
-  short corrType;
-
-  /// Ordered sequence (low to high) of model fidelities.  Models are of
-  /// arbitrary type and supports recursions.
-  ModelArray orderedModels;
-  /// index of the low fidelity model that is currently active within
-  /// orderedModels; provides approximate low fidelity function evaluations.
-  SizetSizetPair lowFidelityIndices;
-  /// index of the high fidelity model that is currently active within
-  /// orderedModels; provides truth evaluations for computing corrections
-  /// to the low fidelity results.
-  SizetSizetPair highFidelityIndices;
-  /// flag indicating that the {low,high}FidelityIndices correspond to the
-  /// same model instance, requiring modifications to updating and evaluation
-  /// scheduling processes
-  bool sameModelInstance;
-  /// flag indicating that the models identified by {low,high}FidelityIndices
-  /// employ the same interface instance, requiring modifications to evaluation
-  /// scheduling processes
-  bool sameInterfaceInstance;
-
-  /// the reference truth (high fidelity) response computed in
-  /// build_approximation() and used for calculating corrections
-  Response truthResponseRef;
-  /// map of truth (high-fidelity) responses retrieved in
-  /// derived_synchronize_nowait() that could not be returned since
-  /// corresponding low-fidelity response portions were still pending
+  /// map of high-fidelity responses retrieved in derived_synchronize_nowait()
+  /// that could not be returned since corresponding low-fidelity response
+  /// portions were still pending.
   IntResponseMap cachedTruthRespMap;
+
+  /// provides approximate low fidelity function evaluations.  Model is of
+  /// arbitrary type and supports recursions (e.g., lowFidelityModel can be
+  /// a data fit surrogate on a low fidelity model).
+  Model lowFidelityModel;
+
+  /// provides truth evaluations for computing corrections to the low
+  /// fidelity results.  Model is of arbitrary type and supports recursions.
+  Model highFidelityModel;
+
+  /// the reference high fidelity response computed in build_approximation()
+  /// and used for calculating corrections.
+  Response highFidRefResponse;
+
+  /// cached evalTag Prefix from parents to use at compute_response time
+  String evalTagPrefix;
 };
 
 
@@ -240,137 +186,23 @@ inline HierarchSurrModel::~HierarchSurrModel()
 { } // Virtual destructor handles referenceCount at Strategy level.
 
 
-inline void HierarchSurrModel::check_interface_instance()
-{
-  if (sameModelInstance) sameInterfaceInstance = true;
-  else
-    sameInterfaceInstance
-      = (orderedModels[lowFidelityIndices.first].interface_id() ==
-         orderedModels[highFidelityIndices.first].interface_id());
-}
-
-
 inline Model& HierarchSurrModel::surrogate_model()
-{
-  return orderedModels[lowFidelityIndices.first];
-}
-
-
-inline DiscrepancyCorrection& HierarchSurrModel::discrepancy_correction()
-{
-  return deltaCorr[std::make_pair(lowFidelityIndices,highFidelityIndices)];
-}
-
-
-inline void HierarchSurrModel::
-surrogate_model_indices(size_t lf_model_index, size_t lf_soln_lev_index)
-{
-  lowFidelityIndices.first  = lf_model_index;
-  lowFidelityIndices.second = lf_soln_lev_index; // including _NPOS default
-  sameModelInstance = (lf_model_index == highFidelityIndices.first);
-  check_interface_instance();
-
-  if (lf_soln_lev_index != _NPOS)
-    orderedModels[lf_model_index].solution_level_index(lf_soln_lev_index);
-
-  DiscrepancyCorrection&delta_corr = deltaCorr[std::make_pair(lowFidelityIndices,highFidelityIndices)];
-  if (!delta_corr.initialized())
-    delta_corr.initialize(orderedModels[lowFidelityIndices.first], surrogateFnIndices,
-                                 corrType, corrOrder);
-
-  // TO DO:
-  //deltaCorr.surrogate_model(orderedModels[lf_model_index]);
-  //deltaCorr.clear();
-}
-
-
-inline void HierarchSurrModel::
-surrogate_model_indices(const SizetSizetPair& lf_form_level)
-{
-  lowFidelityIndices = lf_form_level;
-  size_t lf_model_index = lf_form_level.first,
-         lf_soln_lev_index = lf_form_level.second;
-  sameModelInstance = (lf_model_index == highFidelityIndices.first);
-  check_interface_instance();
-
-  if (lf_soln_lev_index != _NPOS)
-    orderedModels[lf_model_index].solution_level_index(lf_soln_lev_index);
-
-  DiscrepancyCorrection&delta_corr = deltaCorr[std::make_pair(lowFidelityIndices,highFidelityIndices)];
-  if (!delta_corr.initialized())
-    delta_corr.initialize(orderedModels[lowFidelityIndices.first], surrogateFnIndices,
-                                 corrType, corrOrder);
-
-  // TO DO:
-  //deltaCorr.surrogate_model(orderedModels[lf_model_index]);
-  //deltaCorr.clear();
-}
-
-
-inline const SizetSizetPair& HierarchSurrModel::surrogate_model_indices() const
-{
-  return lowFidelityIndices;
-}
+{ return lowFidelityModel; }
 
 
 inline Model& HierarchSurrModel::truth_model()
-{
-  return orderedModels[highFidelityIndices.first];
-}
-
-
-inline void HierarchSurrModel::
-truth_model_indices(size_t hf_model_index, size_t hf_soln_lev_index)
-{
-  highFidelityIndices.first  = hf_model_index;
-  highFidelityIndices.second = hf_soln_lev_index; // including _NPOS default
-  sameModelInstance = (hf_model_index == lowFidelityIndices.first);
-  check_interface_instance();
-
-  if (hf_soln_lev_index != _NPOS)
-    orderedModels[hf_model_index].solution_level_index(hf_soln_lev_index);
-
-  DiscrepancyCorrection& delta_corr = deltaCorr[std::make_pair(lowFidelityIndices,highFidelityIndices)];
-  if (!delta_corr.initialized())
-    delta_corr.initialize(orderedModels[lowFidelityIndices.first], surrogateFnIndices,
-                                 corrType, corrOrder);
-}
-
-
-inline void HierarchSurrModel::
-truth_model_indices(const SizetSizetPair& hf_form_level)
-{
-  highFidelityIndices = hf_form_level;
-  size_t hf_model_index = hf_form_level.first,
-         hf_soln_lev_index = hf_form_level.second;
-  sameModelInstance = (hf_model_index == lowFidelityIndices.first);
-  check_interface_instance();
-
-  if (hf_soln_lev_index != _NPOS)
-    orderedModels[hf_model_index].solution_level_index(hf_soln_lev_index);
-
-  DiscrepancyCorrection&delta_corr = deltaCorr[std::make_pair(lowFidelityIndices,highFidelityIndices)];
-  if (!delta_corr.initialized())
-    delta_corr.initialize(orderedModels[lowFidelityIndices.first], surrogateFnIndices,
-                                 corrType, corrOrder);
-}
-
-
-inline const SizetSizetPair& HierarchSurrModel::truth_model_indices() const
-{
-  return highFidelityIndices;
-}
+{ return highFidelityModel; }
 
 
 inline void HierarchSurrModel::
 derived_subordinate_models(ModelList& ml, bool recurse_flag)
 {
-  size_t i, num_models = orderedModels.size();
-  for (i=0; i<num_models; ++i) {
-    ml.push_back(orderedModels[i]);
-    if (recurse_flag)
-      orderedModels[i].derived_subordinate_models(ml, true);
-  }
+  ml.push_back(lowFidelityModel);
+  if (recurse_flag)
+    lowFidelityModel.derived_subordinate_models(ml, true);
+  ml.push_back(highFidelityModel);
+  if (recurse_flag)
+    highFidelityModel.derived_subordinate_models(ml, true);
 }
 
 
@@ -379,9 +211,8 @@ primary_response_fn_weights(const RealVector& wts, bool recurse_flag)
 {
   primaryRespFnWts = wts;
   if (recurse_flag) {
-    size_t i, num_models = orderedModels.size();
-    for (i=0; i<num_models; ++i)
-      orderedModels[i].primary_response_fn_weights(wts, recurse_flag);
+    lowFidelityModel.primary_response_fn_weights(wts,  recurse_flag);
+    highFidelityModel.primary_response_fn_weights(wts, recurse_flag);
   }
 }
 
@@ -389,58 +220,189 @@ primary_response_fn_weights(const RealVector& wts, bool recurse_flag)
 inline void HierarchSurrModel::surrogate_response_mode(short mode)
 {
   responseMode = mode;
-  // if necessary, resize the response for entering/exiting an aggregated mode.
-  // Since parallel job scheduling only involves either the LF or HF model at
-  // any given time, this call does not need to be matched on serve_run() procs.
-  resize_response();
-
-  // don't pass to low fidelity model (in case it includes surrogates) since
+  // don't pass to lowFidelityModel (in case it includes surrogates) since the
   // point of a surrogate bypass is to get a surrogate-free truth evaluation
   if (mode == BYPASS_SURROGATE) // recurse in this case
-    orderedModels[highFidelityIndices.first].surrogate_response_mode(mode);
+    highFidelityModel.surrogate_response_mode(mode);
 }
 
 
 inline void HierarchSurrModel::
 surrogate_function_indices(const IntSet& surr_fn_indices)
+{ surrogateFnIndices = surr_fn_indices; }
+
+
+inline void HierarchSurrModel::
+derived_init_communicators(int max_iterator_concurrency, bool recurse_flag)
 {
-  surrogateFnIndices = surr_fn_indices;
+  // responseMode is a run-time setting (in SBLMinimizer, it is switched among
+  // AUTO_CORRECTED_SURROGATE, BYPASS_SURROGATE, and UNCORRECTED_SURROGATE;
+  // in NonDExpansion, it is switching between MODEL_DISCREPANCY and
+  // UNCORRECTED_SURROGATE).  Since it is neither static nor generally
+  // available at construct/init time, take a conservative approach with init
+  // and free and a more aggressive approach with set.
+
+  if (recurse_flag) {
+    // superset of possible init calls (two configurations for HF)
+    lowFidelityModel.init_communicators(max_iterator_concurrency);
+    highFidelityModel.init_communicators(
+      highFidelityModel.derivative_concurrency());
+    highFidelityModel.init_communicators(max_iterator_concurrency);
+
+    /*
+    switch (responseMode) {
+    case UNCORRECTED_SURROGATE:
+      // LF are used in iterator evals
+      lowFidelityModel.init_communicators(max_iterator_concurrency);
+      break;
+    case AUTO_CORRECTED_SURROGATE:
+      // LF are used in iterator evals
+      lowFidelityModel.init_communicators(max_iterator_concurrency);
+      // HF evals are for correction and validation:
+      // concurrency = one eval at a time * derivative concurrency per eval
+      highFidelityModel.init_communicators(
+	highFidelityModel.derivative_concurrency());
+      break;
+    case BYPASS_SURROGATE:
+      // HF are used in iterator evals
+      highFidelityModel.init_communicators(max_iterator_concurrency);
+      break;
+    case MODEL_DISCREPANCY:
+      // LF and HF are used in iterator evals
+      lowFidelityModel.init_communicators(max_iterator_concurrency);
+      highFidelityModel.init_communicators(max_iterator_concurrency);
+      break;
+    }
+    */
+  }
 }
 
 
-inline IntIntPair HierarchSurrModel::
-estimate_partition_bounds(int max_eval_concurrency)
+inline void HierarchSurrModel::
+derived_set_communicators(int max_iterator_concurrency, bool recurse_flag)
 {
-  // responseMode is a run-time setting, so we are conservative on usage of
-  // max_eval_concurrency as in derived_init_communicators()
+  // asynchEvalFlag & asynchEvalFlag assignments are not overridden in
+  // Model::set_communicators() since HierarchSurrModels do not define
+  // the ie_parallel_level
 
-  size_t i, num_models = orderedModels.size();
-  IntIntPair min_max(INT_MAX, INT_MIN), min_max_i;
-  for (i=0; i<num_models; ++i) {
-    Model& model_i = orderedModels[i];
-    probDescDB.set_db_model_nodes(model_i.model_id());
-    min_max_i = model_i.estimate_partition_bounds(max_eval_concurrency);
-    if (min_max_i.first  < min_max.first)  min_max.first  = min_max_i.first;
-    if (min_max_i.second > min_max.second) min_max.second = min_max_i.second;
+  // This aggressive logic is appropriate for invocations of the Model via
+  // Iterator::run(), but is fragile w.r.t. invocations of the Model outside
+  // this scope (e.g., Model::compute_response() within SBLMinimizer).  The
+  // default responseMode value is AUTO_CORRECTED_SURROGATE, which mitigates
+  // the specific case of SBLMinimizer, but the general fragility remains.
+  if (recurse_flag) {
+
+    switch (responseMode) {
+    case UNCORRECTED_SURROGATE:
+      lowFidelityModel.set_communicators(max_iterator_concurrency);
+      asynchEvalFlag     = lowFidelityModel.asynch_flag();
+      evaluationCapacity = lowFidelityModel.evaluation_capacity();
+      break;
+    case AUTO_CORRECTED_SURROGATE: {
+      lowFidelityModel.set_communicators(max_iterator_concurrency);
+      int hf_deriv_conc = highFidelityModel.derivative_concurrency();
+      highFidelityModel.set_communicators(hf_deriv_conc);
+      asynchEvalFlag = ( lowFidelityModel.asynch_flag() ||
+	( hf_deriv_conc > 1 && highFidelityModel.asynch_flag() ) );
+      evaluationCapacity = std::max( lowFidelityModel.evaluation_capacity(),
+				     highFidelityModel.evaluation_capacity() );
+      break;
+    }
+    case BYPASS_SURROGATE:
+      highFidelityModel.set_communicators(max_iterator_concurrency);
+      asynchEvalFlag     = highFidelityModel.asynch_flag();
+      evaluationCapacity = highFidelityModel.evaluation_capacity();
+      break;
+    case MODEL_DISCREPANCY:
+      lowFidelityModel.set_communicators(max_iterator_concurrency);
+      highFidelityModel.set_communicators(max_iterator_concurrency);
+      asynchEvalFlag = ( lowFidelityModel.asynch_flag() ||
+			 highFidelityModel.asynch_flag() );
+      evaluationCapacity = std::max( lowFidelityModel.evaluation_capacity(),
+				     highFidelityModel.evaluation_capacity() );
+      break;
+    }
   }
-  return min_max;
-
-  // list nodes are reset at the calling level after completion of recursion
 }
 
 
 inline void HierarchSurrModel::derived_init_serial()
 {
-  size_t i, num_models = orderedModels.size();
-  for (i=0; i<num_models; ++i)
-    orderedModels[i].init_serial();
+  lowFidelityModel.init_serial();
+  highFidelityModel.init_serial();
+}
+
+
+inline void HierarchSurrModel::
+derived_free_communicators(int max_iterator_concurrency, bool recurse_flag)
+{
+  if (recurse_flag) {
+    // superset of possible free calls (two configurations for HF)
+    lowFidelityModel.free_communicators(max_iterator_concurrency);
+    highFidelityModel.free_communicators(
+      highFidelityModel.derivative_concurrency());
+    highFidelityModel.free_communicators(max_iterator_concurrency);
+
+    /*
+    switch (responseMode) {
+    case UNCORRECTED_SURROGATE:
+      lowFidelityModel.free_communicators(max_iterator_concurrency);
+      break;
+    case AUTO_CORRECTED_SURROGATE:
+      lowFidelityModel.free_communicators(max_iterator_concurrency);
+      highFidelityModel.free_communicators(
+	highFidelityModel.derivative_concurrency());
+      break;
+    case BYPASS_SURROGATE:
+      highFidelityModel.free_communicators(max_iterator_concurrency);
+      break;
+    case MODEL_DISCREPANCY:
+      lowFidelityModel.free_communicators(max_iterator_concurrency);
+      highFidelityModel.free_communicators(max_iterator_concurrency);
+      break;
+    }
+    */
+  }
+}
+
+
+inline void HierarchSurrModel::serve(int max_iterator_concurrency)
+{
+  set_communicators(max_iterator_concurrency, false); // don't recurse
+
+  // manage lowFidelityModel and highFidelityModel servers, matching
+  // communication from HierarchSurrModel::component_parallel_mode()
+  componentParallelMode = 1;
+  while (componentParallelMode) {
+    parallelLib.bcast_i(componentParallelMode);
+    if (componentParallelMode == LF_MODEL) {
+      lowFidelityModel.serve(max_iterator_concurrency);
+      // Note: ignores erroneous BYPASS_SURROGATE to avoid responseMode bcast
+    }
+    else if (componentParallelMode == HF_MODEL) {
+      // receive responseMode from HierarchSurrModel::component_parallel_mode()
+      parallelLib.bcast_i(responseMode);
+      // employ correct iterator concurrency for highFidelityModel
+      switch (responseMode) {
+      case UNCORRECTED_SURROGATE:
+	Cerr << "Error: setting parallel mode to HF_MODEL is erroneous for a "
+	     << "response mode of UNCORRECTED_SURROGATE." << std::endl;
+	abort_handler(-1);
+	break;
+      case AUTO_CORRECTED_SURROGATE:
+	highFidelityModel.serve(highFidelityModel.derivative_concurrency());
+	break;
+      case BYPASS_SURROGATE: case MODEL_DISCREPANCY:
+	highFidelityModel.serve(max_iterator_concurrency);
+	break;
+      }
+    }
+  }
 }
 
 
 inline void HierarchSurrModel::stop_servers()
-{
-  component_parallel_mode(0);
-}
+{ component_parallel_mode(0); }
 
 
 inline void HierarchSurrModel::inactive_view(short view, bool recurse_flag)
@@ -448,42 +410,46 @@ inline void HierarchSurrModel::inactive_view(short view, bool recurse_flag)
   currentVariables.inactive_view(view);
   userDefinedConstraints.inactive_view(view);
   if (recurse_flag) {
-    size_t i, num_models = orderedModels.size();
-    for (i=0; i<num_models; ++i)
-      orderedModels[i].inactive_view(view, recurse_flag);
+    lowFidelityModel.inactive_view(view,  recurse_flag);
+    highFidelityModel.inactive_view(view, recurse_flag);
   }
 }
 
 
+/** return the hierarchical model evaluation count.  Due to possibly
+    intermittent use of surrogate bypass, this is not the same as
+    either the loFi or hiFi model evaluation counts.  It also does not
+    distinguish duplicate evals. */
+inline int HierarchSurrModel::evaluation_id() const
+{ return hierModelEvalCntr; }
+
+
 inline void HierarchSurrModel::set_evaluation_reference()
 {
-  //orderedModels[lowFidelityIndices.first].set_evaluation_reference();
+  //lowFidelityModel.set_evaluation_reference();
 
   // don't recurse this, since the eval reference is for the top level iteration
   //if (responseMode == BYPASS_SURROGATE)
-  //  orderedModels[highFidelityIndices.first].set_evaluation_reference();
+  //highFidelityModel.set_evaluation_reference();
 
   // may want to add this in time
-  //surrModelEvalRef = surrModelEvalCntr;
+  //hierModelEvalRef = hierModelEvalCntr;
 }
 
 
 inline void HierarchSurrModel::fine_grained_evaluation_counters()
 {
-  size_t i, num_models = orderedModels.size();
-  for (i=0; i<num_models; ++i)
-    orderedModels[i].fine_grained_evaluation_counters();
+  lowFidelityModel.fine_grained_evaluation_counters();
+  highFidelityModel.fine_grained_evaluation_counters();
 }
 
 
 inline void HierarchSurrModel::
 print_evaluation_summary(std::ostream& s, bool minimal_header,
-                         bool relative_count) const
+			 bool relative_count) const
 {
-  size_t i, num_models = orderedModels.size();
-  for (i=0; i<num_models; ++i)
-    orderedModels[i].print_evaluation_summary(s, minimal_header,
-        relative_count);
+  lowFidelityModel.print_evaluation_summary(s, minimal_header, relative_count);
+  highFidelityModel.print_evaluation_summary(s, minimal_header, relative_count);
 }
 
 } // namespace Dakota

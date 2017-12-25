@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,7 +17,6 @@
 #include <sys/utsname.h>
 #include "dakota_data_types.hpp"
 #include "TrackerHTTP.hpp"
-#include "ProblemDescDB.hpp"
 #include "DakotaIterator.hpp"
 #include "DakotaBuildInfo.hpp"
 
@@ -56,13 +55,17 @@ enum {TH_SILENT_OUTPUT, TH_QUIET_OUTPUT, TH_NORMAL_OUTPUT, TH_VERBOSE_OUTPUT,
 TrackerHTTP::TrackerHTTP(): 
   curlPtr(NULL), devNull(NULL), timeoutSeconds(2), dakotaVersion("unknown"), 
   outputLevel(TH_SILENT_OUTPUT)
-{ /* no-op */ }
+{  
+  initialize();
+}
 
-TrackerHTTP::TrackerHTTP(int world_rank): 
+  TrackerHTTP::TrackerHTTP(ProblemDescDB& problem_db, int world_rank): 
   curlPtr(NULL), devNull(NULL), timeoutSeconds(2), dakotaVersion("unknown"),
   outputLevel(TH_SILENT_OUTPUT)
 {
   initialize(world_rank);
+  if (curlPtr != NULL)
+    populate_method_list(problem_db);
 }
 
 TrackerHTTP::~TrackerHTTP() 
@@ -70,17 +73,14 @@ TrackerHTTP::~TrackerHTTP()
   if (devNull)
     std::fclose(devNull);
 
-  if (curlPtr) {
+  if (curlPtr)
     curl_easy_cleanup(curlPtr);
-    curlPtr = NULL;
- } 
 }
 
-void TrackerHTTP::post_start(ProblemDescDB& problem_db)
+void TrackerHTTP::post_start()
 {
-  if (curlPtr == NULL) return;
-  
-  populate_method_list(problem_db);
+  if (curlPtr == NULL)
+    return;
 
   startTime = std::time(NULL);  // archive the start time
   
@@ -126,6 +126,11 @@ void TrackerHTTP::post_finish(unsigned runtime)
 
 void TrackerHTTP::initialize(int world_rank)
 {
+  // Avoid tracking if user specified none or on rank > 0
+  char *ptr_notrack = std::getenv("DAKOTA_NO_TRACKING");
+  if (ptr_notrack != NULL || world_rank > 0)
+    return;
+
   dakotaVersion = DakotaBuildInfo::get_rev_number();
 
   curlPtr = curl_easy_init();
@@ -172,11 +177,11 @@ void TrackerHTTP::populate_method_list(ProblemDescDB& problem_db)
   // TODO: consider sorting and removing duplicates -- probably not
   // TODO: fix trailing comma
   // TODO: consider "uses_method"
-  const IteratorList& dakota_iterators = problem_db.iterator_list();
-  IteratorList::const_iterator itit  = dakota_iterators.begin();
-  IteratorList::const_iterator itend = dakota_iterators.end();
+  IteratorList dakota_iterators = problem_db.iterator_list();
+  IterLIter itit  = dakota_iterators.begin();
+  IterLIter itend = dakota_iterators.end();
   for ( ; itit != itend; ++itit)
-    methodList += itit->method_string() + ",";
+    methodList += itit->method_name() + ",";
 }
 
 
@@ -229,7 +234,6 @@ void TrackerHTTP::send_data_using_post(const std::string& datatopost) const
   if (outputLevel > TH_NORMAL_OUTPUT)
     Cout << "POSTing data:\n" << datatopost << "\nto URL\n" << trackerLocation 
 	 << std::endl;
-
 
   char* cstr_location = new char[trackerLocation.size()+1];
   std::strcpy(cstr_location, trackerLocation.c_str());

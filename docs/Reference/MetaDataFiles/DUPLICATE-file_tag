@@ -1,0 +1,26 @@
+Blurb::
+Tag each parameters & results file name with the function evaluation number
+Description::
+If this keyword is used, Dakota will append a period and the function evaluation
+number to the names of the parameter and results files.
+
+For examples, for the 3rd function evaluation:
+\verbatim
+  parameters_file = params.in
+  results_file = results.out
+  file_tag
+\endverbatim
+Dakota will write \c params.in.3, and will expect \c results.out.3 to be written by the analysis driver.
+
+If this keyword is omitted, the default is no file tagging. 
+
+File tagging is most useful when multiple
+function evaluations are running simultaneously using files in a
+shared disk space. The analysis driver will be able to
+infer the function evaluation number from the file names.
+
+Topics::
+Examples::
+Theory::
+Faq::
+See_Also::	

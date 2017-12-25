@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -11,111 +11,67 @@
 //- Owner:        Mike Eldred
 
 #include "DataModel.hpp"
-#include "DataMethod.hpp" // shared scheduling enums
 #include "dakota_data_io.hpp"
 
 
 namespace Dakota {
 
 DataModelRep::DataModelRep():
-  modelType("simulation"),
-//approxPointReuse("none"), // default depends on point import
+  modelType("single"), //approxPointReuse("none"),
   hierarchicalTags(false),
-  pointsTotal(0), pointsManagement(DEFAULT_POINTS), exportSurrogate(false),
-  modelExportPrefix("exported_surrogate"), modelExportFormat(NO_MODEL_FORMAT),
-  importBuildFormat(TABULAR_ANNOTATED),  importBuildActive(false),
-//importApproxFormat(TABULAR_ANNOTATED), importApproxActive(false),
-  exportApproxFormat(TABULAR_ANNOTATED),
+  pointsTotal(0), pointsManagement(DEFAULT_POINTS), 
+  approxImportAnnotated(true), approxExportAnnotated(true),
   approxCorrectionType(NO_CORRECTION), approxCorrectionOrder(0),
   modelUseDerivsFlag(false), polynomialOrder(2), krigingMaxTrials(0),
-  krigingNugget(0.0), krigingFindNugget(0), mlsWeightFunction(0),
-  rbfBases(0), rbfMaxPts(0), rbfMaxSubsets(0), rbfMinPartition(0),
-  marsMaxBases(0), annRandomWeight(0), annNodes(0), annRange(0.0), 
-  domainDecomp(false), decompCellType("voronoi"), decompSupportLayers(0),
-  decompDiscontDetect(false), discontJumpThresh(0.0), discontGradThresh(0.0),
-  trendOrder("reduced_quadratic"), pointSelection(false),
-  crossValidateFlag(false), numFolds(0), percentFold(0.0), pressFlag(false),
-  importChallengeFormat(TABULAR_ANNOTATED), importChallengeActive(false),
-  subMethodServers(0), subMethodProcs(0), // 0 defaults to detect user spec
-  subMethodScheduling(DEFAULT_SCHEDULING),
-  initialSamples(0), maxIterations(100), convergenceTolerance(1.0e-4),
-  softConvergenceLimit(0), subspaceIdBingLi(false), subspaceIdConstantine(false),
-  subspaceIdEnergy(false), subspaceBuildSurrogate(false),
-  subspaceSampleType(SUBMETHOD_DEFAULT), referenceCount(1),
-  dimension(0), numReplicates(100), autoRefine(false), maxFunctionEvals(1000),
-  refineCVMetric("root_mean_squared"), refineCVFolds(10),
-  truncationTolerance(1.0e-6), analyticCovIdForm(NOCOVAR)
+  krigingNugget(0.0), krigingFindNugget(0), mlsPolyOrder(0), mlsWeightFunction(0), 
+  rbfBases(0), rbfMaxPts(0), rbfMaxSubsets(0), rbfMinPartition(0), marsMaxBases(0), 
+  annRandomWeight(0),annNodes(0), annRange(0.0), trendOrder("reduced_quadratic"),
+  pointSelection(false), crossValidateFlag(false), numFolds(0), percentFold(0.0),
+  pressFlag(false), approxChallengeAnnotated(true), referenceCount(1)
 { }
 
 
 void DataModelRep::write(MPIPackBuffer& s) const
 {
   s << idModel << modelType << variablesPointer << interfacePointer
-    << responsesPointer << hierarchicalTags << subMethodPointer
-    << solutionLevelControl << solutionLevelCost << surrogateFnIndices
-    << surrogateType << actualModelPointer << orderedModelPointers
-    << pointsTotal << pointsManagement << approxPointReuse
-    << importBuildPtsFile << importBuildFormat << exportSurrogate
-    << modelExportPrefix << modelExportFormat << importBuildActive
-  //<< importApproxPtsFile << importApproxFormat << importApproxActive
-    << exportApproxPtsFile << exportApproxFormat 
+    << responsesPointer << hierarchicalTags << subMethodPointer 
+    << surrogateFnIndices
+    << surrogateType << truthModelPointer << lowFidelityModelPointer
+    << pointsTotal << pointsManagement << approxPointReuse << approxImportFile
+    << approxImportAnnotated << approxExportFile << approxExportAnnotated
+    << approxExportModelFile 
     << approxCorrectionType << approxCorrectionOrder << modelUseDerivsFlag
     << polynomialOrder << krigingCorrelations << krigingOptMethod
     << krigingMaxTrials << krigingMaxCorrelations << krigingMinCorrelations
-    << krigingNugget << krigingFindNugget << mlsWeightFunction
-    << rbfBases << rbfMaxPts << rbfMaxSubsets << rbfMinPartition
-    << marsMaxBases << marsInterpolation << annRandomWeight << annNodes
-    << annRange << domainDecomp << decompCellType << decompSupportLayers
-    << decompDiscontDetect << discontJumpThresh << discontGradThresh
-    << trendOrder << pointSelection << diagMetrics << crossValidateFlag
-    << numFolds << percentFold << pressFlag << importChallengePtsFile
-    << importChallengeFormat << importChallengeActive
-    << optionalInterfRespPointer << primaryVarMaps << secondaryVarMaps
-    << primaryRespCoeffs << secondaryRespCoeffs << subMethodServers
-    << subMethodProcs << subMethodScheduling 
-    << initialSamples << refineSamples << maxIterations 
-    << convergenceTolerance << softConvergenceLimit << subspaceIdBingLi 
-    << subspaceIdConstantine << subspaceIdEnergy << subspaceBuildSurrogate
-    << dimension << numReplicates << autoRefine << maxFunctionEvals
-    << refineCVMetric << refineCVFolds << propagationModelPointer
-    << truncationTolerance << rfDataFileName << randomFieldIdForm
-    << analyticCovIdForm << subspaceSampleType;
+    << krigingNugget << krigingFindNugget << mlsPolyOrder << mlsWeightFunction 
+    << rbfBases << rbfMaxPts << rbfMaxSubsets << rbfMinPartition << marsMaxBases 
+    << marsInterpolation << annRandomWeight << annNodes << annRange << trendOrder 
+    << pointSelection << diagMetrics << crossValidateFlag << numFolds 
+    << percentFold << pressFlag  << approxChallengeFile << approxChallengeAnnotated 
+    << optionalInterfRespPointer << primaryVarMaps
+    << secondaryVarMaps << primaryRespCoeffs << secondaryRespCoeffs;
 }
-
 
 
 void DataModelRep::read(MPIUnpackBuffer& s)
 {
   s >> idModel >> modelType >> variablesPointer >> interfacePointer
     >> responsesPointer >> hierarchicalTags >> subMethodPointer 
-    >> solutionLevelControl >> solutionLevelCost >> surrogateFnIndices
-    >> surrogateType >> actualModelPointer >> orderedModelPointers
-    >> pointsTotal >> pointsManagement >> approxPointReuse
-    >> importBuildPtsFile >> importBuildFormat >> exportSurrogate
-    >> modelExportPrefix >> modelExportFormat >> importBuildActive
-  //>> importApproxPtsFile >> importApproxFormat >> importApproxActive
-    >> exportApproxPtsFile >> exportApproxFormat 
+    >> surrogateFnIndices
+    >> surrogateType >> truthModelPointer >> lowFidelityModelPointer
+    >> pointsTotal >> pointsManagement >> approxPointReuse >> approxImportFile
+    >> approxImportAnnotated >> approxExportFile >> approxExportAnnotated
+    >> approxExportModelFile 
     >> approxCorrectionType >> approxCorrectionOrder >> modelUseDerivsFlag
     >> polynomialOrder >> krigingCorrelations >> krigingOptMethod
     >> krigingMaxTrials >> krigingMaxCorrelations >> krigingMinCorrelations
-    >> krigingNugget >> krigingFindNugget >> mlsWeightFunction
-    >> rbfBases >> rbfMaxPts >> rbfMaxSubsets >> rbfMinPartition
-    >> marsMaxBases >> marsInterpolation >> annRandomWeight >> annNodes
-    >> annRange >> domainDecomp >> decompCellType >> decompSupportLayers
-    >> decompDiscontDetect >> discontJumpThresh >> discontGradThresh
-    >> trendOrder >> pointSelection >> diagMetrics >> crossValidateFlag
-    >> numFolds >> percentFold >> pressFlag >> importChallengePtsFile
-    >> importChallengeFormat >> importChallengeActive
-    >> optionalInterfRespPointer >> primaryVarMaps >> secondaryVarMaps
-    >> primaryRespCoeffs >> secondaryRespCoeffs >> subMethodServers
-    >> subMethodProcs >> subMethodScheduling     
-    >> initialSamples >> refineSamples >> maxIterations 
-    >> convergenceTolerance >> softConvergenceLimit >> subspaceIdBingLi 
-    >> subspaceIdConstantine >> subspaceIdEnergy >> subspaceBuildSurrogate
-    >> dimension >> numReplicates >> autoRefine >> maxFunctionEvals
-    >> refineCVMetric >> refineCVFolds >> propagationModelPointer
-    >> truncationTolerance >> rfDataFileName >> randomFieldIdForm
-    >> analyticCovIdForm >> subspaceSampleType;
+    >> krigingNugget >> krigingFindNugget >> mlsPolyOrder >> mlsWeightFunction
+    >> rbfBases >> rbfMaxPts >> rbfMaxSubsets >> rbfMinPartition >> marsMaxBases
+    >> marsInterpolation >> annRandomWeight >> annNodes >> annRange >> trendOrder 
+    >> pointSelection >> diagMetrics >> crossValidateFlag >> numFolds 
+    >> percentFold >> pressFlag  >> approxChallengeFile >> approxChallengeAnnotated 
+    >> optionalInterfRespPointer >> primaryVarMaps
+    >> secondaryVarMaps >> primaryRespCoeffs >> secondaryRespCoeffs;
 }
 
 
@@ -123,34 +79,21 @@ void DataModelRep::write(std::ostream& s) const
 {
   s << idModel << modelType << variablesPointer << interfacePointer
     << responsesPointer << hierarchicalTags << subMethodPointer 
-    << solutionLevelControl << solutionLevelCost << surrogateFnIndices
-    << surrogateType << actualModelPointer << orderedModelPointers
-    << pointsTotal << pointsManagement << approxPointReuse
-    << importBuildPtsFile << importBuildFormat << exportSurrogate
-    << modelExportPrefix << modelExportFormat << importBuildActive
-  //<< importApproxPtsFile << importApproxFormat << importApproxActive
-    << exportApproxPtsFile << exportApproxFormat 
+    << surrogateFnIndices
+    << surrogateType << truthModelPointer << lowFidelityModelPointer
+    << pointsTotal << pointsManagement << approxPointReuse << approxImportFile
+    << approxImportAnnotated << approxExportFile << approxExportAnnotated
+    << approxExportModelFile
     << approxCorrectionType << approxCorrectionOrder << modelUseDerivsFlag
     << polynomialOrder << krigingCorrelations << krigingOptMethod
     << krigingMaxTrials << krigingMaxCorrelations << krigingMinCorrelations
-    << krigingNugget << krigingFindNugget << mlsWeightFunction
-    << rbfBases << rbfMaxPts << rbfMaxSubsets << rbfMinPartition
-    << marsMaxBases << marsInterpolation << annRandomWeight << annNodes
-    << annRange << domainDecomp << decompCellType << decompSupportLayers
-    << decompDiscontDetect << discontJumpThresh << discontGradThresh
-    << trendOrder << pointSelection << diagMetrics << crossValidateFlag
-    << numFolds << percentFold << pressFlag << importChallengePtsFile
-    << importChallengeFormat << importChallengeActive
-    << optionalInterfRespPointer << primaryVarMaps << secondaryVarMaps
-    << primaryRespCoeffs << secondaryRespCoeffs << subMethodServers
-    << subMethodProcs << subMethodScheduling 
-    << initialSamples << refineSamples << maxIterations 
-    << convergenceTolerance << subspaceIdBingLi << subspaceIdConstantine
-    << subspaceIdEnergy << subspaceBuildSurrogate
-    << dimension << numReplicates << autoRefine << maxFunctionEvals
-    << refineCVMetric << refineCVFolds << propagationModelPointer
-    << truncationTolerance << rfDataFileName << randomFieldIdForm 
-    << analyticCovIdForm << subspaceSampleType;
+    << krigingNugget << krigingFindNugget << mlsPolyOrder << mlsWeightFunction 
+    << rbfBases << rbfMaxPts << rbfMaxSubsets << rbfMinPartition << marsMaxBases
+    << marsInterpolation << annRandomWeight << annNodes << annRange << trendOrder
+    << pointSelection << diagMetrics << crossValidateFlag << numFolds 
+    << percentFold << pressFlag  << approxChallengeFile << approxChallengeAnnotated 
+    << optionalInterfRespPointer << primaryVarMaps
+    << secondaryVarMaps << primaryRespCoeffs << secondaryRespCoeffs;
 }
 
 
@@ -168,7 +111,7 @@ DataModel::DataModel(const DataModel& data_model)
   // Increment new (no old to decrement)
   dataModelRep = data_model.dataModelRep;
   if (dataModelRep) // Check for an assignment of NULL
-    ++dataModelRep->referenceCount;
+    dataModelRep->referenceCount++;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "DataModel::DataModel(DataModel&)" << std::endl;
@@ -189,7 +132,7 @@ DataModel& DataModel::operator=(const DataModel& data_model)
     // Assign and increment new
     dataModelRep = data_model.dataModelRep;
     if (dataModelRep) // Check for NULL
-      ++dataModelRep->referenceCount;
+      dataModelRep->referenceCount++;
   }
   // else if assigning same rep, then do nothing since referenceCount
   // should already be correct

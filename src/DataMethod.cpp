@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,22 +21,16 @@
 namespace Dakota {
 
 DataMethodRep::DataMethodRep():
-  methodName(DEFAULT_METHOD), subMethod(SUBMETHOD_DEFAULT),
-  methodOutput(NORMAL_OUTPUT), maxIterations(-1), maxRefineIterations(-1),
-  maxSolverIterations(-1), maxFunctionEvaluations(1000), speculativeFlag(false),
-  methodUseDerivsFlag(false), convergenceTolerance(1.e-4),
-  constraintTolerance(0.), methodScaling(false), numFinalSolutions(0),
-  // Meta-iterators
-  iteratorServers(0), procsPerIterator(0), // 0 defaults to detect user spec
-  iteratorScheduling(DEFAULT_SCHEDULING), hybridLSProb(0.1),
-  //hybridProgThresh(0.5),
-  concurrentRandomJobs(0),
+  methodOutput(NORMAL_OUTPUT), maxIterations(-1), maxFunctionEvaluations(1000),
+  speculativeFlag(false), methodUseDerivsFlag(false),
+  convergenceTolerance(1.e-4), constraintTolerance(0.), methodScaling(false),
+  numFinalSolutions(0),
   // Local surrogate-based opt/NLS
-  softConvLimit(0), // dummy value -> method-specific default
-  surrBasedLocalLayerBypass(false),      surrBasedLocalTRInitSize(0.4),
-  surrBasedLocalTRMinSize(1.0e-6),       surrBasedLocalTRContractTrigger(0.25),
-  surrBasedLocalTRExpandTrigger(0.75),   surrBasedLocalTRContract(0.25),
-  surrBasedLocalTRExpand(2.0), surrBasedLocalSubProbObj(ORIGINAL_PRIMARY),
+  surrBasedLocalSoftConvLimit(5),        surrBasedLocalLayerBypass(false),
+  surrBasedLocalTRInitSize(0.4),         surrBasedLocalTRMinSize(1.0e-6),
+  surrBasedLocalTRContractTrigger(0.25), surrBasedLocalTRExpandTrigger(0.75),
+  surrBasedLocalTRContract(0.25),        surrBasedLocalTRExpand(2.0),
+  surrBasedLocalSubProbObj(ORIGINAL_PRIMARY),
   surrBasedLocalSubProbCon(ORIGINAL_CONSTRAINTS),
   surrBasedLocalMeritFn(AUGMENTED_LAGRANGIAN_MERIT),
   surrBasedLocalAcceptLogic(FILTER),     surrBasedLocalConstrRelax(NO_RELAX),
@@ -75,7 +69,7 @@ DataMethodRep::DataMethodRep():
   mutationRate(1.0),
   mutationScale(0.1), contractFactor(0.5),
   // These attributes replicate COLINY defaults due to convenience:
-  totalPatternSize(0), // simplifies maxEvalConcurrency calculation
+  totalPatternSize(0), // simplifies maxConcurrency calculation
   // These attributes define DAKOTA defaults which may differ from Coliny
   // defaults:
   solnTarget(-DBL_MAX), // COLINY default of 1.e-5 can cause premature term.
@@ -101,7 +95,7 @@ DataMethodRep::DataMethodRep():
   populationSize(50), //flatFile(),
   // NOMAD
   historyFile("mads_history"), displayFormat("bbe obj"), 
-  vns(0.0), neighborOrder(1), showAllEval(false),
+  vns(0.0), showAllEval(false),
   // NCSU 
   volBoxSize(-1.),
   // DDACE
@@ -113,78 +107,53 @@ DataMethodRep::DataMethodRep():
   // COLINY, JEGA, NonD, & DACE
   randomSeed(0),
   // NonD & DACE
-  numSamples(0), fixedSeedFlag(false), vbdFlag(false),
-  vbdDropTolerance(-1.),backfillFlag(false), pcaFlag(false),
-  percentVarianceExplained(0.95), wilksFlag(false), wilksOrder(1),
-  wilksConfidenceLevel(0.95), wilksSidedInterval(ONE_SIDED),
+  numSamples(0), fixedSeedFlag(false), previousSamples(0), vbdFlag(false),
+  vbdDropTolerance(-1.),
   // NonD
   vbdOrder(0), covarianceControl(DEFAULT_COVARIANCE), rngName("mt19937"),
   refinementType(Pecos::NO_REFINEMENT), refinementControl(Pecos::NO_CONTROL),
   nestingOverride(Pecos::NO_NESTING_OVERRIDE),
   growthOverride(Pecos::NO_GROWTH_OVERRIDE), expansionType(EXTENDED_U),
-  piecewiseBasis(false), expansionBasisType(Pecos::DEFAULT_BASIS),
+  piecewiseBasis(false), sparseGridBasisType(DEFAULT_INTERPOLANT),
   cubIntOrder(USHRT_MAX), collocationRatio(0.), collocRatioTermsOrder(1.),
   regressionType(Pecos::DEFAULT_REGRESSION), lsRegressionType(DEFAULT_LS),
-  regressionL2Penalty(0.), crossValidation(false), crossValidNoiseOnly(false),
-  //adaptedBasisInitLevel(0),
-  adaptedBasisAdvancements(3), normalizedCoeffs(false), tensorGridFlag(false),
-  //expansionSampleType("lhs"),
-  sampleType(SUBMETHOD_DEFAULT), dOptimal(false), reliabilitySearchType(MV),
-  integrationRefine(NO_INT_REFINE),
-  distributionType(CUMULATIVE), responseLevelTarget(PROBABILITIES),
-  responseLevelTargetReduce(COMPONENT), chainSamples(0), buildSamples(0),
-  samplesOnEmulator(0), emulatorOrder(0),
-  emulatorType(NO_EMULATOR), mcmcType("dram"), standardizedSpace(false),
-  subSamplingPeriod(1), burnInSamples(0), 
-  posteriorStatsKL(false), posteriorStatsMutual(false),
-  adaptPosteriorRefine(false), logitTransform(false),
-  preSolveMethod(SUBMETHOD_DEFAULT), proposalCovUpdates(0),
+  regressionL2Penalty(0.), crossValidation(false), normalizedCoeffs(false),
+  tensorGridFlag(false), //expansionSampleType("lhs"), sampleType("lhs"),
+  refineSamples(1000), distributionType(CUMULATIVE),
+  responseLevelTarget(PROBABILITIES), responseLevelTargetReduce(COMPONENT),
+  emulatorSamples(0), emulatorType(NO_EMULATOR), rejectionType("delayed"),
+  metropolisType("hastings"), likelihoodScale(1.0),
   fitnessMetricType("predicted_variance"), batchSelectionType("naive"),
-  lipschitzType("local"), calibrateErrorMode(CALIBRATE_NONE), 
-  numChains(3), numCR(3), crossoverChainPairs(3), grThreshold(1.2),
-  jumpStep(5), generatePosteriorSamples(false), evaluatePosteriorDensity(false),
-    // Parameter Study
-  numSteps(0), pstudyFileFormat(TABULAR_ANNOTATED), pstudyFileActive(false), 
+  batchSize(0),calibrateSigmaFlag(false), numChains(3), numCR(3),
+  crossoverChainPairs(3), grThreshold(1.2), jumpStep(5),
+  // Parameter Study
+  numSteps(0), pstudyFileAnnotated(true),
   // Verification
   refinementRate(2.),
   // Point import/export files
-  importBuildFormat(TABULAR_ANNOTATED),  importBuildActive(false),
-  importApproxFormat(TABULAR_ANNOTATED), importApproxActive(false),
-  exportApproxFormat(TABULAR_ANNOTATED), exportMCMCFormat(TABULAR_ANNOTATED),
-  referenceCount(1)
+  approxImportAnnotated(true), approxExportAnnotated(true), referenceCount(1)
 { }
 
 
 void DataMethodRep::write(MPIPackBuffer& s) const
 {
   s << idMethod << modelPointer << methodOutput << maxIterations
-    << maxRefineIterations << maxSolverIterations << maxFunctionEvaluations
-    << speculativeFlag << methodUseDerivsFlag << convergenceTolerance
-    << constraintTolerance << methodScaling << numFinalSolutions
-    << linearIneqConstraintCoeffs << linearIneqLowerBnds << linearIneqUpperBnds
-    << linearIneqScaleTypes << linearIneqScales << linearEqConstraintCoeffs
-    << linearEqTargets << linearEqScaleTypes << linearEqScales << methodName
-    << subMethod << subMethodName << subModelPointer << subMethodPointer
-    << lowFidModelPointer;
-
-  // Meta-iterators
-  s << iteratorServers << procsPerIterator << iteratorScheduling
-    << hybridMethodNames << hybridModelPointers << hybridMethodPointers
-  //<< hybridProgThresh
-    << hybridGlobalMethodName << hybridGlobalModelPointer
-    << hybridGlobalMethodPointer << hybridLocalMethodName
-    << hybridLocalModelPointer << hybridLocalMethodPointer << hybridLSProb
-  //<< branchBndNumSamplesRoot << branchBndNumSamplesNode
-    << concurrentRandomJobs << concurrentParameterSets;
+    << maxFunctionEvaluations << speculativeFlag << methodUseDerivsFlag
+    << convergenceTolerance << constraintTolerance << methodScaling
+    << numFinalSolutions << linearIneqConstraintCoeffs << linearIneqLowerBnds
+    << linearIneqUpperBnds << linearIneqScaleTypes << linearIneqScales
+    << linearEqConstraintCoeffs << linearEqTargets << linearEqScaleTypes
+    << linearEqScales << methodName << subMethodName << subMethodPointer;
 
   // Surrogate-based
-  s << softConvLimit << surrBasedLocalLayerBypass
+  s << surrBasedLocalSoftConvLimit << surrBasedLocalLayerBypass
     << surrBasedLocalTRInitSize << surrBasedLocalTRMinSize
     << surrBasedLocalTRContractTrigger << surrBasedLocalTRExpandTrigger
     << surrBasedLocalTRContract << surrBasedLocalTRExpand
     << surrBasedLocalSubProbObj << surrBasedLocalSubProbCon
     << surrBasedLocalMeritFn << surrBasedLocalAcceptLogic
     << surrBasedLocalConstrRelax << surrBasedGlobalReplacePts;
+  //<< branchBndNumSamplesRoot << branchBndNumSamplesNode
 
   // DL_SOLVER
   s << dlDetails;
@@ -242,85 +211,56 @@ void DataMethodRep::write(MPIPackBuffer& s) const
   s << randomSeed;
 
   // MADS
-  s << historyFile << displayFormat << vns << neighborOrder << showAllEval;
+  s << historyFile << displayFormat << vns << showAllEval;
 
   // NonD & DACE
-  s << numSamples << fixedSeedFlag << fixedSequenceFlag
-    << vbdFlag << vbdDropTolerance << backfillFlag << pcaFlag
-    << percentVarianceExplained << wilksFlag << wilksOrder
-    << wilksConfidenceLevel << wilksSidedInterval;
+  s << numSamples << fixedSeedFlag << fixedSequenceFlag << previousSamples
+    << vbdFlag << vbdDropTolerance;
 
   // NonD
   s << vbdOrder << covarianceControl << rngName << refinementType
     << refinementControl << nestingOverride << growthOverride << expansionType
-    << piecewiseBasis << expansionBasisType << expansionOrder
+    << piecewiseBasis << sparseGridBasisType << expansionOrder
     << expansionSamples << expansionSampleType << quadratureOrder
     << sparseGridLevel << anisoDimPref << cubIntOrder << collocationPoints
     << collocationRatio << collocRatioTermsOrder << regressionType
     << lsRegressionType << regressionNoiseTol << regressionL2Penalty
-    << crossValidation << crossValidNoiseOnly //<< adaptedBasisInitLevel
-    << adaptedBasisAdvancements << normalizedCoeffs << pointReuse
-    << tensorGridFlag << tensorGridOrder << importExpansionFile
-    << exportExpansionFile << sampleType << dOptimal << reliabilitySearchType
-    << reliabilityIntegration << integrationRefine << refineSamples
-    << pilotSamples << distributionType << responseLevelTarget
-    << responseLevelTargetReduce << responseLevels << probabilityLevels
-    << reliabilityLevels << genReliabilityLevels << chainSamples << buildSamples 
-    << samplesOnEmulator
-    << emulatorOrder << emulatorType << mcmcType << standardizedSpace
-    << posteriorStatsKL << posteriorStatsMutual 
-    << adaptPosteriorRefine << logitTransform << preSolveMethod
-    << proposalCovType << proposalCovUpdates << proposalCovInputType
-    << proposalCovData << proposalCovFile << fitnessMetricType
-    << batchSelectionType << calibrateErrorMode << hyperPriorAlphas
-    << hyperPriorBetas << burnInSamples << subSamplingPeriod
-    << numChains << numCR << crossoverChainPairs
-    << grThreshold << jumpStep << lipschitzType << dataDistType 
-    << dataDistCovInputType << dataDistMeans << dataDistCovariance
-    << dataDistFile << posteriorDensityExportFilename
-    << posteriorSamplesExportFilename << posteriorSamplesImportFilename
-    << generatePosteriorSamples << evaluatePosteriorDensity;
+    << crossValidation << normalizedCoeffs << pointReuse << tensorGridFlag
+    << tensorGridOrder << expansionImportFile << sampleType
+    << reliabilitySearchType << reliabilityIntegration << integrationRefine
+    << refineSamples << nondOptAlgorithm << distributionType
+    << responseLevelTarget << responseLevelTargetReduce << responseLevels
+    << probabilityLevels << reliabilityLevels << genReliabilityLevels
+    << emulatorSamples << emulatorType << rejectionType << metropolisType
+    << proposalCovScale << likelihoodScale << fitnessMetricType
+    << batchSelectionType << batchSize << calibrateSigmaFlag << numChains
+    << numCR << crossoverChainPairs << grThreshold << jumpStep;
 
   // Parameter Study
   s << finalPoint << stepVector << numSteps << stepsPerVariable << listOfPoints
-    << pstudyFilename << pstudyFileFormat << pstudyFileActive
-    << varPartitions;
+    << pstudyFilename << pstudyFileAnnotated << varPartitions;
 
   // Verification
   s << refinementRate;
  
   // Point import/export files
-  s << importBuildPtsFile  << importBuildFormat  << importBuildActive
-    << importApproxPtsFile << importApproxFormat << importApproxActive
-    << exportApproxPtsFile << exportApproxFormat << exportMCMCPtsFile
-    << exportMCMCFormat;
+  s << approxImportFile << approxImportAnnotated
+    << approxExportFile << approxExportAnnotated;
 }
 
 
 void DataMethodRep::read(MPIUnpackBuffer& s)
 {
   s >> idMethod >> modelPointer >> methodOutput >> maxIterations
-    >> maxRefineIterations >> maxSolverIterations >> maxFunctionEvaluations
-    >> speculativeFlag >> methodUseDerivsFlag >> convergenceTolerance
-    >> constraintTolerance >> methodScaling >> numFinalSolutions
-    >> linearIneqConstraintCoeffs >> linearIneqLowerBnds >> linearIneqUpperBnds
-    >> linearIneqScaleTypes >> linearIneqScales >> linearEqConstraintCoeffs
-    >> linearEqTargets >> linearEqScaleTypes >> linearEqScales >> methodName
-    >> subMethod >> subMethodName >> subModelPointer >> subMethodPointer
-    >> lowFidModelPointer;
-
-  // Meta-iterators
-  s >> iteratorServers >> procsPerIterator >> iteratorScheduling
-    >> hybridMethodNames >> hybridModelPointers >> hybridMethodPointers
-  //>> hybridProgThresh
-    >> hybridGlobalMethodName >> hybridGlobalModelPointer
-    >> hybridGlobalMethodPointer >> hybridLocalMethodName
-    >> hybridLocalModelPointer >> hybridLocalMethodPointer >> hybridLSProb
-  //>> branchBndNumSamplesRoot >> branchBndNumSamplesNode
-    >> concurrentRandomJobs >> concurrentParameterSets;
+    >> maxFunctionEvaluations >> speculativeFlag >> methodUseDerivsFlag
+    >> convergenceTolerance >> constraintTolerance >> methodScaling
+    >> numFinalSolutions >> linearIneqConstraintCoeffs >> linearIneqLowerBnds
+    >> linearIneqUpperBnds >> linearIneqScaleTypes >> linearIneqScales
+    >> linearEqConstraintCoeffs >> linearEqTargets >> linearEqScaleTypes
+    >> linearEqScales >> methodName >> subMethodName >> subMethodPointer;
 
   // Surrogate-based
-  s >> softConvLimit >> surrBasedLocalLayerBypass
+  s >> surrBasedLocalSoftConvLimit >> surrBasedLocalLayerBypass
     >> surrBasedLocalTRInitSize >> surrBasedLocalTRMinSize
     >> surrBasedLocalTRContractTrigger >> surrBasedLocalTRExpandTrigger
     >> surrBasedLocalTRContract >> surrBasedLocalTRExpand
@@ -385,85 +325,56 @@ void DataMethodRep::read(MPIUnpackBuffer& s)
   s >> randomSeed;
 
   // MADS
-  s >> historyFile >> displayFormat >> vns >> neighborOrder >> showAllEval;
+  s >> historyFile >> displayFormat >> vns >> showAllEval;
 
   // NonD & DACE
-  s >> numSamples >> fixedSeedFlag >> fixedSequenceFlag
-    >> vbdFlag >> vbdDropTolerance >> backfillFlag >> pcaFlag 
-    >> percentVarianceExplained >> wilksFlag >> wilksOrder
-    >> wilksConfidenceLevel >> wilksSidedInterval;
+  s >> numSamples >> fixedSeedFlag >> fixedSequenceFlag >> previousSamples
+    >> vbdFlag >> vbdDropTolerance;
 
   // NonD
   s >> vbdOrder >> covarianceControl >> rngName >> refinementType
     >> refinementControl >> nestingOverride >> growthOverride >> expansionType
-    >> piecewiseBasis >> expansionBasisType >> expansionOrder
+    >> piecewiseBasis >> sparseGridBasisType >> expansionOrder
     >> expansionSamples >> expansionSampleType >> quadratureOrder
     >> sparseGridLevel >> anisoDimPref >> cubIntOrder >> collocationPoints
     >> collocationRatio >> collocRatioTermsOrder >> regressionType
     >> lsRegressionType >> regressionNoiseTol >> regressionL2Penalty
-    >> crossValidation >> crossValidNoiseOnly //>> adaptedBasisInitLevel
-    >> adaptedBasisAdvancements >> normalizedCoeffs >> pointReuse
-    >> tensorGridFlag >> tensorGridOrder >> importExpansionFile
-    >> exportExpansionFile >> sampleType >> dOptimal >> reliabilitySearchType
-    >> reliabilityIntegration >> integrationRefine >> refineSamples
-    >> pilotSamples >> distributionType >> responseLevelTarget
-    >> responseLevelTargetReduce >> responseLevels >> probabilityLevels
-    >> reliabilityLevels >> genReliabilityLevels >> chainSamples >> buildSamples 
-    >> samplesOnEmulator
-    >> emulatorOrder >> emulatorType >> mcmcType >> standardizedSpace
-    >> posteriorStatsKL >> posteriorStatsMutual
-    >> adaptPosteriorRefine >> logitTransform >> preSolveMethod
-    >> proposalCovType >> proposalCovUpdates >> proposalCovInputType
-    >> proposalCovData >> proposalCovFile >> fitnessMetricType
-    >> batchSelectionType >> calibrateErrorMode >> hyperPriorAlphas
-    >> hyperPriorBetas >> burnInSamples >> subSamplingPeriod
-    >> numChains >> numCR >> crossoverChainPairs
-    >> grThreshold >> jumpStep >> lipschitzType >> dataDistType 
-    >> dataDistCovInputType >> dataDistMeans >> dataDistCovariance
-    >> dataDistFile >> posteriorDensityExportFilename
-    >> posteriorSamplesExportFilename >> posteriorSamplesImportFilename
-    >> generatePosteriorSamples >> evaluatePosteriorDensity;
+    >> crossValidation >> normalizedCoeffs >> pointReuse >> tensorGridFlag
+    >> tensorGridOrder >> expansionImportFile >> sampleType
+    >> reliabilitySearchType >> reliabilityIntegration >> integrationRefine
+    >> refineSamples >> nondOptAlgorithm >> distributionType
+    >> responseLevelTarget >> responseLevelTargetReduce >> responseLevels
+    >> probabilityLevels >> reliabilityLevels >> genReliabilityLevels
+    >> emulatorSamples >> emulatorType >> rejectionType >> metropolisType
+    >> proposalCovScale >> likelihoodScale >> fitnessMetricType
+    >> batchSelectionType >> batchSize >> calibrateSigmaFlag >> numChains
+    >> numCR >> crossoverChainPairs >> grThreshold >> jumpStep;
 
   // Parameter Study
   s >> finalPoint >> stepVector >> numSteps >> stepsPerVariable >> listOfPoints
-    >> pstudyFilename >> pstudyFileFormat >> pstudyFileActive
-    >> varPartitions;
+    >> pstudyFilename >> pstudyFileAnnotated >> varPartitions;
 
   // Verification
   s >> refinementRate;
 
   // Point import/export files
-  s >> importBuildPtsFile  >> importBuildFormat  >> importBuildActive
-    >> importApproxPtsFile >> importApproxFormat >> importApproxActive
-    >> exportApproxPtsFile >> exportApproxFormat >> exportMCMCPtsFile
-    >> exportMCMCFormat;
+  s >> approxImportFile >> approxImportAnnotated
+    >> approxExportFile >> approxExportAnnotated;
 }
 
 
 void DataMethodRep::write(std::ostream& s) const
 {
   s << idMethod << modelPointer << methodOutput << maxIterations
-    << maxRefineIterations << maxSolverIterations << maxFunctionEvaluations
-    << speculativeFlag << methodUseDerivsFlag << convergenceTolerance
-    << constraintTolerance << methodScaling << numFinalSolutions
-    << linearIneqConstraintCoeffs << linearIneqLowerBnds << linearIneqUpperBnds
-    << linearIneqScaleTypes << linearIneqScales << linearEqConstraintCoeffs
-    << linearEqTargets << linearEqScaleTypes << linearEqScales << methodName
-    << subMethod << subMethodName << subModelPointer << subMethodPointer 
-    << lowFidModelPointer;
-
-  // Meta-iterators
-  s << iteratorServers << procsPerIterator << iteratorScheduling
-    << hybridMethodNames << hybridModelPointers << hybridMethodPointers
-  //<< hybridProgThresh
-    << hybridGlobalMethodName << hybridGlobalModelPointer
-    << hybridGlobalMethodPointer << hybridLocalMethodName
-    << hybridLocalModelPointer << hybridLocalMethodPointer << hybridLSProb
-  //<< branchBndNumSamplesRoot << branchBndNumSamplesNode
-    << concurrentRandomJobs << concurrentParameterSets;
+    << maxFunctionEvaluations << speculativeFlag << methodUseDerivsFlag
+    << convergenceTolerance << constraintTolerance << methodScaling
+    << numFinalSolutions << linearIneqConstraintCoeffs << linearIneqLowerBnds
+    << linearIneqUpperBnds << linearIneqScaleTypes << linearIneqScales
+    << linearEqConstraintCoeffs << linearEqTargets << linearEqScaleTypes
+    << linearEqScales << methodName << subMethodName << subMethodPointer;
 
   // Surrogate-based
-  s << softConvLimit << surrBasedLocalLayerBypass
+  s << surrBasedLocalSoftConvLimit << surrBasedLocalLayerBypass
     << surrBasedLocalTRInitSize << surrBasedLocalTRMinSize
     << surrBasedLocalTRContractTrigger << surrBasedLocalTRExpandTrigger
     << surrBasedLocalTRContract << surrBasedLocalTRExpand
@@ -528,58 +439,41 @@ void DataMethodRep::write(std::ostream& s) const
   s << randomSeed;
 
   // MADS
-  s << historyFile << displayFormat << vns << neighborOrder << showAllEval;
+  s << historyFile << displayFormat << vns << showAllEval;
 
   // NonD & DACE
-  s << numSamples << fixedSeedFlag << fixedSequenceFlag
-    << vbdFlag << vbdDropTolerance << backfillFlag << pcaFlag 
-    << percentVarianceExplained << wilksFlag << wilksOrder
-    << wilksConfidenceLevel << wilksSidedInterval;
+  s << numSamples << fixedSeedFlag << fixedSequenceFlag << previousSamples
+    << vbdFlag << vbdDropTolerance;
 
   // NonD
   s << vbdOrder << covarianceControl << rngName << refinementType
     << refinementControl << nestingOverride << growthOverride << expansionType
-    << piecewiseBasis << expansionBasisType << expansionOrder
+    << piecewiseBasis << sparseGridBasisType << expansionOrder
     << expansionSamples << expansionSampleType << quadratureOrder
     << sparseGridLevel << anisoDimPref << cubIntOrder << collocationPoints
     << collocationRatio << collocRatioTermsOrder << regressionType
     << lsRegressionType << regressionNoiseTol << regressionL2Penalty
-    << crossValidation << crossValidNoiseOnly //<< adaptedBasisInitLevel
-    << adaptedBasisAdvancements << normalizedCoeffs << pointReuse
-    << tensorGridFlag << tensorGridOrder << importExpansionFile
-    << exportExpansionFile << sampleType << dOptimal << reliabilitySearchType
-    << reliabilityIntegration << integrationRefine << refineSamples
-    << pilotSamples << distributionType << responseLevelTarget
-    << responseLevelTargetReduce << responseLevels << probabilityLevels
-    << reliabilityLevels << genReliabilityLevels << chainSamples << buildSamples 
-    << samplesOnEmulator
-    << emulatorOrder << emulatorType << mcmcType << standardizedSpace
-    << posteriorStatsKL << posteriorStatsMutual
-    << adaptPosteriorRefine << logitTransform << preSolveMethod
-    << proposalCovType << proposalCovUpdates << proposalCovInputType
-    << proposalCovData << proposalCovFile << fitnessMetricType
-    << batchSelectionType << calibrateErrorMode << hyperPriorAlphas
-    << hyperPriorBetas << burnInSamples << subSamplingPeriod
-    << numChains << numCR << crossoverChainPairs
-    << grThreshold << jumpStep << lipschitzType << dataDistType 
-    << dataDistCovInputType << dataDistMeans << dataDistCovariance
-    << dataDistFile << posteriorDensityExportFilename
-    << posteriorSamplesExportFilename << posteriorSamplesImportFilename
-    << generatePosteriorSamples << evaluatePosteriorDensity;
+    << crossValidation << normalizedCoeffs << pointReuse << tensorGridFlag
+    << tensorGridOrder << expansionImportFile << sampleType
+    << reliabilitySearchType << reliabilityIntegration << integrationRefine
+    << refineSamples << nondOptAlgorithm << distributionType
+    << responseLevelTarget << responseLevelTargetReduce << responseLevels
+    << probabilityLevels << reliabilityLevels << genReliabilityLevels
+    << emulatorSamples << emulatorType << rejectionType << metropolisType
+    << proposalCovScale << likelihoodScale << fitnessMetricType
+    << batchSelectionType << batchSize << calibrateSigmaFlag << numChains
+    << numCR << crossoverChainPairs << grThreshold << jumpStep;
 
   // Parameter Study
   s << finalPoint << stepVector << numSteps << stepsPerVariable << listOfPoints
-    << pstudyFilename << pstudyFileFormat << pstudyFileActive
-    << varPartitions;
+    << pstudyFilename << pstudyFileAnnotated << varPartitions;
 
   // Verification
   s << refinementRate;
 
   // Point import/export files
-  s << importBuildPtsFile  << importBuildFormat  << importBuildActive
-    << importApproxPtsFile << importApproxFormat << importApproxActive
-    << exportApproxPtsFile << exportApproxFormat << exportMCMCPtsFile
-    << exportMCMCFormat;
+  s << approxImportFile << approxImportAnnotated
+    << approxExportFile << approxExportAnnotated;
 }
 
 
@@ -597,7 +491,7 @@ DataMethod::DataMethod(const DataMethod& data_method)
   // Increment new (no old to decrement)
   dataMethodRep = data_method.dataMethodRep;
   if (dataMethodRep) // Check for an assignment of NULL
-    ++dataMethodRep->referenceCount;
+    dataMethodRep->referenceCount++;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "DataMethod::DataMethod(DataMethod&)" << std::endl;
@@ -618,7 +512,7 @@ DataMethod& DataMethod::operator=(const DataMethod& data_method)
     // Assign and increment new
     dataMethodRep = data_method.dataMethodRep;
     if (dataMethodRep) // Check for NULL
-      ++dataMethodRep->referenceCount;
+      dataMethodRep->referenceCount++;
   }
   // else if assigning same rep, then do nothing since referenceCount
   // should already be correct

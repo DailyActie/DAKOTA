@@ -7,7 +7,6 @@
 #
 # add_application_test(
 #   <test-name>
-#   [SUBTEST <st_num>]
 #   [WEIGHT <n>]
 #   [TIMEOUT <seconds>]
 #   [FILE_DEPENDENCIES file1 [file2 [file3[...]]]]
@@ -16,12 +15,8 @@
 #   [POSTPROCESS COMMAND <command> [EXIT_CODE <exit-code>]] 
 #   [LABELS [label1 [label2 [...]]]]
 #   [UNIQUE_DIRECTORY]
-#   [WORKING_DIRECTORY <work-dir>]
 #   [NO_TARGET]
 #   )
-#
-# SUBTEST gives a subtest number which changes added test name to
-# test-name:st_num, but runs in directory test-name
 #
 # The WEIGHT argument specifies the number of processes that will be occupied
 # by the test. The TIMEOUT argument specifies how long the test should be
@@ -32,12 +27,8 @@
 # application itself and any post processing steps that are required. Finally,
 # the LABELS argument specifies any labels to attach to the test.
 #
-# The UNIQUE_DIRECTORY toggle will ensure that the test runs in an
-# isolated subdirectory of the current binary directory, named for the
-# test-name.  The directory will be created.
-# 
-# WORKING_DIRECTORY will run the test in the specified directory,
-# which must exist.
+# The UNIQUE_DIRECTORY toggle will ensure that the test runs in an isolated
+# subdirectory of the current binary directory.
 # 
 # If specified, the NO_TARGET toggle will create a custom command for
 # this test, but not a custom target (so the caller can group tests
@@ -52,9 +43,7 @@ function(add_application_test _test_name)
   set(_option_args UNIQUE_DIRECTORY NO_TARGET)
   set(_one_value_keyword_args 
     WEIGHT
-    TIMEOUT
-    SUBTEST
-    WORKING_DIRECTORY)
+    TIMEOUT)
   set(_multi_value_keyword_args
     FILE_DEPENDENCIES
     PREPROCESS
@@ -80,11 +69,6 @@ function(add_application_test _test_name)
     set(_application_test_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   endif()
 
-  set(_full_test_name ${_test_name})
-  if(DEFINED _application_test_SUBTEST)
-    set(_full_test_name "${_test_name}:${_application_test_SUBTEST}")
-  endif()
-
   # If an isolated subdirectory was requested, create the unique subdirectory
   # to contain the test's input files.
   if(_application_test_UNIQUE_DIRECTORY)
@@ -105,7 +89,7 @@ function(add_application_test _test_name)
 	)
     else()
       add_file_copy_target(
-	copy_${_full_test_name}_${_filename}
+	copy_${_test_name}_${_filename}
 	${CMAKE_CURRENT_SOURCE_DIR}/${_file}
 	${_application_test_WORKING_DIRECTORY}/${_file})
     endif()
@@ -127,20 +111,20 @@ function(add_application_test _test_name)
   endforeach()
 
   # Configure the driver script.
-  set(_test_driver_file ${_application_test_WORKING_DIRECTORY}/TEST-${_full_test_name}.cmake)
+  set(_test_driver_file ${_application_test_WORKING_DIRECTORY}/TEST-${_test_name}.cmake)
   configure_file(
     ${_add_application_test_dir}/ApplicationTest.cmake.in
     ${_test_driver_file}
     @ONLY)
   
   # Add the test that runs the driver.
-  add_test(NAME ${_full_test_name}
+  add_test(NAME ${_test_name}
     WORKING_DIRECTORY "${_application_test_WORKING_DIRECTORY}"
     COMMAND ${CMAKE_COMMAND} -P ${_test_driver_file})
   
   # Set up the test properties.
   set_tests_properties( 
-    ${_full_test_name}
+    ${_test_name}
     PROPERTIES
       PROCESSORS ${_application_test_WEIGHT}
       TIMEOUT ${_application_test_TIMEOUT}

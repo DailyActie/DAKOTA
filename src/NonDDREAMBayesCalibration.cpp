@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -15,7 +15,7 @@
 #include "NonDDREAMBayesCalibration.hpp"
 #include "ProblemDescDB.hpp"
 #include "DakotaModel.hpp"
-#include "PRPMultiIndex.hpp"
+#include "ProbabilityTransformation.hpp"
 
 // BMA TODO: remove this header
 // for uniform PDF and samples
@@ -25,6 +25,7 @@
 #include "rnglib.hpp"
 
 // for core dream functionality
+// BMA TODO: namespace protect dream-related functions
 using std::string;
 #include "dream.hpp"
 
@@ -33,8 +34,6 @@ static const char rcsId[]="@(#) $Id$";
 // five forwards to the class static functions
 // BMA TODO: change interface to pass function pointers and
 // initializers and remove these globals
-
-namespace dream {
 
 /// forwarder to problem_size needed by DREAM
 void 
@@ -61,38 +60,41 @@ problem_value (std::string *chain_filename, std::string *gr_filename,
 /// forwarder to prior_density needed by DREAM
 double prior_density (int par_num, double zp[]) 
 {
-  return Dakota::NonDDREAMBayesCalibration::prior_density(par_num, zp); 
+  return Dakota::NonDDREAMBayesCalibration::
+    prior_density (par_num, zp); 
 }
 
 /// forwarder to prior_sample needed by DREAM
 double* prior_sample (int par_num)
 {
-  return Dakota::NonDDREAMBayesCalibration::prior_sample(par_num);
+  return Dakota::NonDDREAMBayesCalibration::
+    prior_sample(par_num);
 }
 
 /// forwarder to sample_likelihood needed by DREAM
 double sample_likelihood (int par_num, double zp[])
 {
-  return Dakota::NonDDREAMBayesCalibration::sample_likelihood(par_num, zp);
+  return Dakota::NonDDREAMBayesCalibration::
+    sample_likelihood(par_num, zp);
 }
-
-
-} // namespace dream
 
 
 namespace Dakota {
 
-extern PRPCache data_pairs; // global container
-
 //initialization of statics
-NonDDREAMBayesCalibration* NonDDREAMBayesCalibration::nonDDREAMInstance(NULL);
+NonDDREAMBayesCalibration* NonDDREAMBayesCalibration::NonDDREAMInstance(NULL);
 
 /** This constructor is called for a standard letter-envelope iterator 
     instantiation.  In this case, set_db_list_nodes has been called and 
     probDescDB can be queried for settings from the method specification. */
-NonDDREAMBayesCalibration::
-NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model):
-  NonDBayesCalibration(problem_db, model),
+NonDDREAMBayesCalibration::NonDDREAMBayesCalibration(Model& model):
+  NonDBayesCalibration(model),
+  numSamples(probDescDB.get_int("method.samples")),
+  emulatorType(probDescDB.get_short("method.nond.emulator")),
+  randomSeed(probDescDB.get_int("method.random_seed")),
+  //proposalCovScale(probDescDB.get_rv("method.nond.proposal_covariance_scale")),
+  likelihoodScale(probDescDB.get_real("method.likelihood_scale")),
+  calibrateSigmaFlag(probDescDB.get_bool("method.nond.calibrate_sigma")),
   numChains(probDescDB.get_int("method.dream.num_chains")),
   numCR(probDescDB.get_int("method.dream.num_cr")),
   crossoverChainPairs(probDescDB.get_int("method.dream.crossover_chain_pairs")),
@@ -102,7 +104,7 @@ NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model):
   // don't use max_function_evaluations, since we have num_samples
   // consider max_iterations = generations, and adjust as needed?
 
-  Cout << "INFO (DREAM): requested samples = " << chainSamples
+  Cout << "INFO (DREAM): requested samples = " << numSamples
        << "\nINFO (DREAM): requested chains = " << numChains << std::endl;
 
   if (numChains < 3) {
@@ -111,18 +113,18 @@ NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model):
 	 << std::endl;
   }
 
-  numGenerations = std::floor((Real)chainSamples/numChains);
+  numGenerations = std::floor((Real)numSamples/numChains);
   if (numGenerations < 2) {
     numGenerations = 2;
-    chainSamples = numGenerations * numChains;
+    numSamples = numGenerations * numChains;
     Cout << "WARN (DREAM): generations = samples / chains = " << numGenerations 
 	 << " is less than 2.\n             setting generations = 2, for "
-	 << chainSamples << " total samples." << std::endl;
+	 << numSamples << " total samples." << std::endl;
   }
   else {
-    chainSamples = numGenerations * numChains;
+    numSamples = numGenerations * numChains;
     Cout << "INFO (DREAM): will use " << numChains << " chains with "
-	 << numGenerations << " generations,\nfor " << chainSamples 
+	 << numGenerations << " generations,\nfor " << numSamples 
 	 << " total samples." << std::endl;
   }
 
@@ -133,7 +135,7 @@ NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model):
 
   if (crossoverChainPairs < 0) {
     numCR = 3;
-    Cout << "WARN (DREAM): crossover_chain_pairs < 0, resetting to 3 (default)."
+    Cout << "WARN (DREAM): crossover_chain_pairs < 0, resetting to 3 (default)." 
 	 << std::endl;
   }
 
@@ -148,6 +150,7 @@ NonDDREAMBayesCalibration(ProblemDescDB& problem_db, Model& model):
     Cout << "WARN (DREAM): jump_step < 1, resetting to 5 (default)." 
 	 << std::endl;
   }
+
 }
 
 
@@ -156,65 +159,94 @@ NonDDREAMBayesCalibration::~NonDDREAMBayesCalibration()
 
 
 /** Perform the uncertainty quantification */
-void NonDDREAMBayesCalibration::core_run()
+void NonDDREAMBayesCalibration::quantify_uncertainty()
 {
+  // construct emulatorModel, if needed
+  NonDBayesCalibration::quantify_uncertainty();
+
   // instantiate DREAM objects and execute
-  nonDBayesInstance = nonDDREAMInstance = this;
+  NonDDREAMInstance=this;
 
   // diagnostic information
   Cout << "INFO (DREAM): Standardized space " << standardizedSpace << '\n';
-  Cout << "INFO (DREAM): Num Samples " << chainSamples << '\n';
-  Cout << "INFO (DREAM): Calibrating " << numHyperparams 
-       << " error hyperparameters.\n";
+  Cout << "INFO (DREAM): Num Samples " << numSamples << '\n';
+  Cout << "INFO (DREAM): Calibrate Sigma Flag " << calibrateSigmaFlag  << '\n';
  
-  // initialize the mcmcModel (including emulator construction) if needed
-  initialize_model();
-
   // Set seed in both local generator and the one underlying DREAM in RNGLIB
   // BMA TODO: Burkhardt says replace RNGLIB with Dakota RNG
-  dream::set_seed(randomSeed, randomSeed);
-  rnumGenerator.seed(randomSeed);
+  if (randomSeed) {
+    set_seed(randomSeed, randomSeed);
+    rnumGenerator.seed(randomSeed);
+  }
+  else {
+    int clock_seed = 1 + (int)clock();
+    set_seed(clock_seed, clock_seed); 
+    rnumGenerator.seed(clock_seed);
+  }
 
   // BMA TODO: share most of this code with QUESO class
 
-  // BMA TODO: support independent options
-  if (obsErrorMultiplierMode > 0 && !calibrationData) {
-    Cerr << "\nError: you are attempting to calibrate the measurement error "
-         << "but have not provided experimental data information."<<std::endl;
-    abort_handler(METHOD_ERROR);
-  }
-
-  // DREAM likelihood needs fn_vals only
-  // short request_value_needed = 1;
-  // init_residual_response(request_value_needed);
-  // BMA TODO: Make sure residualModel has necessary ASV/sizing
+  // Read in all of the experimental data:  any x configuration 
+  // variables, y observations, and y_std if available 
+  bool calc_sigma_from_data = true; // calculate sigma if not provided
+  expData.load_scalar(expDataFileName, "DREAM Bayes Calibration",
+		      numExperiments, numReplicates, 
+		      numExpConfigVars, numFunctions, numExpStdDeviationsRead,
+		      expDataFileAnnotated, calc_sigma_from_data,
+		      outputLevel);
 
 
   ////////////////////////////////////////////////////////
   // Step 2 of 5: Instantiate the parameter domain
   ////////////////////////////////////////////////////////
-  int total_num_params = numContinuousVars + numHyperparams;
+  int total_num_params;
+  if (calibrateSigmaFlag) 
+    total_num_params = numContinuousVars + numFunctions;
+  else 
+    total_num_params = numContinuousVars; 
   
-  const RealVector& init_point = mcmcModel.continuous_variables();
-  Cout << "Initial Points " << init_point << '\n';
-
   // resize, initializing to zero
   paramMins.size(total_num_params);
   paramMaxs.size(total_num_params);
-  RealRealPairArray bnds = (standardizedSpace) ?
-    natafTransform.u_bounds() : natafTransform.x_bounds();
-  for (size_t i=0; i<numContinuousVars; ++i)
-    { paramMins[i] = bnds[i].first; paramMaxs[i] = bnds[i].second; }
-  // If calibrating error multipliers, the parameter domain is expanded to
-  // estimate hyperparameters sigma^2 that multiply any user-provided covariance
-  // BMA TODO: change from uniform to inverse gamma prior and allow control for 
-  // cases where user didn't give covariance information
-  for (size_t i=0; i<numHyperparams; ++i) {
-    paramMins[numContinuousVars + i] = .01;
-    paramMaxs[numContinuousVars + i] =  2.;
+
+  const RealVector& lower_bounds = emulatorModel.continuous_lower_bounds();
+  const RealVector& upper_bounds = emulatorModel.continuous_upper_bounds();
+  const RealVector& init_point = emulatorModel.continuous_variables();
+  Cout << "Initial Points " << init_point << '\n';
+
+  if (emulatorType == GAUSSIAN_PROCESS || emulatorType == KRIGING || 
+      emulatorType == NO_EMULATOR) {
+    for (size_t i=0;i<numContinuousVars;i++) {
+      paramMins[i] = lower_bounds[i];
+      paramMaxs[i] = upper_bounds[i];
+    }
+  }
+  else { // case POLYNOMIAL_CHAOS: case STOCHASTIC_COLLOCATION:
+    Iterator* se_iter = NonDDREAMInstance->stochExpIterator.iterator_rep();
+    Pecos::ProbabilityTransformation& nataf = 
+      ((NonD*)se_iter)->variable_transformation(); 
+    RealVector lower_u, upper_u;
+    nataf.trans_X_to_U(lower_bounds,lower_u);
+    nataf.trans_X_to_U(upper_bounds,upper_u);
+    for (size_t i=0;i<numContinuousVars;i++) {
+//      paramMins[i]=lower_bounds[i];
+//      paramMaxs[i]=upper_bounds[i];
+      paramMins[i]=lower_u[i];
+      paramMaxs[i]=upper_u[i];
+    }
+  }
+  // the parameter domain will now be expanded by sigma terms if 
+  // calibrateSigmaFlag is true
+  if (calibrateSigmaFlag) {
+    for (int j=0; j<numFunctions; j++){
+      int replicate = 0;
+      Real std_0_j = expData.scalar_sigma(j, 0, replicate);
+      paramMins[numContinuousVars+j]=0.01*std_0_j;
+      paramMaxs[numContinuousVars+j]=2.0*std_0_j;
+    }
   }
  
-  Cout << "INFO (DREAM): number hyperparams = " << numHyperparams << '\n';
+  Cout << "INFO (DREAM): calibrateSigmaFlag  " << calibrateSigmaFlag << '\n';
   Cout << "INFO (DREAM): paramMins  " << paramMins << '\n';
   Cout << "INFO (DREAM): paramMaxs  " << paramMaxs << '\n';
   
@@ -226,22 +258,24 @@ void NonDDREAMBayesCalibration::core_run()
   // Step 4 of 5: Instantiate the inverse problem
   ////////////////////////////////////////////////////////
   
-  /*
   // initialize the prior PDF and sampler
   // the prior is assumed uniform for DREAM
-  priorDistributions.clear(); // clear since this is a run-time operation
+
+  // clear since this is a run-time operation
+  priorDistributions.clear();
   priorSamplers.clear();
   for (int i=0; i<total_num_params; ++i) {
-    priorDistributions.push_back(boost::math::uniform(paramMins[i], paramMaxs[i]));
-    priorSamplers.push_back(boost::uniform_real<double>(paramMins[i], paramMaxs[i]));
+    priorDistributions.
+      push_back(boost::math::uniform(paramMins[i], paramMaxs[i]));
+    priorSamplers.
+      push_back(boost::uniform_real<double>(paramMins[i], paramMaxs[i]));
   }
-  */
-  
+
   ////////////////////////////////////////////////////////
   // Step 5 of 5: Solve the inverse problem
   ////////////////////////////////////////////////////////
 
-  // BMA TODO: set initial point and proposal covariance if relevant
+  // BMA TODO: set initial point and scaled covariance if relevant
 
   // uqGslVectorClass paramInitials(paramSpace.zeroVector());
   // uqGslVectorClass covDiag(paramSpace.zeroVector());
@@ -255,6 +289,19 @@ void NonDDREAMBayesCalibration::core_run()
   // for (int i=numContinuousVars;i<total_num_params;i++) {
   //   paramInitials[i]=(paramMaxs[i]+paramMins[i])/2.0;
   // }
+  // Cout << "proposalCovScale " << proposalCovScale << '\n';
+  // if (!proposalCovScale.empty()) {
+  //   for (int i=0;i<total_num_params;i++) {
+  //     covDiag[i] =(1.0/12.0)*(paramMaxs[i]-paramMins[i])*(paramMaxs[i]-paramMins[i])*proposalCovScale[i];
+  //   }
+  // }
+  // else { 
+  //   for (int i=0;i<total_num_params;i++) {
+  //     covDiag[i] =(1.0/12.0)*(paramMaxs[i]-paramMins[i])*(paramMaxs[i]-paramMins[i]);
+  //   }
+  // }
+
+  // Cout << "covDiag " << covDiag << '\n';
   // Cout << "initParams " << paramInitials << '\n';
 
   // uqGslMatrixClass* proposalCovMatrix = postRv.imageSet().vectorSpace().newProposalMatrix(&covDiag,&paramInitials); 
@@ -268,62 +315,117 @@ void NonDDREAMBayesCalibration::core_run()
   //                                   paramInitials, proposalCovMatrix);
 
   Cout << "INFO (DREAM): Running DREAM for Bayesian inference." << std::endl;
-  /// DREAM will callback to cache_chain to store the chain
-  dream_main(cache_chain);
-
-  // get the function values corresponding to the acceptance chain
-  archive_acceptance_chain();
-
-  // Generate useful stats from the posterior samples
-  compute_statistics();
-
-  if (!exportMCMCFilename.empty() || outputLevel >= NORMAL_OUTPUT)
-    export_chain();
+  dream_main();
 
   return;
 }
 
 
-  // BMA: Remove?
-void NonDDREAMBayesCalibration::print_results(std::ostream& s)
-{
-  // Print variables and response function final stats
-  NonDBayesCalibration::print_results(s);
-  
-  //additional DREAM output
-}
+//void NonDDREAMBayesCalibration::print_results(std::ostream& s)
+//{
+//  NonDBayesCalibration::print_results(s);
+//
+//  additional DREAM output
+//}
 
-// BMA TODO: share most of this code with QUESO, general hyperpriors, other distros
+// BMA TODO: share most of this code with QUESO
 /** Static callback function to evaluate the likelihood */
-double NonDDREAMBayesCalibration::sample_likelihood(int par_num, double zp[])
+double NonDDREAMBayesCalibration::sample_likelihood (int par_num, double zp[])
 {
-  RealVector all_params(Teuchos::View, zp, par_num);
+  double result = 0.;
+  size_t i,j,k;
+  int num_exp = NonDDREAMInstance->numExperiments;
+  IntVector num_replicates = NonDDREAMInstance->numReplicates;
+  int num_funcs = NonDDREAMInstance->numFunctions;
+  int num_cont = NonDDREAMInstance->numContinuousVars; 
 
-  // DREAM searches in either the original space (default for GPs and no
-  // emulator) or standardized space (PCE/SC, optional for GP/no emulator).  
-  nonDDREAMInstance->residualModel.continuous_variables(all_params); 
+  // BMA TODO:
+  // Bug: if calibrating sigma, this would be bigger
+  //  RealVector x(Teuchos::View, zp, par_num);
+  RealVector x(Teuchos::View, zp, num_cont);
+  // using a view; don't need copy for DREAM
+  // for (i=0; i<num_cont; i++) 
+  //   x(i)=paramValues[i];
+    
+  //Cout << "numExperiments" << num_exp << '\n';
+  //Cout << "numFunctions" << num_funcs << '\n';
+  //Cout << "numExpStdDeviationsRead " << NonDDREAMInstance->numExpStdDeviationsRead << '\n';
+
+  // FOR NOW:  THE GP and the NO EMULATOR case use an unstandardized 
+  // space (original) and the PCE or SC cases use a more general standardized space.  
+  // We had discussed having DREAM search in the original space:  this may 
+  // difficult for high dimensional spaces depending on the scaling, 
+  // because DREAM calculates the volume of the hypercube in which it is 
+  // searching and will stop if it is too small (e.g. if one input is 
+  // of small magnitude, searching in the original space will not be viable).
+  // 
+  if (NonDDREAMInstance->emulatorType == GAUSSIAN_PROCESS || 
+      NonDDREAMInstance->emulatorType == KRIGING || 
+      NonDDREAMInstance->emulatorType == NO_EMULATOR) {
+    //const RealVector& xLow = NonDDREAMInstance->emulatorModel.continuous_lower_bounds();
+    //const RealVector& xHigh = NonDDREAMInstance->emulatorModel.continuous_upper_bounds();
+    //Cout << "Queso X" << x << '\n';
+    //for (i=0; i<num_cont; i++) 
+    //  x(i)=xLow(i)+x(i)*(xHigh(i)-xLow(i));
+    NonDDREAMInstance->emulatorModel.continuous_variables(x); 
+    //Cout << "DAKOTA X" << x << '\n';
+  }
+  else { //case POLYNOMIAL_CHAOS: case STOCHASTIC_COLLOCATION: 
+  //    RealVector u(num_cont);
+  //    Iterator* se_iter = NonDDREAMInstance->stochExpIterator.iterator_rep();
+  //    Pecos::ProbabilityTransformation& nataf = ((NonD*)se_iter)->variable_transformation(); 
+  //    nataf.trans_X_to_U(x,u);
+    NonDDREAMInstance->emulatorModel.continuous_variables(x); 
+  } 
 
   // Compute simulation response to use in likelihood 
-  nonDDREAMInstance->residualModel.evaluate();
-  const RealVector& residuals = 
-    nonDDREAMInstance->residualModel.current_response().function_values();
-  double log_like = nonDDREAMInstance->log_likelihood(residuals, all_params);
-
-  if (nonDDREAMInstance->outputLevel >= DEBUG_OUTPUT) {
-    Cout << "Log likelihood is " << log_like << " Likelihood is "
-         << std::exp(log_like) << '\n';
-
-    std::ofstream LogLikeOutput;
-    LogLikeOutput.open("NonDDREAMLogLike.txt", std::ios::out | std::ios::app);
-    // Note: parameter values are in scaled space, if scaling is
-    // active; residuals may be scaled by covariance
-    for (size_t i=0; i<par_num;  ++i) LogLikeOutput << zp[i] << ' ' ;
-    for (size_t i=0; i<nonDDREAMInstance->numTotalCalibTerms; ++i)   
-      LogLikeOutput << residuals(i) << ' ' ;
-    LogLikeOutput << log_like << '\n';
-    LogLikeOutput.close();
+  NonDDREAMInstance->emulatorModel.compute_response();
+  RealVector fn_vals = NonDDREAMInstance->emulatorModel.current_response().function_values();
+  //Cout << "input is " << x << '\n';
+  //Cout << "output is " << fn_vals << '\n';
+ 
+  // Calculate the likelihood depending on what information is available 
+  // for the standard deviations
+  // NOTE:  If the calibration of the sigma terms is included, we assume 
+  // ONE sigma term per function is calibrated. 
+  // Otherwise, we assume that yStdData has already had the correct values 
+  // placed depending if there is zero, one, num_funcs, or a full num_exp*num_func 
+  // matrix of standard deviations.  Thus, we just have to iterate over this to 
+  // calculate the likelihood. 
+  if (NonDDREAMInstance->calibrateSigmaFlag) {
+    for (j=0; j<num_funcs; j++)
+      for (i=0; i<num_exp; i++)
+        for (k=0; k<num_replicates(i); k++){
+	  Real data_i_j = NonDDREAMInstance->expData.scalar_data(j, i, k);
+	  result = result+pow((fn_vals(j)-data_i_j)/zp[num_cont+j],2.0);
+        }
   }
-  return log_like;
+  else {	
+    for (j=0; j<num_funcs; j++)
+      for (i=0; i<num_exp; i++)
+        for (k=0; k<num_replicates(i); k++){
+	  Real data_i_j = NonDDREAMInstance->expData.scalar_data(j, i, k);
+	  Real std_i_j = NonDDREAMInstance->expData.scalar_sigma(j, i, k);
+          result = result+pow((fn_vals(j)-data_i_j)/std_i_j,2.0);
+          //result = result+pow((fn_vals(j)-data_i_j),2.0);
+        }
+  }
+
+  result = (result/(NonDDREAMInstance->likelihoodScale));
+  result = -1.0*result;
+  Cout << "result final " << result << '\n';
+  Cout << "likelihood is " << exp(result) << '\n';
+  if (NonDDREAMInstance->outputLevel > NORMAL_OUTPUT) {
+    std::ofstream QuesoOutput;
+    QuesoOutput.open("DreamOutput.txt", std::ios::out | std::ios::app);
+    for (i=0; i<num_cont; i++) 
+      QuesoOutput << x(i) << ' ' ;
+    for (j=0; j<num_funcs; j++)
+      QuesoOutput << fn_vals(j) << ' ' ;
+    QuesoOutput << result << '\n';
+    QuesoOutput.close();
+  }
+  return result;
 }
 
 
@@ -332,12 +434,11 @@ void NonDDREAMBayesCalibration::
 problem_size(int &chain_num, int &cr_num, int &gen_num, int &pair_num,
 	     int &par_num)
 {
-  chain_num = nonDDREAMInstance->numChains;
-  cr_num    = nonDDREAMInstance->numCR;
-  gen_num   = nonDDREAMInstance->numGenerations;
-  pair_num  = nonDDREAMInstance->crossoverChainPairs;
-  par_num   = nonDDREAMInstance->numContinuousVars + 
-    nonDDREAMInstance->numHyperparams;
+  chain_num = NonDDREAMInstance->numChains;
+  cr_num = NonDDREAMInstance->numCR;
+  gen_num = NonDDREAMInstance->numGenerations;
+  pair_num = NonDDREAMInstance->crossoverChainPairs;
+  par_num = NonDDREAMInstance->numContinuousVars;
 
   return;
 }
@@ -355,25 +456,20 @@ problem_value(string *chain_filename, string *gr_filename, double &gr_threshold,
 
   // parameters to expose to user...
 
-  // DREAM will replace the zeros with unique file tags; use one
-  // placeholder for 1--10 chains, two for 11--100 chains, etc.
-  int chain_tag_len = 1;
-  if (nonDDREAMInstance->numChains > 10)
-    chain_tag_len = 
-      (int) std::ceil(std::log10((double) nonDDREAMInstance->numChains));
+  int chain_tag_len = std::log10(NonDDREAMInstance->numChains - 1) + 1;
   std::string chain_tag(chain_tag_len, '0');
   std::string chain_fname("dakota_dream_chain");
   chain_fname += chain_tag + ".txt";
 
   *chain_filename = chain_fname.c_str();
   *gr_filename = "dakota_dream_gr.txt";
-  gr_threshold = nonDDREAMInstance->grThreshold;
-  jumpstep = nonDDREAMInstance->jumpStep;
+  gr_threshold = NonDDREAMInstance->grThreshold;
+  jumpstep = NonDDREAMInstance->jumpStep;
 
   for ( j = 0; j < par_num; j++ )
   {
-    limits[0+j*2] = nonDDREAMInstance->paramMins[j];
-    limits[1+j*2] = nonDDREAMInstance->paramMaxs[j];
+    limits[0+j*2] = NonDDREAMInstance->paramMins[j];
+    limits[1+j*2] = NonDDREAMInstance->paramMaxs[j];
     Cout << "min " << j << " = " << limits[0+j*2] << std::endl; 
     Cout << "max " << j << " = " << limits[1+j*2] << std::endl; 
   }
@@ -386,136 +482,41 @@ problem_value(string *chain_filename, string *gr_filename, double &gr_threshold,
   return;
 }
 
-/** See documentation in DREAM examples */
+/** See documentation in DREAM examples) */			     
 double  NonDDREAMBayesCalibration::prior_density ( int par_num, double zp[] )
 {
-  Dakota::RealVector vec(Teuchos::View, zp, par_num);
-  return nonDBayesInstance->prior_density(vec);
-
-  /*
   int i;
-  double value = 1.0;
+  double value;
+
+  value = 1.0;
 
   for ( i = 0; i < par_num; i++ )    
   {
-    //value = value * r8_uniform_pdf (nonDDREAMInstance->paramMins[i],
-    //				    nonDDREAMInstance->paramMaxs[i], zp[i] );
-    value *= boost::math::pdf(nonDDREAMInstance->priorDistributions[i], zp[i]);
+    //value = value * r8_uniform_pdf (NonDDREAMInstance->paramMins[i],
+    //				    NonDDREAMInstance->paramMaxs[i], zp[i] );
+    value *= boost::math::pdf(NonDDREAMInstance->priorDistributions[i], zp[i]);
   }
 
   return value;
-  */
 }
 
-
-/** See documentation in DREAM examples */			     
+/** See documentation in DREAM examples) */			     
 double *  NonDDREAMBayesCalibration::prior_sample ( int par_num )
 {
-  // This is not a memory leak, as DREAM deallocates on their side (the API was
-  // not designed for the injection of this function into the DREAM namespace)
-  double *zp = ( double * ) malloc ( par_num * sizeof ( double ) );
+  int i;
+  double *zp;
 
-  RealVector prior_dist_samples(Teuchos::View, zp, par_num);
-  nonDBayesInstance->
-    prior_sample(nonDDREAMInstance->rnumGenerator, prior_dist_samples);
+  zp = ( double * ) malloc ( par_num * sizeof ( double ) );
 
-  /*
-  for ( int i = 0; i < par_num; i++ )
+  for ( i = 0; i < par_num; i++ )
   {
-    //zp[i] = r8_uniform_sample ( nonDDREAMInstance->paramMins[i], 
-    //				  nonDDREAMInstance->paramMaxs[i] );
+    //    zp[i] = r8_uniform_sample ( NonDDREAMInstance->paramMins[i], 
+    //				NonDDREAMInstance->paramMaxs[i] );
     zp[i] =
-      nonDDREAMInstance->priorSamplers[i](nonDDREAMInstance->rnumGenerator);
+      NonDDREAMInstance->priorSamplers[i](NonDDREAMInstance->rnumGenerator);
   }
-  */
 
   return zp;
-}
-
-
-/** Archive the chain from DREAM.  This default implementation is
-    aggregating from the parallel chains in a round-robin fashion. */
-void NonDDREAMBayesCalibration::cache_chain(const double* const z) 
-{
-  int par_num = 
-    nonDDREAMInstance->numContinuousVars + nonDDREAMInstance->numHyperparams;
-  int num_samples = 
-    nonDDREAMInstance->numGenerations * nonDDREAMInstance->numChains;
-
-  // TODO: verify whether the chain coming back is equivalent to an
-  // accepted chain
-  nonDDREAMInstance->acceptanceChain.shape(par_num, num_samples);
-
-  // BMA: loops taken from dream.cpp chain_write; don't change
-  // indexing for the z vector (may need to update where the samples
-  // are placed in acceptanceChain)
-  for (int k=0; k<nonDDREAMInstance->numGenerations; ++k)
-    for (int j=0; j<nonDDREAMInstance->numChains; ++j) 
-      for (int i=0; i<par_num; ++i)
-        nonDDREAMInstance->acceptanceChain
-	  (i, k*nonDDREAMInstance->numChains + j) =
-	  z[i+j*par_num+k*par_num*nonDDREAMInstance->numChains];
-}
-
-void NonDDREAMBayesCalibration::archive_acceptance_chain()
-{
-  // temporaries for evals/lookups
-  // the MCMC model omits the hyper params and residual transformations...
-  Variables lookup_vars = mcmcModel.current_variables().copy();
-  String interface_id = mcmcModel.interface_id();
-  Response lookup_resp = mcmcModel.current_response().copy();
-  ActiveSet lookup_as = lookup_resp.active_set();
-  lookup_as.request_values(1);
-  lookup_resp.active_set(lookup_as);
-  ParamResponsePair lookup_pr(lookup_vars, interface_id, lookup_resp);
- 
-  int lookup_failures = 0, num_samples = acceptanceChain.numCols();
-  acceptedFnVals.shapeUninitialized(numFunctions, num_samples);
-  for (int sample_index=0; sample_index < num_samples; ++sample_index) {
-
-    if (standardizedSpace) {
-      // u_rv and x_rv omit any hyper-parameters
-      RealVector u_rv(Teuchos::Copy, acceptanceChain[sample_index], 
-		      numContinuousVars);
-      RealVector x_rv(Teuchos::View, acceptanceChain[sample_index], 
-		      numContinuousVars);
-      natafTransform.trans_U_to_X(u_rv, x_rv);
-      // trailing hyperparams are not transformed
-
-      // surrogate needs u-space variables for eval
-      if (mcmcModel.model_type() == "surrogate")
-	lookup_vars.continuous_variables(u_rv);
-      else
-	lookup_vars.continuous_variables(x_rv);
-    }
-    else {
-      RealVector x_rv(Teuchos::View, acceptanceChain[sample_index], 
-		      numContinuousVars);
-      lookup_vars.continuous_variables(x_rv);
-    }
-
-    // now retreive function values
-    if (mcmcModel.model_type() == "surrogate") {
-      mcmcModel.active_variables(lookup_vars);
-      mcmcModel.evaluate(lookup_resp.active_set());
-      const RealVector& fn_vals = mcmcModel.current_response().function_values();
-      Teuchos::setCol(fn_vals, sample_index, acceptedFnVals);	
-    }
-    else {
-      lookup_pr.variables(lookup_vars);
-      PRPCacheHIter cache_it = lookup_by_val(data_pairs, lookup_pr);
-      if (cache_it == data_pairs.get<hashed>().end())
-	++lookup_failures;
-      else {
-	const RealVector& fn_vals = cache_it->response().function_values();
-	Teuchos::setCol(fn_vals, sample_index, acceptedFnVals);
-      }
-    }
-
-  }
-  if (lookup_failures > 0 && outputLevel > SILENT_OUTPUT)
-    Cout << "Warning: could not retrieve function values for " 
-	 << lookup_failures << " MCMC chain points." << std::endl;
 }
 
 

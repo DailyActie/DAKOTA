@@ -1,14 +1,14 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
 
 //- Class:        ProcessHandleApplicInterface
 //- Description:  Derived class for the case when analysis code simulators use
-//-               fork\exec\wait to provide the function evaluations
+//-               vfork\exec\wait to provide the function evaluations
 //- Owner:        Mike Eldred
 //- Version: $Id: ProcessHandleApplicInterface.hpp 6492 2009-12-19 00:04:28Z briadam $
 
@@ -16,7 +16,7 @@
 #define PROCESS_HANDLE_APPLIC_INTERFACE_H
 
 #include "ProcessApplicInterface.hpp"
-#include <boost/shared_array.hpp>
+
 
 namespace Dakota {
 
@@ -48,8 +48,8 @@ protected:
 
   int synchronous_local_analysis(int analysis_id);
 
-  void init_communicators_checks(int max_eval_concurrency);
-  void set_communicators_checks(int max_eval_concurrency);
+  void init_communicators_checks(int max_iterator_concurrency);
+  void set_communicators_checks(int max_iterator_concurrency);
 
   void map_bookkeeping(pid_t pid, int fn_eval_id);
 
@@ -110,13 +110,6 @@ protected:
   /// set argList for execution of the specified analysis driver
   void driver_argument_list(int analysis_id);
 
-  /// parse argList into argument array av suitable for passing to
-  /// execvp, appending parameters and results filenames if requested
-  /// by commandLineArgs
-  void create_command_arguments(boost::shared_array<const char*>& av, 
-				StringArray& driver_and_args); 
-
-
   //
   //- Heading: Data
   //
@@ -140,7 +133,6 @@ private:
 };
 
 
-/** argList sized 3 for [driver name, input file, output file] */
 inline ProcessHandleApplicInterface::
 ProcessHandleApplicInterface(const ProblemDescDB& problem_db):
   ProcessApplicInterface(problem_db), argList(3)
@@ -170,20 +162,20 @@ synchronous_local_analysis(int analysis_id)
     However, process init issues as warnings since some contexts (e.g.,
     HierarchSurrModel) initialize more configurations than will be used. */
 inline void ProcessHandleApplicInterface::
-init_communicators_checks(int max_eval_concurrency)
+init_communicators_checks(int max_iterator_concurrency)
 {
   bool warn = true;
   check_multiprocessor_analysis(warn);
-  check_multiprocessor_asynchronous(warn, max_eval_concurrency);
+  check_multiprocessor_asynchronous(warn, max_iterator_concurrency);
 }
 
 
 /** Process run-time issues as hard errors. */
 inline void ProcessHandleApplicInterface::
-set_communicators_checks(int max_eval_concurrency)
+set_communicators_checks(int max_iterator_concurrency)
 {
   bool warn = false, mp1 = check_multiprocessor_analysis(warn),
-    mp2 = check_multiprocessor_asynchronous(warn, max_eval_concurrency);
+    mp2 = check_multiprocessor_asynchronous(warn, max_iterator_concurrency);
   if (mp1 || mp2)
     abort_handler(-1);
 }

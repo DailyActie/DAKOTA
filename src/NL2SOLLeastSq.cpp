@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -26,12 +26,12 @@ namespace Dakota {
 NL2SOLLeastSq* NL2SOLLeastSq::nl2solInstance(NULL);
 
 
-NL2SOLLeastSq::NL2SOLLeastSq(ProblemDescDB& problem_db, Model& model):
-  LeastSq(problem_db, model),
+NL2SOLLeastSq::NL2SOLLeastSq(Model& model): LeastSq(model),
   // output controls
   auxprt(31), outlev(1), // normal/verbose/debug
   // finite differencing
-  dltfdj(0.), delta0(0.), dltfdc(0.),
+  dltfdj(fdGradStepSize), delta0(fdHessByGradStepSize),
+  dltfdc(fdHessByFnStepSize),
   // max limits
   mxfcal(maxFunctionEvals), mxiter(maxIterations),
   // convergence tolerances
@@ -49,13 +49,6 @@ NL2SOLLeastSq::NL2SOLLeastSq(ProblemDescDB& problem_db, Model& model):
   // initial TR radius
   lmax0(  probDescDB.get_real("method.nl2sol.initial_trust_radius") )
 {
-  const RealVector&   fd_g_ss = iteratedModel.fd_gradient_step_size();
-  const RealVector& fd_hbg_ss = iteratedModel.fd_hessian_by_grad_step_size();
-  const RealVector& fd_hbf_ss = iteratedModel.fd_hessian_by_fn_step_size();
-  if (  !fd_g_ss.empty()) dltfdj =   fd_g_ss[0];
-  if (!fd_hbg_ss.empty()) delta0 = fd_hbg_ss[0];
-  if (!fd_hbf_ss.empty()) dltfdc = fd_hbf_ss[0];
-
   if (outputLevel == SILENT_OUTPUT)
     auxprt = outlev = 0;
   else if (outputLevel == QUIET_OUTPUT) {
@@ -64,11 +57,13 @@ NL2SOLLeastSq::NL2SOLLeastSq(ProblemDescDB& problem_db, Model& model):
 }
 
 
-NL2SOLLeastSq::NL2SOLLeastSq(Model& model): LeastSq(NL2SOL, model),
+NL2SOLLeastSq::NL2SOLLeastSq(NoDBBaseConstructor, Model& model):
+  LeastSq(NoDBBaseConstructor(), model),
   // output controls
   auxprt(31), outlev(1), // normal/verbose/debug
   // finite differencing
-  dltfdj(0.), delta0(0.), dltfdc(0.),
+  dltfdj(fdGradStepSize), delta0(fdHessByGradStepSize),
+  dltfdc(fdHessByFnStepSize),
   // max limits
   mxfcal(maxFunctionEvals), mxiter(maxIterations),
   // convergence tolerances: -1 = use internal NL2SOL default
@@ -81,13 +76,6 @@ NL2SOLLeastSq::NL2SOLLeastSq(Model& model): LeastSq(NL2SOL, model),
   // initial TR radius
   lmax0(-1.)
 {
-  const RealVector&   fd_g_ss = iteratedModel.fd_gradient_step_size();
-  const RealVector& fd_hbg_ss = iteratedModel.fd_hessian_by_grad_step_size();
-  const RealVector& fd_hbf_ss = iteratedModel.fd_hessian_by_fn_step_size();
-  if (  !fd_g_ss.empty()) dltfdj =   fd_g_ss[0];
-  if (!fd_hbg_ss.empty()) delta0 = fd_hbg_ss[0];
-  if (!fd_hbf_ss.empty()) dltfdc = fd_hbf_ss[0];
-
   if (outputLevel == SILENT_OUTPUT)
     auxprt = outlev = 0;
   else if (outputLevel == QUIET_OUTPUT) {
@@ -200,7 +188,8 @@ calcr(int *np, int *pp, Real *x, int *nfp, Real *r, int *ui, void *ur, Vf vf)
   copy_data(x, p, xd);
   nl2solInstance->iteratedModel.continuous_variables(xd);
   nl2solInstance->activeSet.request_values(spec + 1);
-  nl2solInstance->iteratedModel.evaluate(nl2solInstance->activeSet);
+  nl2solInstance->
+    iteratedModel.compute_response(nl2solInstance->activeSet);
   const Response& lr = nl2solInstance->iteratedModel.current_response();
 
   const RealVector& lf = lr.function_values();
@@ -274,7 +263,8 @@ calcj(int *np, int *pp, Real *x, int *nfp, Real *J, int *ui, void *ur, Vf vf)
     nl2solInstance->iteratedModel.continuous_variables(xd);
 
     nl2solInstance->activeSet.request_values(2);
-    nl2solInstance->iteratedModel.evaluate(nl2solInstance->activeSet);
+    nl2solInstance->
+      iteratedModel.compute_response(nl2solInstance->activeSet);
     const Response& lr = nl2solInstance->iteratedModel.current_response();
 
     const RealMatrix& lg = lr.function_gradients();
@@ -293,7 +283,7 @@ calcj(int *np, int *pp, Real *x, int *nfp, Real *J, int *ui, void *ur, Vf vf)
 }
 
 
-void NL2SOLLeastSq::core_run()
+void NL2SOLLeastSq::minimize_residuals()
 {
   // set the object instance pointer for use within the static member fns
   NL2SOLLeastSq* prev_instance = nl2solInstance;
@@ -342,8 +332,7 @@ void NL2SOLLeastSq::core_run()
   q.RC[3].nf = 0;
   q.ic = 2;
   q.newR = 0;
-  q.specgrad = (speculativeFlag || iteratedModel.gradient_type() == "analytic")
-    ? 2 : 0;
+  q.specgrad = speculativeFlag || gradientType == "analytic" ? 2 : 0;
   if (vendorNumericalGradFlag)
     q.specgrad = 0;
 
@@ -476,15 +465,11 @@ void NL2SOLLeastSq::core_run()
 	calcr(&n, &p, x, &i, q.RC[0].r, 0, &q, 0);
 	R = q.RC[0].r;
 	}
-  // If no interpolation, numUserPrimaryFns <= numLsqTerms.  Copy the
-  // first block of inbound model fns to best.  If data transform,
-  // will be further transformed back to user space (weights, scale,
-  // data) if needed in LeastSq::post_run
-  if ( !(calibrationDataFlag && expData.interpolate_flag()) )
-    for (size_t i=0; i<numUserPrimaryFns; ++i)
-      bestResponseArray.front().function_value(R[i], i);
-
+  RealVector y(n);
+  copy_data(R, n, y);
+  bestResponseArray.front().function_values(y);
   free(x);
+  get_confidence_intervals();
 
   nl2solInstance = prev_instance; // restore in case of recursion
 }

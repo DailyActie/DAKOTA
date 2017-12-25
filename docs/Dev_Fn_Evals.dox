@@ -29,16 +29,16 @@ and member functions involved.
 
 For a synchronous (i.e., blocking) mapping of parameters to responses,
 an iterator invokes 
-\ref Model::evaluate "Model::evaluate()" to 
+\ref Model::compute_response "Model::compute_response()" to 
 perform a function evaluation.  This function is all that is seen from the
 iterator level, as underlying complexities are isolated.  The binding
 of this top level function with lower level functions is as follows:
 <ul>
-<li> \ref Model::evaluate "Model::evaluate()" utilizes 
-\ref Model::derived_evaluate "Model::derived_evaluate()"
+<li> \ref Model::compute_response "Model::compute_response()" utilizes 
+\ref Model::derived_compute_response "Model::derived_compute_response()"
 for portions of the response computation specific to derived model classes.
 <li> \ref 
-Model::derived_evaluate "Model::derived_evaluate()" 
+Model::derived_compute_response "Model::derived_compute_response()" 
 directly or indirectly invokes \ref Interface::map "Interface::map()".
 <li> \ref Interface::map "Interface::map()" utilizes \ref 
 ApplicationInterface::derived_map "ApplicationInterface::derived_map()"
@@ -51,7 +51,7 @@ for portions of the mapping specific to derived application interface classes.
 
 For an asynchronous (i.e., nonblocking) mapping of parameters to
 responses, an iterator invokes \ref 
-Model::evaluate_nowait "Model::evaluate_nowait()"
+Model::asynch_compute_response "Model::asynch_compute_response()"
 multiple times to queue asynchronous jobs and then invokes either
 \ref Model::synchronize "Model::synchronize()" or \ref
 Model::synchronize_nowait "Model::synchronize_nowait()" to
@@ -60,9 +60,9 @@ these functions are all that is seen from the iterator level, as
 underlying complexities are isolated.  The binding of these top level
 functions with lower level functions is as follows:
 <ul>
-<li> \ref Model::evaluate_nowait "Model::evaluate_nowait()"
+<li> \ref Model::asynch_compute_response "Model::asynch_compute_response()"
 utilizes \ref
-Model::derived_evaluate_nowait "Model::derived_evaluate_nowait()"
+Model::derived_asynch_compute_response "Model::derived_asynch_compute_response()"
 for portions of the response computation specific to derived model classes.
 <li> This derived model class function directly or indirectly 
 invokes \ref Interface::map "Interface::map()" in asynchronous mode, 
@@ -78,8 +78,7 @@ for portions of the scheduling process specific to derived model classes.
 \ref Interface::synch_nowait "Interface::synch_nowait()".
 <li> For application interfaces, these interface synchronization
 functions are responsible for performing evaluation scheduling in 
-one of the following modes: master dynamic, peer dynamic or peer static.
-<!--
+one of the following modes:
   <ul>
   <li> asynchronous local mode (using 
 \ref ApplicationInterface::asynchronous_local_evaluations "ApplicationInterface::asynchronous_local_evaluations()" or 
@@ -106,31 +105,21 @@ interface classes, as well as
 \ref ApplicationInterface::derived_synch "ApplicationInterface::derived_synch()" and
 \ref ApplicationInterface::derived_synch_nowait "ApplicationInterface::derived_synch_nowait()"
 for portions of job capturing specific to derived application interface classes.
--->
-<li><em>NOTE: The Interface evaluation scheduling in %Dakota was refactored for
-releases 5.4 and 6.0.  Discussion of the new Interface-related
-functions is currently missing here.</em>
 </ul>
 
 
 \section FnEvalsAnalyses Analyses within each function evaluation
 
-<em>NOTE: The Interface evaluation scheduling in %Dakota was refactored
-for releases 5.4 and 6.0.  Discussion of the new Interface-related
-functions for analyses is currently missing here.</em>
 
 The discussion above covers the parallelism level of concurrent 
 function evaluations serving an iterator.  For the parallelism 
 level of concurrent analyses serving a function evaluation, similar 
-schedulers are involved 
-<!-- TODO
-(\ref 
+schedulers are involved (\ref 
 ForkApplicInterface::synchronous_local_analyses "ForkApplicInterface::synchronous_local_analyses()",
 \ref ForkApplicInterface::asynchronous_local_analyses "ForkApplicInterface::asynchronous_local_analyses()",
 \ref ApplicationInterface::self_schedule_analyses "ApplicationInterface::self_schedule_analyses()",
 \ref ApplicationInterface::serve_analyses_synch "ApplicationInterface::serve_analyses_synch()",
 \ref ForkApplicInterface::serve_analyses_asynch "ForkApplicInterface::serve_analyses_asynch()")
--->
 to support synchronous local, asynchronous local, message passing, and
 hybrid modes.  Not all of the schedulers are elevated to the
 ApplicationInterface level since the system call and direct function

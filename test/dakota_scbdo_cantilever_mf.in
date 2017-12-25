@@ -1,6 +1,6 @@
-#@ *: DakotaConfig=HAVE_NPSOL
-environment,
+strategy,
 #	graphics
+	single_method
 	method_pointer = 'SBLO'
 
 method,
@@ -31,9 +31,10 @@ model,
 	variables_pointer  = 'OPTIM_V'
 	responses_pointer  = 'OPTIM_R'
 	surrogate hierarchical
-	  ordered_model_fidelities = 'LO_FI' 'HI_FI'
-	  correction additive first_order	#s0,#s2,#s4,#s6
-#	  correction additive second_order	#s1,#s3,#s5,#s7
+	  low_fidelity_model  = 'LO_FI'
+	  high_fidelity_model = 'HI_FI'
+	  correction additive first_order	#0,#2,#4,#6
+#	  correction additive second_order	#1,#3,#5,#7
 
 variables,
 	id_variables = 'OPTIM_V'
@@ -52,8 +53,8 @@ responses,
 	nonlinear_inequality_lower_bounds = 3. 3.
 	nonlinear_inequality_upper_bounds = 1.e+50 1.e+50
 	analytic_gradients
-	no_hessians				#s0,#s2,#s4,#s6
-#	quasi_hessians sr1			#s1,#s3,#s5,#s7
+	no_hessians				#0,#2,#4,#6
+#	quasi_hessians sr1			#1,#3,#5,#7
 
 responses,
 # NOTE: This specifies the TOTAL RESPONSE for the optimization,
@@ -67,8 +68,8 @@ responses,
 #	mixed_gradients
 #	  id_analytic_gradients  = 1
 #	  id_numerical_gradients = 2 3
-	no_hessians				#s0,#s2,#s4,#s6
-#	quasi_hessians sr1			#s1,#s3,#s5,#s7
+	no_hessians				#0,#2,#4,#6
+#	quasi_hessians sr1			#1,#3,#5,#7
 
 ##########################
 # begin LF specification #
@@ -78,8 +79,8 @@ model,
 	nested
 	  variables_pointer  = 'OPTIM_V'
 	  sub_method_pointer = 'UQ_COMBINED_EXP'
-	  responses_pointer  = 'OPTIM_R'	#s0,#s1,#s4,#s5
-#	  responses_pointer  = 'OPTIM_R_FD'	#s2,#s3,#s6,#s7
+	  responses_pointer  = 'OPTIM_R'	#0,#1,#4,#5
+#	  responses_pointer  = 'OPTIM_R_FD'	#2,#3,#6,#7
 # maximize beta
 	  primary_response_mapping   = 1. 0. 0. 0. 0. 0. 0. 0.
 	  secondary_response_mapping = 0. 0. 0. 0. 1. 0. 0. 0.
@@ -88,10 +89,10 @@ model,
 method,
 	id_method = 'UQ_COMBINED_EXP'
 	model_pointer = 'UQ_M_LO_FI'
-	stoch_collocation			#s0,#s1,#s4,#s5
-	  quadrature_order = 3			#s0,#s1
-#	  sparse_grid_level = 4 non_nested	#s4,#s5
-#	local_reliability			#s2,#s3,#s6,#s7
+	stoch_collocation			#0,#1,#4,#5
+	  quadrature_order = 3			#0,#1
+#	  sparse_grid_level = 4 non_nested	#4,#5
+#	local_reliability			#2,#3,#6,#7
 	  num_response_levels = 0 1 1
 	  response_levels = 0.0 0.0
 	  compute reliabilities
@@ -115,8 +116,8 @@ method,
 	id_method = 'UQ_UNCERTAIN_EXP'
 	model_pointer = 'UQ_M_HI_FI'
 	stoch_collocation
-	  quadrature_order = 3			#s0,#s1,#s2,#s3
-#	  sparse_grid_level = 2 non_nested	#s4,#s5,#s6,#s7
+	  quadrature_order = 3			#0,#1,#2,#3
+#	  sparse_grid_level = 2 non_nested	#4,#5,#6,#7
 	  num_response_levels = 0 1 1
 	  response_levels = 0.0 0.0
 	  compute reliabilities
@@ -142,7 +143,7 @@ model,
 
 variables,
 	id_variables = 'UQ_V_LO_FI'
-	active all				#s0,#s1,#s4,#s5
+	active all				#0,#1,#4,#5
 	continuous_design = 2
 	normal_uncertain = 4
 	  means             =  40000. 29.E+6 500. 1000.
@@ -166,8 +167,8 @@ interface,
 responses,
 	id_responses = 'UQ_R_LO_FI'
 	response_functions = 3
-	no_gradients				#s0,#s1,#s4,#s5
-#	analytic_gradients			#s2,#s3,#s6,#s7
+	no_gradients				#0,#1,#4,#5
+#	analytic_gradients			#2,#3,#6,#7
 	no_hessians
 
 responses,

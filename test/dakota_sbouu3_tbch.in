@@ -1,11 +1,11 @@
-#@ *: DakotaConfig=HAVE_DOT
 # DAKOTA INPUT FILE: dakota_sbouu3_tbch.in
 #
 # OUU with surrogates: nested containing surrogate
 #
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -57,7 +57,7 @@ responses,
 ##########################################
 interface,
 	id_interface = 'OPTIONAL_I'
-  direct
+	system
 	  analysis_driver = 'cyl_head'
 
 responses,
@@ -78,7 +78,7 @@ method,
 	  output quiet
 	  samples = 5000 sample_type lhs
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  response_levels = 4.2e+11 1.6e+05 7.5e+05
 	  complementary distribution
 
@@ -160,6 +160,5 @@ variables,
 
 interface,
 	id_interface = 'UQ_ACTUAL'
-  direct
-#	system asynch evaluation_concurrency = 5
+	system asynch evaluation_concurrency = 5
 	  analysis_driver = 'text_book_ouu'

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -80,7 +80,7 @@ public:
       (OptionalValue).  The third argument is a string giving a brief
       description of the option. This description will be used by
       GetLongOpt::usage.  GetLongOpt, for usage-printing, uses {$val}
-      to represent values needed by the options. {\<$val\>} is a
+      to represent values needed by the options. {<$val>} is a
       mandatory value and {[$val]} is an optional value. The final
       argument to enroll is the default string to be returned if the
       option is not specified. For flags (options with Valueless), use
@@ -165,7 +165,7 @@ public:
   /// default constructor, requires check_usage() call for parsing
   CommandLineHandler();
   /// constructor with parsing
-  CommandLineHandler(int argc, char** argv, int world_rank);
+  CommandLineHandler(int argc, char** argv);
   /// destructor
   ~CommandLineHandler();
 
@@ -182,8 +182,11 @@ public:
   /// instead of a const char*.
   int read_restart_evals() const;
 
-  /// Print usage information to outfile, conditionally on rank
-  void usage(std::ostream &outfile = Cout) const;
+  /// Whether command line args dictate instantiation of objects for run
+  bool instantiate_flag() const;
+
+  /// Whether steps beyond check are requested
+  bool run_flag() const;
 
 private:
 
@@ -193,24 +196,34 @@ private:
 
   /// enrolls the supported command line inputs.
   void initialize_options();
-  
-  /// output only on Dakota worldRank 0 if possible
-  void output_helper(const std::string& message, std::ostream &os) const;
-  
-  /// Rank of this process within Dakota's allocation; manages conditional output
-  int worldRank;
+
+  /// conditionally associate Cout/Cerr with file streams, if specified by user
+  void assign_streams();
+  /// conditionally restore Cout/Cerr to default
+  void reset_streams();
+
+  /// outputs the DAKOTA version
+  void output_version() const;
+
+  /// perform output of message to ostream os on rank 0 only
+  void output_helper(const std::string message, std::ostream &os) const;
+
+  //
+  //- Heading: Data
+  //
+
+  // Define these locally to keep CLH self-contained
+  std::ofstream output_ofstream; ///< temporary file redirection of stdout
+  std::ofstream error_ofstream;  ///< temporary file redirection of stderr
 
 };
 
 
-inline CommandLineHandler::CommandLineHandler():
-  worldRank(0)
+inline CommandLineHandler::CommandLineHandler()
 { initialize_options(); }
 
 
-inline CommandLineHandler::
-CommandLineHandler(int argc, char** argv, int world_rank):
-  worldRank(world_rank)
+inline CommandLineHandler::CommandLineHandler(int argc, char** argv)
 { initialize_options(); check_usage(argc, argv); }
 
 
@@ -224,6 +237,20 @@ inline int CommandLineHandler::read_restart_evals() const
   return (stop_restart_str) ? std::atoi(stop_restart_str) : 0;
 }
 
+/** Instantiate objects if not just getting help or version */
+inline bool CommandLineHandler::instantiate_flag() const
+{
+  if (retrieve("help") || retrieve("version"))
+    return false;
+  return true;
+}
+
+inline bool CommandLineHandler::run_flag() const
+{
+  if (retrieve("help") || retrieve("version") || retrieve("check"))
+    return false;
+  return true;
+}
 
 } // namespace Dakota
 

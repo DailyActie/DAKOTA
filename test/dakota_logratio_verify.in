@@ -1,6 +1,3 @@
-#@ s*: Label=FastTest
-#@ s0:TimeoutDelay=120
-
 method,
 	sampling
 	  samples = 100000 seed = 1234567

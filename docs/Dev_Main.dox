@@ -4,11 +4,10 @@ namespace Dakota { // for some reason, this doesn't work with mainpage
 
 \image html logo_3d_halfsize.jpg
 
-\author Brian M. Adams, William J. Bohnhoff, Keith
-R. Dalbey, John P. Eddy, Mohamed S. Ebeida, Michael S. Eldred, Russell
-W. Hooper, Patricia D. Hough, Kenneth T. Hu, John D. Jakeman, Kathryn A. Maupin,
-Jason A. Monschke, Elliott M. Ridgway, Ahmad Rushdi, Laura P. Swiler, J. Adam Stephens, 
-Dena M. Vigil, Timothy M. Wildey
+\author Brian M. Adams, Lara E. Bauman, William J. Bohnhoff, Keith
+R. Dalbey, John P. Eddy, Mohamed S. Ebeida, Michael S. Eldred,
+Patricia D. Hough, Kenneth T. Hu, John D. Jakeman, Laura P. Swiler,
+J. Adam Stephens, Dena M. Vigil
 
 \htmlonly
 <b>Main Page Table of Contents</b>
@@ -16,7 +15,7 @@ Dena M. Vigil, Timothy M. Wildey
 <li> <a href="index.html#DevIntro">Introduction</a> 
 <li> <a href="index.html#DevOverview">Overview of Dakota</a> 
   <ul>
-  <li> <a href="index.html#DevEnvironment">Environment</a>
+  <li> <a href="index.html#DevStrategies">Strategies</a>
   <li> <a href="index.html#DevIterators">Iterators</a>
   <li> <a href="index.html#DevModels">Models</a>
   <li> <a href="index.html#DevVariables">Variables</a>
@@ -32,57 +31,55 @@ Dena M. Vigil, Timothy M. Wildey
 
 \section DevIntro Introduction
 
-The %Dakota software (http://dakota.sandia.gov/) delivers advanced
-parametric analysis techniques enabling quantification of margins and
-uncertainty, risk analysis, model calibration, and design exploration
-with computational models.  %Dakota contains algorithms for
-optimization with gradient and nongradient-based methods, uncertainty
-quantification with sampling, reliability, stochastic expansion, and
-interval estimation methods, parameter estimation with nonlinear least
-squares methods, and sensitivity/variance analysis with design of
-experiments and parameter study capabilities.  (Solution verification
-and Bayesian approaches are also in development.)  These capabilities
-may be used on their own or as components within advanced algorithms
-such as surrogate-based optimization, mixed integer nonlinear
-programming, mixed aleatory-epistemic uncertainty quantification, or
-optimization under uncertainty. By employing object-oriented design to
-implement abstractions of the key components required for iterative
-systems analyses, the %Dakota toolkit provides a flexible
-problem-solving environment for design and performance analysis of
-computational models on high performance computers.
+
+The %Dakota (Design Analysis Kit for Optimization and Terascale
+Applications) toolkit provides a flexible, extensible interface
+between analysis codes and iteration methods.  %Dakota contains
+algorithms for optimization with gradient and nongradient-based
+methods, uncertainty quantification with sampling, reliability,
+stochastic expansion, and interval estimation methods, parameter
+estimation with nonlinear least squares methods, and
+sensitivity/variance analysis with design of experiments and parameter
+study capabilities.  (Solution verification and Bayesian approaches
+are also in development.)  These capabilities may be used on their own
+or as components within advanced algorithms such as surrogate-based
+optimization, mixed integer nonlinear programming, mixed
+aleatory-epistemic uncertainty quantification, or optimization under
+uncertainty. By employing object-oriented design to implement
+abstractions of the key components required for iterative systems
+analyses, the %Dakota toolkit provides a flexible problem-solving
+environment for design and performance analysis of computational
+models on high performance computers.
 
 The Developers Manual focuses on documentation of %Dakota design
 principles and class structures; it derives principally from annotated
-source code.  For information on input command syntax, refer to the
-Reference Manual \cite RefMan, and for more details on %Dakota
-features and capabilities, refer to the Users Manual.
+source code.  For information on input command syntax, refer to the <a
+href="../html-ref/index.html">Reference Manual</a>, and for more
+details on %Dakota features and capabilities, refer to the Users
+Manual.
+
 
 \section DevOverview Overview of Dakota
 
-In %Dakota, the \e environment manages execution modes and
-input/output streams and defines the top-level iterator.  This
-top-level iterator may be either a standard iterator or a
-meta-iterator.  In the former case, the iterator identifies a model
-and the environment executes the iterator on the model to perform a
-single study.  In the latter case, iterator recursions are present and
-sub-iterators may identify their own models.  In both cases, models
-may contain additional recursions in the case of nested iteration or
-surrogate modeling.  In a simple example, a hybrid meta-iterator might
-manage a global optimizer operating on a low-fidelity model that feeds
-promising design points into a local optimizer operating on a 
-high-fidelity model.  And in a more advanced example, a surrogate-based 
-optimization under uncertainty approach would employ an uncertainty 
-quantification iterator nested within an optimization iterator and 
-would employ truth models contained within surrogate models.  Thus, 
-iterators and models provide both stand-alone capabilities as well as 
-building blocks for more sophisticated studies.
+In %Dakota, the \e strategy creates and manages \e iterators and 
+\e models.  In the simplest case, the strategy creates a single iterator
+and a single model and executes the iterator on the model to perform a
+single study.  In a more advanced case, a hybrid optimization strategy
+might manage a global optimizer operating on a low-fidelity model in
+coordination with a local optimizer operating on a high-fidelity
+model.  And on the high end, a surrogate-based optimization under
+uncertainty strategy would employ an uncertainty quantification
+iterator nested within an optimization iterator and would employ truth
+models layered within surrogate models.  Thus, iterators and models
+provide both stand-alone capabilities as well as building blocks for
+more sophisticated studies.
 
 A model contains a set of \e variables, an \e interface, and a set of
 \e responses, and the iterator operates on the model to map the
 variables into responses using the interface.  Each of these
 components is a flexible abstraction with a variety of specializations
 for supporting different types of iterative studies.  In a %Dakota
-input file, the user specifies these components through environment,
+input file, the user specifies these components through strategy,
 method, model, variables, interface, and responses keyword
 specifications.
 
@@ -97,20 +94,31 @@ leveraged for new purposes.  The following sections tour %Dakota's
 class organization.
 
 
-\subsection DevEnvironment Environment
+\subsection DevStrategies Strategies
 
-Class hierarchy: \ref Dakota::Environment "Environment".
+Class hierarchy: \ref Dakota::Strategy "Strategy".
 
-Environments provide the top level abstraction for managing different
-execution modes and managing input and output streams.  Specific
-environments include:
+Strategies provide a control layer for creation and management of
+iterators and models.  Specific strategies include:
 
 <ul> 
-<li> \ref Dakota::ExecutableEnvironment "ExecutableEnvironment": the 
-environment for execution of %Dakota as a stand-alone application.
+<li> \ref Dakota::SingleMethodStrategy "SingleMethodStrategy": the
+simplest strategy.  A single iterator is run on a single model to
+perform a single study.
 
-<li> \ref Dakota::LibraryEnvironment "LibraryEnvironment": the 
-environment for execution of %Dakota as an embedded library service.
+<li> \ref Dakota::HybridStrategy "HybridStrategy": hybrid minimization
+using a set of iterators employing a corresponding set of models of
+varying fidelity.  Coordination approaches among the iterators include
+collaborative, embedded, and sequential approaches, as embodied in
+the CollaborativeHybridStrategy, EmbeddedHybridStrategy, and
+SequentialHybridStrategy derived classes.
+
+<li> \ref Dakota::ConcurrentStrategy "ConcurrentStrategy": two similar
+algorithms are available: (1) multi-start iteration from several
+different starting points, and (2) pareto set optimization for several
+different multiobjective weightings.  Employs a single iterator with a
+single model, but runs multiple instances of the iterator concurrently
+for different settings within the model.
 </ul>
 
 
@@ -123,55 +131,28 @@ as described in \ref IteratorFlow.
 The iterator hierarchy contains a variety of iterative algorithms for
 optimization, uncertainty quantification, nonlinear least squares,
 design of experiments, and parameter studies.  The hierarchy is
-divided into \ref Dakota::MetaIterator "MetaIterator", 
-\ref Dakota::Minimizer "Minimizer", and \ref Dakota::Analyzer "Analyzer"
-branches.  
-
-The \ref Dakota::MetaIterator "MetaIterator" classes manage sequencing
-and collaboration among multiple methods with support for concurrent
-iterator parallelism.  Methods include:
-
-<ul> 
-<li> \ref Dakota::SeqHybridMetaIterator "SeqHybridMetaIterator": hybrid
-minimization using a set of iterators employing a corresponding set of 
-models of varying fidelity.  The sequential hybrid passes the best
-solutions from one method in as the starting points of the next method
-in the sequence.
-
-<li> \ref Dakota::CollabHybridMetaIterator "CollabHybridMetaIterator":
-hybrid minimization employing collaboration and sharing of response
-data among methods during the course if iteration.  This class is
-currently a placeholder.
-
-<li> \ref Dakota::EmbedHybridMetaIterator "EmbedHybridMetaIterator":
-hybrid minimization involving periodic use of a local search method
-for refinement during the iteration of an outer global method. This
-class is currently a placeholder.
-
-<li> \ref Dakota::ConcurrentMetaIterator "ConcurrentMetaIterator": two 
-similar algorithms are available: (1) multi-start iteration from several
-different starting points, and (2) pareto set optimization for several
-different multi-objective weightings.  Employs a single iterator with a
-single model, but runs multiple instances of the iterator concurrently
-for different settings within the model.
-</ul>
-
-The \ref Dakota::Minimizer "Minimizer" classes address
-optimization and deterministic calibration and are grouped into:
+divided into \ref Dakota::Minimizer "Minimizer" and 
+\ref Dakota::Analyzer "Analyzer" branches.  The 
+\ref Dakota::Minimizer "Minimizer" classes address optimization and 
+deterministic calibration and are grouped into:
 
 <ul>
-
 <li> Optimization: \ref Dakota::Optimizer "Optimizer" provides a base
-class for gradient-based (e.g., \ref Dakota::CONMINOptimizer
-"CONMINOptimizer" and \ref Dakota::SNLLOptimizer "SNLLOptimizer") and
-derivative-free (e.g., \ref Dakota::NCSUOptimizer "NCSUOptimizer",
-\ref Dakota::JEGAOptimizer "JEGAOptimizer") optimization solvers.
-Most of these are wrappers for third-party libraries that implement
-the optimization algorithms.  Classes \ref Dakota::APPSEvalMgr
-"APPSEvalMgr" and \ref Dakota::COLINApplication "COLINApplication"
-provide the function evaluation interface for \ref
-Dakota::APPSOptimizer "APPSOptimizer" and \ref Dakota::COLINOptimizer
-"COLINOptimizer", respectively.
+class for the 
+\ref Dakota::DOTOptimizer "DOTOptimizer", 
+\ref Dakota::CONMINOptimizer "CONMINOptimizer", 
+\ref Dakota::NPSOLOptimizer "NPSOLOptimizer", 
+\ref Dakota::NLPQLPOptimizer "NLPQLPOptimizer",
+\ref Dakota::NonlinearCGOptimizer "NonlinearCGOptimizer", and 
+\ref Dakota::SNLLOptimizer "SNLLOptimizer" gradient-based optimization
+libraries and the
+\ref Dakota::APPSOptimizer "APPSOptimizer" (supported by 
+\ref Dakota::APPSEvalMgr "APPSEvalMgr" for function evaluations), 
+\ref Dakota::COLINOptimizer "COLINOptimizer" (supported by 
+\ref Dakota::COLINApplication "COLINApplication" for function evaluations), 
+\ref Dakota::JEGAOptimizer "JEGAOptimizer", and
+\ref Dakota::NCSUOptimizer "NCSUOptimizer" nongradient-based 
+optimization methods and libraries.
 
 <li> Parameter estimation: \ref Dakota::LeastSq "LeastSq" provides a
 base class for \ref Dakota::NL2SOLLeastSq "NL2SOLLeastSq", a 
@@ -200,26 +181,32 @@ The \ref Dakota::Analyzer "Analyzer" classes are grouped into:
 <ul>
 
 <li> Uncertainty quantification: \ref Dakota::NonD "NonD" provides a
-base class for non-deterministic methods in several categories:
+base class for non-deterministic methods \ref Dakota::NonDSampling
+"NonDSampling", \ref Dakota::NonDReliability "NonDReliability"
+(reliability analysis), \ref Dakota::NonDExpansion "NonDExpansion"
+(stochastic expansion methods), \ref Dakota::NonDInterval "NonDInterval" 
+(interval-based epistemic methods), \ref Dakota::NonDCalibration
+"NonDCalibration" (nondeterministic calibration), and 
+\ref Dakota::EfficientSubspaceMethod "EfficientSubspaceMethod" (prototype
+input-space dimension reduction method for UQ).
 
-<ul> 
-
-<li> Sampling: \ref Dakota::NonDSampling "NonDSampling" is further
+<ul> <li> \ref Dakota::NonDSampling "NonDSampling" is further
 specialized with the \ref Dakota::NonDLHSSampling "NonDLHSSampling"
-class for Latin hypercube and Monte Carlo sampling, and a number of
-other classes supporting incremental and adaptive sampling such as
-\ref Dakota::NonDAdaptImpSampling "NonDAdaptImpSampling" for
-multi-modal adaptive importance sampling.
+class for Latin hypercube and Monte Carlo sampling, the \ref
+Dakota::NonDIncremLHSSampling "NonDIncremLHSSampling" class for
+incremental Latin hypercube sampling, \ref
+Dakota::NonDAdaptImpSampling "NonDAdaptImpSampling" for multimodal
+adaptive importance sampling, and 
+\ref Dakota::NonDGPImpSampling "NonDGPImpSampling" for Gaussian process-based
+importance sampling.
 
-<li> Reliability Analysis: \ref Dakota::NonDReliability
-"NonDReliability" is further specialized with local and global methods
-(\ref Dakota::NonDLocalReliability "NonDLocalReliability" and \ref
-Dakota::NonDGlobalReliability "NonDGlobalReliability").  \ref
-NonDPOFDarts implements a computational geometry-based reliability
-method.
+<li> \ref Dakota::NonDReliability "NonDReliability" is further specialized 
+with local and global methods 
+(\ref Dakota::NonDLocalReliability "NonDLocalReliability" and 
+\ref Dakota::NonDGlobalReliability "NonDGlobalReliability"). 
 
-<li> Stochastic Expansions: \ref Dakota::NonDExpansion "NonDExpansion"
-includes specializations for generalized polynomial chaos (\ref
+<li> \ref Dakota::NonDExpansion "NonDExpansion" includes
+specializations for generalized polynomial chaos (\ref
 Dakota::NonDPolynomialChaos "NonDPolynomialChaos") and stochastic
 collocation (\ref Dakota::NonDStochCollocation "NonDStochCollocation")
 and is supported by the \ref Dakota::NonDIntegration "NonDIntegration"
@@ -228,12 +215,12 @@ Smolyak sparse grid methods (\ref Dakota::NonDCubature "NonDCubature",
 \ref Dakota::NonDQuadrature "NonDQuadrature", and \ref
 Dakota::NonDSparseGrid "NonDSparseGrid").
 
-<li> Bayesian Calibration: \ref Dakota::NonDCalibration
-"NonDCalibration" provides a base class for nondeterministic
-calibration methods with specialization to Bayesian calibration in
-\ref Dakota::NonDBayesCalibration "NonDBayesCalibration", and specific
-implementations such as \ref Dakota::NonDQUESOBayesCalibration
-"NonDQUESOBayesCalibration".
+<li> \ref Dakota::NonDCalibration "NonDCalibration" provides a base 
+class for nondeterministic calibration methods with specialization to
+Bayesian calibration in \ref Dakota::NonDBayesCalibration 
+"NonDBayesCalibration".  Specific Bayesian calibration implementations 
+exist in \ref Dakota::NonDGPMSABayesCalibration "NonDGPMSABayesCalibration" 
+and \ref Dakota::NonDQUESOBayesCalibration "NonDQUESOBayesCalibration".
 
 <li> \ref Dakota::NonDInterval "NonDInterval" provides a base class
 for epistemic interval-based UQ methods.  Three interval analysis
@@ -241,9 +228,14 @@ approaches are provided: LHS (\ref Dakota::NonDLHSInterval
 "NonDLHSInterval"), efficient global optimization (\ref
 Dakota::NonDGlobalInterval "NonDGlobalInterval"), and local
 optimization (\ref Dakota::NonDLocalInterval "NonDLocalInterval").
-Each of these three has specializations for single interval and
-Dempster-Shafer Theory of Evidence approaches.  
-
+Each of these three has specializations for single interval (\ref
+Dakota::NonDLHSSingleInterval "NonDLHSSingleInterval", \ref
+Dakota::NonDGlobalSingleInterval "NonDGlobalSingleInterval", \ref
+Dakota::NonDLocalSingleInterval "NonDLocalSingleInterval") and
+Dempster-Shafer Theory of Evidence (\ref Dakota::NonDLHSEvidence
+"NonDLHSEvidence", \ref Dakota::NonDGlobalEvidence
+"NonDGlobalEvidence", \ref Dakota::NonDLocalEvidence
+"NonDLocalEvidence") approaches.
 </ul>
 
 <li> Parameter studies and design of experiments: 
@@ -282,8 +274,8 @@ used, they may be of arbitrary type so that a variety of recursions
 are supported. 
 
 <ul> 
-<li> \ref Dakota::SimulationModel "SimulationModel": variables are mapped into
-responses using a simulation-based \ref Dakota::Interface "Interface" object.
+<li> \ref Dakota::SingleModel "SingleModel": variables are mapped into
+responses using a single \ref Dakota::Interface "Interface" object.
 No sub-iterators or sub-models are used.
 
 <li> \ref Dakota::SurrogateModel "SurrogateModel": variables are mapped
@@ -309,7 +301,7 @@ part of every response evaluation on the top level model.
 <li> \ref Dakota::RecastModel "RecastModel": recasts the inputs and
 outputs of a sub-model for the purposes of variable transformations
 (e.g., variable scaling, transformations to standardized random
-variables) and problem reformulation (e.g., multi-objective
+variables) and problem reformulation (e.g., multiobjective
 optimization, response scaling, augmented Lagrangian merit functions,
 expected improvement).
 </ul>
@@ -463,38 +455,37 @@ not required specialization.
 \section DevServices Services
 
 
-A variety of services and utilities are used in %Dakota for parallel
-computing, failure capturing, restart, graphics, etc.  An overview of
-the classes and member functions involved in performing these services
-is included here.
+A variety of services are provided in %Dakota for parallel computing,
+failure capturing, restart, graphics, etc.  An overview of the classes
+and member functions involved in performing these services is included
+below.
 
 <ul> 
 <li> Multilevel parallel computing: %Dakota supports multiple levels of
-nested parallelism.  A meta-iterator can manage concurrent iterators, 
-each of which manages concurrent function evaluations, each of which
+nested parallelism.  A strategy can manage concurrent iterators, each
+of which manages concurrent function evaluations, each of which
 manages concurrent analyses executing on multiple processors.
 Partitioning of these levels with MPI communicators is managed in 
 \ref Dakota::ParallelLibrary "ParallelLibrary" and scheduling 
-routines for the levels are part of 
-\ref Dakota::IteratorScheduler "IteratorScheduler", 
+routines for the levels are part of \ref Dakota::Strategy "Strategy", 
 \ref Dakota::ApplicationInterface "ApplicationInterface", and 
 \ref Dakota::ForkApplicInterface "ForkApplicInterface".
 
-<li>Option management: Global options controlling behavior are managed
-in \ref ProgramOptions, with the help of command-line option
-parsing in \ref CommandLineHandler.</li>
-
-<li> Parsing: %Dakota employs NIDR (New Input Deck Reader) via \ref
-Dakota::ProblemDescDB::parse_inputs to parse user input files.  NIDR
-uses the keyword handlers in the \ref Dakota::NIDRProblemDescDB
-"NIDRProblemDescDB" derived class to populate data within the \ref
-Dakota::ProblemDescDB "ProblemDescDB" base class, which maintains a
-\ref Dakota::DataEnvironment "DataEnvironment" specification and lists
-of \ref Dakota::DataMethod "DataMethod", \ref Dakota::DataModel
-"DataModel", \ref Dakota::DataVariables "DataVariables", \ref
-Dakota::DataInterface "DataInterface", and \ref Dakota::DataResponses
-"DataResponses" specifications.  Procedures for modifying the parsing
-subsystem are described in \ref SpecChange.
+<li> Parsing: %Dakota employs the NIDR parser (New Input Deck Reader) to
+retrieve information from user input files.  Parsing options are
+processed in \ref Dakota::CommandLineHandler "CommandLineHandler" 
+and parsing occurs in 
+\ref 
+Dakota::ProblemDescDB::manage_inputs "ProblemDescDB::manage_inputs()" 
+called from main.cpp.  NIDR uses the keyword handlers in the
+\ref Dakota::NIDRProblemDescDB "NIDRProblemDescDB" derived class to populate 
+data within the \ref Dakota::ProblemDescDB "ProblemDescDB" base class, 
+which maintains a \ref Dakota::DataStrategy "DataStrategy"
+specification and lists of \ref Dakota::DataMethod "DataMethod", 
+\ref Dakota::DataModel "DataModel", \ref Dakota::DataVariables "DataVariables", 
+\ref Dakota::DataInterface "DataInterface", and 
+\ref Dakota::DataResponses "DataResponses" specifications.  Procedures 
+for modifying the parsing subsystem are described in \ref SpecChange.
 
 <li> Failure capturing: Simulation failures can be trapped and managed
 using exception handling in 
@@ -503,8 +494,11 @@ derived classes.
 
 <li> Restart: %Dakota maintains a record of all function evaluations
 both in memory (for capturing any duplication) and on the file system
-(for restarting runs).  Restart options are managed through \ref
-ProgramOptions (with the help of \ref CommandLineHandler); file management in \ref OutputManager;  and restart file insertions occur in \ref
+(for restarting runs).  Restart options are processed in \ref
+Dakota::CommandLineHandler "CommandLineHandler" and retrieved in
+\ref Dakota::ParallelLibrary::specify_outputs_restart "ParallelLibrary::specify_outputs_restart()", 
+restart file management occurs in \ref
+Dakota::ParallelLibrary::manage_outputs_restart "ParallelLibrary::manage_outputs_restart()", and restart file insertions occur in \ref
 Dakota::ApplicationInterface "ApplicationInterface".  The \c 
 dakota_restart_util executable, built from restart_util.cpp, provides 
 a variety of services for interrogating, converting, repairing, 
@@ -514,7 +508,7 @@ concatenating, and post-processing restart files.
 counting and representation sharing through the use of letter-envelope
 and handle-body idioms (Coplien, "Advanced C++").  The former idiom
 provides for memory efficiency and enhanced polymorphism in the
-following class hierarchies: \ref Dakota::Environment "Environment", \ref
+following class hierarchies: \ref Dakota::Strategy "Strategy", \ref
 Dakota::Iterator "Iterator", \ref Dakota::Model "Model", \ref
 Dakota::Variables "Variables", \ref Dakota::Constraints "Constraints", 
 \ref Dakota::Interface "Interface", 
@@ -522,7 +516,7 @@ Dakota::Variables "Variables", \ref Dakota::Constraints "Constraints",
 \ref Dakota::Approximation "Approximation".  The latter 
 idiom provides for memory efficiency in data-intensive classes which
 do not involve a class hierarchy.  The \ref Dakota::Response "Response"
-and parser data (\ref Dakota::DataEnvironment "DataEnvironment", 
+and parser data (\ref Dakota::DataStrategy "DataStrategy", 
 \ref Dakota::DataMethod "DataMethod", \ref Dakota::DataModel "DataModel", 
 \ref Dakota::DataVariables "DataVariables",
 \ref Dakota::DataInterface "DataInterface", and
@@ -533,17 +527,14 @@ objects), it is important to properly manage shallow and deep copies,
 to allow for both efficiency and data independence as needed in a
 particular context.
 
-<li> %Graphics and Output: %Dakota provides 2D iteration history
-graphics using Motif widgets. %Graphics data can also be cataloged in
-a tabular data file for post-processing with 3rd party tools such as
-Matlab, Tecplot, etc.  These capabilities are encapsulated within the
-\ref Dakota::Graphics "Graphics" class.  An experimental results
-database is implemented in \ref Dakota::ResultsManager
-"ResultsManager" and \ref Dakota::ResultsDBAny "ResultsDBAny".
-Options for controlling output and facilities for managing it are in
-\ref OutputManager.
-
- </ul>
+<li> %Graphics and Output: %Dakota provides 2D iteration history graphics using
+Motif widgets. %Graphics data can also be cataloged in a tabular data
+file for post-processing with 3rd party tools such as Matlab, Tecplot,
+etc.  These capabilities are encapsulated within the 
+\ref Dakota::Graphics "Graphics" class.  An experimental results database 
+is implemented in \ref Dakota::ResultsManager "ResultsManager" and 
+\ref Dakota::ResultsDBAny "ResultsDBAny".
+</ul>
 
 
 \section DevGuidance Development Practices and Guidance

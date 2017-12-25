@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,21 +17,12 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/functional/hash/hash.hpp>
 #include <boost/foreach.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/regex.hpp>
 #include <algorithm>
 
 
-// --------------
-// hash functions
-// --------------
-namespace boost {
-
-inline size_t hash_value(const Dakota::StringMultiArray& sma)
-{ return boost::hash_range( sma.begin(), sma.end() ); }
-
-} // namespace boost
-
+// ------------------------
+// templated hash functions
+// ------------------------
 namespace Teuchos {
 
 template<typename OrdinalType, typename ScalarType>
@@ -40,6 +31,7 @@ size_t hash_value(const SerialDenseVector<OrdinalType, ScalarType>& sdv)
 
 } // namespace Teuchos
 
+
 namespace Dakota {
 
 
@@ -47,66 +39,14 @@ namespace Dakota {
 // Equality operator definitions for data types
 // --------------------------------------------
 
-/// tolerance-based equality operator for RealVector
-bool nearby(const RealVector& rv1, const RealVector& rv2, Real rel_tol);
 /// equality operator for IntArray
-bool operator==(const IntArray& dia1, const IntArray& dia2);
+bool operator==(const IntArray& dia1,   const IntArray& dia2);
 /// equality operator for ShortArray
 bool operator==(const ShortArray& dsa1, const ShortArray& dsa2);
 /// equality operator for StringArray
 bool operator==(const StringArray& dsa1, const StringArray& dsa2);
-
-/// equality operator for std::vector and boost::multi_array::const_array_view
-template <typename T>
-bool operator==(const std::vector<T>& vec,
-	        typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav)
-{
-  // Check for equality in array lengths
-  size_t len = vec.size();
-  if ( mav.size() != len )
-    return false;
-  // Check each size_t
-  for (size_t i=0; i<len; ++i)
-    if ( mav[i] != vec[i] )
-      return false;
-  return true;
-}
-  
-/// equality operator for boost::multi_array::const_array_view and std::vector
-template <typename T>
-bool operator==(typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav,
-		const std::vector<T>& vec)
-{ return (vec == mav); } // flip order
-
-/// equality operator for boost::multi_array and
-/// boost::multi_array::const_array_view
-template <typename T>
-bool operator==(const boost::multi_array<T, 1>& ma,
-		typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav)
-{
-  if (ma.size() != mav.size())
-    return false;
-  // Note: template dependent names require disambiguation
-  typename boost::multi_array<T, 1>::template
-    const_array_view<1>::type::const_iterator cit1 = mav.begin(),
-    end1 = mav.end();
-  typename boost::multi_array<T, 1>::const_iterator cit2 = ma.begin();
-  for ( ; cit1 != end1; ++cit1, ++cit2)
-    if (*cit1 != *cit2)
-      return false;
-  return true;
-}
-
-/// equality operator for boost::multi_array::const_array_view and
-/// boost::multi_array
-template <typename T>
-bool operator==(typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav,
-		const boost::multi_array<T, 1>& ma)
-{ return (ma == mav); } // flip order
+/// equality operator for SizetArray and SizetMultiArrayConstView
+bool operator==(const SizetArray& sa, SizetMultiArrayConstView smav);
 
 
 // ----------------------------------------------
@@ -125,35 +65,10 @@ inline bool operator!=(const ShortArray& dsa1, const ShortArray& dsa2)
 inline bool operator!=(const StringArray& dsa1, const StringArray& dsa2)
 { return !(dsa1 == dsa2); }
 
-/// inequality operator for std::vector and boost::multi_array::const_array_view
-template <typename T>
-bool operator!=(const std::vector<T>& vec,
-		typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav)
-{ return !(vec == mav); }
+/// inequality operator for StringArray
+inline bool operator!=(const SizetArray& sa, SizetMultiArrayConstView smav)
+{ return !(sa == smav); }
 
-/// inequality operator for boost::multi_array::const_array_view and std::vector
-template <typename T>
-bool operator!=(typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav,
-		const std::vector<T>& vec)
-{ return !(vec == mav); } // flip order
-
-/// inequality operator for boost::multi_array and
-/// boost::multi_array::const_array_view
-template <typename T>
-bool operator!=(const boost::multi_array<T, 1>& ma,
-		typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav)
-{ return !(ma == mav); }
-
-/// inequality operator for boost::multi_array::const_array_view and
-/// boost::multi_array
-template <typename T>
-bool operator!=(typename boost::multi_array<T, 1>::template
-		  const_array_view<1>::type mav,
-		const boost::multi_array<T, 1>& ma)
-{ return !(ma == mav); } // flip order
 
 // ---------------------------------
 // miscellaneous numerical utilities
@@ -194,11 +109,12 @@ inline bool strcontains(const std::string& input, const std::string& test)
 // Utility functions for creating string arrays
 // --------------------------------------------
 
-/// create a label by appending a numerical tag to the root_label, o
-inline void build_label(String& label, const String& root_label, size_t tag, 
-			const String& separator = "")
+/// create a label by appending a numerical tag to the root_label
+inline void build_label(String& label, const String& root_label, size_t tag)
 {
-  label = root_label + separator + boost::lexical_cast<std::string>(tag);
+  char string[10];
+  std::sprintf(string, "%i", (int)tag);
+  label = root_label + String(string); // append tag to root label
 }
 
 /// create an array of labels by tagging root_label for each entry in
@@ -280,10 +196,10 @@ void copy_data(const T* ptr, const size_t ptr_len, std::vector<T>& vec)
 
 
 /// copy Array<Teuchos::SerialDenseVector<OT,ST> > to ST*
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType> 
+template <typename OrdinalType, typename ScalarType> 
 void copy_data(
-  const std::vector<Teuchos::SerialDenseVector<OrdinalType1, ScalarType> >& va,
-  ScalarType* ptr, const OrdinalType2 ptr_len, const String& ptr_type)
+  const std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva,
+  ScalarType* ptr, const OrdinalType ptr_len, const String& ptr_type)
 {
   bool c_type;
   if (strtolower(ptr_type) == "c") // case insensitive
@@ -295,9 +211,9 @@ void copy_data(
 	 << "ST* ptr)" << std::endl;
     abort_handler(-1);
   }
-  OrdinalType2 i, j, num_vec = va.size(), total_len = 0, max_vec_len = 0;
+  OrdinalType i, j, num_vec = sdva.size(), total_len = 0, max_vec_len = 0;
   for (i=0; i<num_vec; ++i) { // loop over vectors in array
-    OrdinalType1 vec_len = va[i].length();
+    OrdinalType vec_len = sdva[i].length();
     total_len += vec_len;
     if (!c_type && vec_len > max_vec_len)
       max_vec_len = vec_len;
@@ -310,117 +226,27 @@ void copy_data(
   int cntr = 0;
   if (c_type) {
     for (i=0; i<num_vec; ++i) { // loop over rows
-      OrdinalType1 vec_len = va[i].length(); // allowed to vary
+      OrdinalType vec_len = sdva[i].length(); // allowed to vary
       for (j=0; j<vec_len; ++j) // loop over columns
-        ptr[cntr++] = va[i][j];
+        ptr[cntr++] = sdva[i][j];
     }
   }
   else {
     for (j=0; j<max_vec_len; ++j) // loop over longest column
       for (i=0; i<num_vec; ++i) // loop over rows
-	if (j < va[i].length())
-	  ptr[cntr++] = va[i][j];
-  }
-}
-
-
-/// copy Array<Teuchos::SerialDenseVector<OT,ST> > to
-/// Teuchos::SerialDenseMatrix<OT,ST>
-template <typename OrdinalType, typename ScalarType> 
-void copy_data(
-  const std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva,
-  Teuchos::SerialDenseMatrix<OrdinalType, ScalarType>& sdm)
-{
-  OrdinalType i, j, num_vec = sdva.size(), max_vec_len = 0;
-  for (i=0; i<num_vec; ++i) { // loop over vectors in array
-    OrdinalType vec_len = sdva[i].length();
-    if (vec_len > max_vec_len)
-      max_vec_len = vec_len;
-  }
-
-  // each vector in array becomes a row in the matrix, with shorter
-  // rows padded with trailing zeros
-  sdm.shape(num_vec, max_vec_len);
-  for (i=0; i<num_vec; ++i) {
-    const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& vec_i = sdva[i];
-    OrdinalType vec_len = vec_i.length(); // allowed to vary
-    for (j=0; j<vec_len; ++j)
-      sdm(i,j) = vec_i[j];
-  }
-}
-
-
-/// copy Array<Teuchos::SerialDenseVector<OT,ST> > to transposed
-/// Teuchos::SerialDenseMatrix<OT,ST>
-template <typename OrdinalType, typename ScalarType> 
-void copy_data_transpose(
-  const std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva,
-  Teuchos::SerialDenseMatrix<OrdinalType, ScalarType>& sdm)
-{
-  OrdinalType i, j, num_vec = sdva.size(), max_vec_len = 0;
-  for (i=0; i<num_vec; ++i) { // loop over vectors in array
-    OrdinalType vec_len = sdva[i].length();
-    if (vec_len > max_vec_len)
-      max_vec_len = vec_len;
-  }
-
-  // each vector in array becomes a column in the matrix, with shorter
-  // columns padded with trailing zeros
-  sdm.shape(max_vec_len, num_vec);
-  for (i=0; i<num_vec; ++i) {
-    const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& vec_i = sdva[i];
-    OrdinalType vec_len = vec_i.length(); // allowed to vary
-    ScalarType* sdm_i = sdm[i]; // ith column
-    for (j=0; j<vec_len; ++j)
-      sdm_i[j] = vec_i[j];
-  }
-}
-
-
-/// copy Teuchos::SerialDenseMatrix<OT,ST> to
-/// Array<Teuchos::SerialDenseVector<OT,ST> >
-template <typename OrdinalType, typename ScalarType> 
-void copy_data(
-  const Teuchos::SerialDenseMatrix<OrdinalType, ScalarType>& sdm,
-  std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva)
-{
-  OrdinalType i, j, num_vec = sdm.numRows(), vec_len = sdm.numCols();
-  sdva.resize(num_vec);
-  for (i=0; i<num_vec; ++i) {
-    Teuchos::SerialDenseVector<OrdinalType, ScalarType>& vec_i = sdva[i];
-    vec_i.sizeUninitialized(vec_len);
-    for (j=0; j<vec_len; ++j)
-      vec_i[j] = sdm(i,j);
-  }
-}
-
-
-/// copy Teuchos::SerialDenseMatrix<OT,ST> to transposed
-/// Array<Teuchos::SerialDenseVector<OT,ST> >
-template <typename OrdinalType, typename ScalarType> 
-void copy_data_transpose(
-  const Teuchos::SerialDenseMatrix<OrdinalType, ScalarType>& sdm,
-  std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva)
-{
-  OrdinalType i, j, num_vec = sdm.numCols(), vec_len = sdm.numRows();
-  sdva.resize(num_vec);
-  for (i=0; i<num_vec; ++i) {
-    Teuchos::SerialDenseVector<OrdinalType, ScalarType>& vec_i = sdva[i];
-    const ScalarType* sdm_i = sdm[i]; // ith column
-    vec_i.sizeUninitialized(vec_len);
-    for (j=0; j<vec_len; ++j)
-      vec_i[j] = sdm_i[j];
+	if (j < sdva[i].length())
+	  ptr[cntr++] = sdva[i][j];
   }
 }
 
 
 /// copy Teuchos::SerialDenseVector<OT,ST> to Teuchos::SerialDenseMatrix<OT,ST>
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType> 
-void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
-               Teuchos::SerialDenseMatrix<OrdinalType1, ScalarType>& sdm,
-               OrdinalType2 nr, OrdinalType2 nc)
+template <typename OrdinalType, typename ScalarType> 
+void copy_data(const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv,
+               Teuchos::SerialDenseMatrix<OrdinalType, ScalarType>& sdm,
+               OrdinalType nr, OrdinalType nc)
 {
-  OrdinalType1 size_sdv = sdv.length();
+  OrdinalType size_sdv = sdv.length();
 
   // This function is set up to do the transformation with either nr or nc or
   // both specified.  To omit nr or nc specification, a 0 is passed.
@@ -460,9 +286,9 @@ void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
     sdm.shapeUninitialized(nr, nc);
   // sdv is head to tail by rows, which matches the visual matrix format that 
   // a user would employ in specifying a matrix as a <LISTof><REAL>
-  OrdinalType1 counter = 0;
-  for (OrdinalType1 i=0; i<nr; ++i)
-    for (OrdinalType1 j=0; j<nc; ++j, ++counter)
+  OrdinalType counter = 0;
+  for (OrdinalType i=0; i<nr; ++i)
+    for (OrdinalType j=0; j<nc; ++j, ++counter)
       sdm(i,j) = sdv[counter];
 }
 
@@ -598,13 +424,13 @@ void copy_data(const std::vector<ScalarType>& da,
 }
 
 /// copy ScalarType* to Teuchos::SerialDenseVector<OrdinalType, ScalarType>
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType> 
-void copy_data(const ScalarType* ptr, const OrdinalType2 ptr_len,
-	       Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv)
+template <typename OrdinalType, typename ScalarType> 
+void copy_data(const ScalarType* ptr, const OrdinalType ptr_len,
+	       Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv)
 {
   if (sdv.length() != ptr_len)
     sdv.sizeUninitialized(ptr_len);
-  for (OrdinalType2 i=0; i<ptr_len; ++i)
+  for (OrdinalType i=0; i<ptr_len; ++i)
     sdv[i] = ptr[i];
 
   //sdv = RealVector(Copy, ptr, ptr_len);
@@ -613,30 +439,30 @@ void copy_data(const ScalarType* ptr, const OrdinalType2 ptr_len,
 }
 
 /// copy ScalarType* to Teuchos::SerialDenseVector<OrdinalType, ScalarType>
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType> 
-void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
-	       ScalarType* ptr, const OrdinalType2 ptr_len)
+template <typename OrdinalType, typename ScalarType> 
+void copy_data(const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv,
+	       ScalarType* ptr, const OrdinalType ptr_len)
 {
   if (ptr_len != sdv.length()) { // could use <, but enforce exact match
     Cerr << "Error: bad ptr_len in copy_data(Teuchos::SerialDenseVector<>, "
 	 << "T* ptr)." << std::endl;
     abort_handler(-1);
   }
-  for (OrdinalType2 i=0; i<ptr_len; ++i)
+  for (OrdinalType i=0; i<ptr_len; ++i)
     ptr[i] = sdv[i];
 }
 
 
 /// copy SerialDenseVector<> to Array<SerialDenseVector<> >
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType>
-void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
-  std::vector<Teuchos::SerialDenseVector<OrdinalType1, ScalarType> >& sdva,
-  OrdinalType2 num_vec, OrdinalType2 vec_len)
+template <typename OrdinalType, typename ScalarType>
+void copy_data(const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv,
+  std::vector<Teuchos::SerialDenseVector<OrdinalType, ScalarType> >& sdva,
+  OrdinalType num_vec, OrdinalType vec_len)
 {
   // This function is set up to do the transformation with either num_vec or
   // vec_len or both specified.  To omit num_vec or vec_len specification, a 0
   // is passed.
-  OrdinalType1 size_sdv = sdv.length();
+  OrdinalType size_sdv = sdv.length();
   if (num_vec && vec_len) { // both specified
     if (size_sdv != num_vec*vec_len) {
       Cerr << "Error: sdv length (" << size_sdv << ") does not equal num_vec*"
@@ -677,11 +503,11 @@ void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
     sdva.resize(num_vec);
   // sdv is head to tail by rows, which matches the visual matrix format that 
   // a user would employ in specifying a matrix as a <LISTof><REAL>
-  OrdinalType2 counter = 0;
-  for (OrdinalType2 i=0; i<num_vec; ++i) {
+  OrdinalType counter = 0;
+  for (OrdinalType i=0; i<num_vec; ++i) {
     if (sdva[i].length() != vec_len)
       sdva[i].sizeUninitialized(vec_len);
-    for (OrdinalType2 j=0; j<vec_len; ++j)
+    for (OrdinalType j=0; j<vec_len; ++j)
       sdva[i][j] = sdv[counter++];
   }
 }
@@ -690,11 +516,11 @@ void copy_data(const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv,
 // Partial copy functions
 
 /// copy portion of first SerialDenseVector to all of second SerialDenseVector
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType>
+template <typename OrdinalType, typename ScalarType>
 void copy_data_partial(
-  const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv1,
-  OrdinalType2 start_index1, OrdinalType2 num_items,
-  Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv2)
+  const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv1,
+  OrdinalType start_index1, OrdinalType num_items,
+  Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv2)
 {
   // sdv1 will be indexed from start_index1 to start_index1+num_items-1
   if (start_index1 + num_items > sdv1.length()) {
@@ -706,18 +532,18 @@ void copy_data_partial(
   }
   if (num_items != sdv2.length())
     sdv2.sizeUninitialized(num_items);
-  for (OrdinalType2 i=0; i<num_items; ++i)
+  for (OrdinalType i=0; i<num_items; ++i)
     sdv2[i] = sdv1[start_index1+i];
 }
 
 /// copy all of first SerialDenseVector to portion of second SerialDenseVector
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType>
+template <typename OrdinalType, typename ScalarType>
 void copy_data_partial(
-  const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv1,
-  Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv2,
-  OrdinalType2 start_index2)
+  const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv1,
+  Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv2,
+  OrdinalType start_index2)
 {
-  OrdinalType1 num_items = sdv1.length();
+  OrdinalType num_items = sdv1.length();
   // In this case, incoming sdv2 must already be sized and will be
   // indexed from start_index2 to start_index2+num_items-1
   if (start_index2 + num_items > sdv2.length()) {
@@ -727,18 +553,18 @@ void copy_data_partial(
 	 << std::endl;
     abort_handler(-1);
   }
-  for (OrdinalType1 i=0; i<num_items; ++i)
+  for (OrdinalType i=0; i<num_items; ++i)
     sdv2[start_index2+i] = sdv1[i];
 }
 
 /// copy portion of first SerialDenseVector to portion of second
 /// SerialDenseVector
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType>
+template <typename OrdinalType, typename ScalarType>
 void copy_data_partial(
-  const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv1,
-  OrdinalType2 start_index1, OrdinalType2 num_items,
-  Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv2,
-  OrdinalType2 start_index2)
+  const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv1,
+  OrdinalType start_index1, OrdinalType num_items,
+  Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv2,
+  OrdinalType start_index2)
 {
   // In this case, incoming sdv2 must already be sized and will be
   // indexed from start_index2 to start_index2+num_items-1.  sdv1 will
@@ -751,17 +577,17 @@ void copy_data_partial(
 	 << "OrdinalType)." << std::endl;
     abort_handler(-1);
   }
-  for (OrdinalType2 i=0; i<num_items; ++i)
+  for (OrdinalType i=0; i<num_items; ++i)
     sdv2[start_index2+i] = sdv1[start_index1+i];
 }
 
 /// copy all of first SerialDenseVector to portion of second SerialDenseVector
-template <typename OrdinalType1, typename OrdinalType2, typename ScalarType>
+template <typename OrdinalType, typename ScalarType>
 void copy_data_partial(
-  const Teuchos::SerialDenseVector<OrdinalType1, ScalarType>& sdv1,
-  std::vector<ScalarType>& da2, OrdinalType2 start_index2)
+  const Teuchos::SerialDenseVector<OrdinalType, ScalarType>& sdv1,
+  std::vector<ScalarType>& da2, size_t start_index2)
 {
-  OrdinalType1 num_items = sdv1.length();
+  size_t num_items = sdv1.length();
   // In this case, incoming da2 must already be sized and will be
   // indexed from start_index2 to start_index2+num_items-1
   if (start_index2 + num_items > da2.size()) {
@@ -770,7 +596,7 @@ void copy_data_partial(
 	 << "std::vector<ScalarType>, OrdinalType)." << std::endl;
     abort_handler(-1);
   }
-  for (OrdinalType1 i=0; i<num_items; ++i)
+  for (size_t i=0; i<num_items; ++i)
     da2[start_index2+i] = sdv1[i];
 }
 
@@ -786,7 +612,7 @@ void copy_data_partial(const std::vector<T>& da1, size_t start_index1,
     abort_handler(-1);
   }
   if (num_items != da2.size())
-    da2.resize(num_items);
+    da2.reshape(num_items);
   for (size_t i=0; i<num_items; ++i)
     da2[i] = da1[start_index1+i];
 }
@@ -1006,11 +832,12 @@ void x_y_pairs_to_x_set(
 
 /// generic find_index (inactive)
 template <typename ContainerType>
-size_t find_index(const ContainerType& c,
-		  const typename ContainerType::value_type& search_data)
+typename ContainerType::size_type
+find_index(const ContainerType& c,
+           const typename ContainerType::value_type& search_data)
 {
   // should be more efficient than find() + distance()
-  size_t cntr = 0;
+  typename ContainerType::size_type cntr = 0;
   BOOST_FOREACH(const typename ContainerType::value_type& entry, c) {
     if (entry == search_data)
       return cntr;
@@ -1039,8 +866,8 @@ template <typename T>
 size_t find_index(const boost::multi_array<T, 1>& bma, const T& search_data)
 {
   // should be more efficient than find() + distance()
-  size_t i, len = bma.size();
-  for (i=0; i<len; i++)
+  size_t len = bma.size();
+  for (size_t i=0; i<len; i++)
     if (bma[i] == search_data)
       return i;
   return _NPOS;
@@ -1080,10 +907,11 @@ inline size_t find_index(StringMultiArrayConstView bmacv,
 
 /// compute the index of an entry within a std::list
 template <typename ListT>
-size_t find_index(const ListT& l, const typename ListT::value_type& val)
+typename ListT::size_type find_index(const ListT& l,
+                                     const typename ListT::value_type& val)
 {
   // should be more efficient than find() + distance()
-  size_t cntr = 0;
+  typename ListT::size_type cntr = 0;
   BOOST_FOREACH(const typename ListT::value_type& entry, l) {
     if (entry == val)
       return cntr;
@@ -1155,12 +983,5 @@ inline bool contains(const DakContainerType& v,
 
 
 } // namespace Dakota
-
-/// return true if the string contains a floating point value
-inline bool isfloat(const Dakota::String token) {
-  static boost::regex float_regex("[\\+-]?[0-9]*\\.?[0-9]+\\.?[0-9]*[eEdD]?[\\+-]?[0-9]*|[Nn][Aa][Nn]|[\\+-]?[Ii][Nn][Ff](?:[Ii][Nn][Ii][Tt][Yy])?");
-  return boost::regex_match(token, float_regex);
-}
-
 
 #endif // DATA_UTIL_H

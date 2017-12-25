@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -46,15 +46,12 @@ int SerialDirectApplicInterface::derived_map_ac(const Dakota::String& ac_name)
   else {
     Cerr << ac_name << " is not available as an analysis within "
          << "SIM::SerialDirectApplicInterface." << std::endl;
-    Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    Dakota::abort_handler(-1);
   }
 
   // Failure capturing
-  if (fail_code) {
-    std::string err_msg("Error evaluating plugin analysis_driver ");
-    err_msg += ac_name;
-    throw Dakota::FunctionEvalFailure(err_msg);
-  }
+  if (fail_code)
+    throw fail_code;
 
   return 0;
 }
@@ -73,9 +70,9 @@ wait_local_evaluations(Dakota::PRPQueue& prp_queue)
        prp_iter != prp_queue.end(); prp_iter++) {
     // For each job in the processing queue, evaluate the response
     int fn_eval_id = prp_iter->eval_id();
-    const Dakota::Variables& vars = prp_iter->variables();
+    const Dakota::Variables& vars = prp_iter->prp_parameters();
     const Dakota::ActiveSet& set  = prp_iter->active_set();
-    Dakota::Response         resp = prp_iter->response(); // shared rep
+    Dakota::Response         resp = prp_iter->prp_response(); // shared rep
     if (outputLevel > Dakota::SILENT_OUTPUT)
       Cout << "SerialDirectApplicInterface:: evaluating function evaluation "
 	   << fn_eval_id << " in batch mode." << std::endl;
@@ -90,7 +87,7 @@ wait_local_evaluations(Dakota::PRPQueue& prp_queue)
     //else {
     //  Cerr << ac_name << " is not available as an analysis within "
     //       << "SIM::SerialDirectApplicInterface." << std::endl;
-    //  Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    //  Dakota::abort_handler(-1);
     //}
 
     // indicate completion of job to ApplicationInterface schedulers
@@ -106,7 +103,7 @@ rosenbrock(const Dakota::RealVector& c_vars, short asv, Dakota::Real& fn_val,
   if (c_vars.length() != 2) {
     Cerr << "Error: Bad number of variables in rosenbrock direct fn."
 	 << std::endl;
-    Dakota::abort_handler(Dakota::INTERFACE_ERROR);
+    Dakota::abort_handler(-1);
   }
 
   Dakota::Real x1 = c_vars[0], x2 = c_vars[1], f0 = x2 - x1*x1, f1 = 1. - x1;

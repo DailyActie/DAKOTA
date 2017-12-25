@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -39,10 +39,8 @@ public:
   //- Heading: Constructor and destructor
   //
 
-  /// standard constructor
-  NonlinearCGOptimizer(ProblemDescDB& problem_db, Model& model);
-  /// destructor      
-  ~NonlinearCGOptimizer();
+  NonlinearCGOptimizer(Model& model);  ///< standard constructor
+  ~NonlinearCGOptimizer();             ///< destructor      
 
   /// evaluate the objective function given a particular step size
   /// (public for use in boost_ls_eval functor; could use friend)
@@ -54,7 +52,7 @@ protected:
   //- Heading: Virtual member function redefinitions
   //
 
-  void core_run();
+  void find_optimum();
 
 private:
 

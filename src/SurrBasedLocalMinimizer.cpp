@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -31,6 +31,7 @@ static const char rcsId[]="@(#) $Id: SurrBasedLocalMinimizer.cpp 7031 2010-10-22
 
 
 namespace Dakota {
+  extern Graphics dakota_graphics;
   extern PRPCache data_pairs; // global container
 
 // define special values for componentParallelMode
@@ -40,9 +41,8 @@ namespace Dakota {
 // initialization of statics
 SurrBasedLocalMinimizer* SurrBasedLocalMinimizer::sblmInstance(NULL);
 
-SurrBasedLocalMinimizer::
-SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
-  SurrBasedMinimizer(problem_db, model), 
+SurrBasedLocalMinimizer::SurrBasedLocalMinimizer(Model& model):
+  SurrBasedMinimizer(model), 
   origTrustRegionFactor(
     probDescDB.get_real("method.sbl.trust_region.initial_size")),
   trustRegionFactor(origTrustRegionFactor),
@@ -63,7 +63,7 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
   //approxSubProbObj(ORIGINAL_PRIMARY),approxSubProbCon(ORIGINAL_CONSTRAINTS),
   //meritFnType(AUGMENTED_LAGRANGIAN_MERIT), acceptLogic(FILTER),
   penaltyIterOffset(-200), convergenceFlag(0), softConvCount(0),
-  softConvLimit(probDescDB.get_ushort("method.soft_convergence_limit")),
+  softConvLimit(probDescDB.get_int("method.sbl.soft_convergence_limit")),
   correctionType(probDescDB.get_short("model.surrogate.correction_type")),
   multiLayerBypassFlag(false),
   useDerivsFlag(probDescDB.get_bool("model.surrogate.derivative_usage"))
@@ -106,8 +106,7 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
       0 : numNonlinearConstraints;
     Sizet2DArray recast_vars_map, recast_primary_resp_map(num_recast_primary),
       recast_secondary_resp_map(num_recast_secondary);
-    SizetArray recast_vars_comps_total;  // default: empty; no change in size
-    BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relax
+    SizetArray recast_vars_comps_total; // default: empty; no change in size
     BoolDequeArray nonlinear_resp_map(num_recast_primary+num_recast_secondary);
     if (approxSubProbObj == ORIGINAL_PRIMARY) {
       for (i=0; i<num_recast_primary; i++) {
@@ -146,23 +145,14 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
     // iteratedModel becomes the sub-model of a RecastModel:
     size_t recast_offset
       = (approxSubProbCon == NO_CONSTRAINTS) ? 0 : numNonlinearIneqConstraints;
-    // no Hessians in approx_subprob evaluators
-    short recast_resp_order = 3;
-    void (*set_recast) (const Variables&, const ActiveSet&, ActiveSet&) = NULL;
-    // = (!optimizationFlag && approxSubProbObj == SINGLE_OBJECTIVE &&
-    //    iteratedModel.hessian_type() == "none") ? gnewton_set_recast : NULL;
-
+    void (*set_recast) (const Variables&, const ActiveSet&, ActiveSet&)
+      = (!optimizationFlag && approxSubProbObj == SINGLE_OBJECTIVE &&
+	 hessianType == "none") ? gnewton_set_recast : NULL;
     approxSubProbModel.assign_rep(new RecastModel(iteratedModel,
-      recast_vars_map, recast_vars_comps_total, all_relax_di, all_relax_dr,
-      false, NULL, set_recast, recast_primary_resp_map,
-      recast_secondary_resp_map, recast_offset, recast_resp_order,
+      recast_vars_map, recast_vars_comps_total, false, NULL, set_recast, 
+      recast_primary_resp_map, recast_secondary_resp_map, recast_offset,
       nonlinear_resp_map, approx_subprob_objective_eval,
       approx_subprob_constraint_eval), false);
-
-    // these formulations have converted multiple objectives or
-    // calibration terms to a single objective
-    if (approxSubProbObj != ORIGINAL_PRIMARY)
-      approxSubProbModel.primary_fn_type(OBJECTIVE_FNS);
   }
 
   // Instantiate the approximate sub-problem minimizer
@@ -185,7 +175,7 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
     // verify approx method's modelPointer is empty or consistent
     const String& am_model_ptr = probDescDB.get_string("method.model_pointer");
     if (!am_model_ptr.empty() && am_model_ptr != model_ptr)
-      Cerr << "Warning: SBLM approx_method_pointer specification includes an\n"
+      Cerr << "Warning: SBLM approx_method_pointer specification include an\n"
 	   << "         inconsistent model_pointer that will be ignored."
 	   << std::endl;
     // setting SBLM constraintTol is tricky since the DAKOTA default of 0. is a
@@ -210,13 +200,19 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
   }
   else if (!approx_method_name.empty()) {
     // Approach 2: instantiate on-the-fly w/o method spec support
-    approxSubProbMinimizer
-      = probDescDB.get_iterator(approx_method_name, approxSubProbModel);
+    approxSubProbMinimizer = Iterator(approx_method_name, approxSubProbModel);
     if (constraintTol <= 0.) // not specified in SBLM method spec
       constraintTol = 1.e-4; // compromise value among NPSOL/DOT/CONMIN
     Minimizer* aspm = (Minimizer*)approxSubProbMinimizer.iterator_rep();
     aspm->constraint_tolerance(constraintTol);
   }
+
+  // Allocate comms in approxSubProbModel/iteratedModel for parallel SBLM.
+  // For DataFitSurrModel, concurrency is from daceIterator evals (global) or
+  // numerical derivs (local/multipt) on actualModel.  For HierarchSurrModel,
+  // concurrency is from approxSubProbMinimizer on lowFidelityModel.
+  approxSubProbModel.init_communicators(
+    approxSubProbMinimizer.maximum_concurrency());
 
   // If (and only if) the user has requested a surrogate bypass, test sub-models
   // to verify that there there is an additional approx layer to bypass.  The
@@ -336,10 +332,6 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
   }
 #endif
 
-  // Set method-specific default for softConvLimit
-  if (!softConvLimit)
-    softConvLimit = 5;
-
   // Set the minimum trust region size.  For kriging, the minimum trust region
   // must be set to O(10^-2 10^-3).  Otherwise, the correlation matrix becomes
   // ill-conditioned and the maximum likelihood operations crash with floating
@@ -353,7 +345,13 @@ SurrBasedLocalMinimizer(ProblemDescDB& problem_db, Model& model):
 
 
 SurrBasedLocalMinimizer::~SurrBasedLocalMinimizer()
-{ }
+{
+  // Virtual destructor handles referenceCount at Strategy level.
+
+  // free communicators for approxSubProbModel/iteratedModel
+  approxSubProbModel.free_communicators(
+    approxSubProbMinimizer.maximum_concurrency());
+}
 
 
 /** Trust region-based strategy to perform surrogate-based optimization
@@ -362,15 +360,13 @@ SurrBasedLocalMinimizer::~SurrBasedLocalMinimizer()
     response functions.  The size of the trust region is varied according to
     the goodness of the agreement between the approximations and the true
     response functions. */
-void SurrBasedLocalMinimizer::core_run()
+void SurrBasedLocalMinimizer::minimize_surrogates()
 {
   // static pointer to SurrBasedLocalMinimizer instance
   sblmInstance = this;
   // reset convergence controls in case of multiple executions
   if (convergenceFlag)
     reset();
-
-  OutputManager& output_mgr = parallelLib.output_manager();
 
   // Extract subIterator/subModel(s) from the SurrogateModel
   Model&    truth_model   = iteratedModel.truth_model();
@@ -394,9 +390,8 @@ void SurrBasedLocalMinimizer::core_run()
     dace_iterator.active_set(dace_set);
 
     // Extract info on the sampling method type
-    unsigned short sampling_type = dace_iterator.sampling_scheme();
-    if (sampling_type == SUBMETHOD_BOX_BEHNKEN ||
-	sampling_type == SUBMETHOD_CENTRAL_COMPOSITE)
+    const String& sampling_type = dace_iterator.sampling_scheme();
+    if (sampling_type == "box_behnken" || sampling_type == "central_composite")
       dace_center_eval_flag = true;
   }
 
@@ -455,7 +450,7 @@ void SurrBasedLocalMinimizer::core_run()
     }
 
     // Build new approximations in parallel and compute corrections for use
-    // within approxSubProbMinimizer.run() (unless previous data can be reused).
+    // within run_iterator() (unless previous data can be reused).
     // -->> global approx rebuild always needed (new center or new bounds).
     // -->> local/multipt/hierarchical approx rebuild needed only if new center.
     if (globalApproxFlag || newCenterFlag) {
@@ -512,9 +507,8 @@ void SurrBasedLocalMinimizer::core_run()
 
       // Update graphics for iteration 0 (initial guess).
       if (sbIterNum == 0)
-	output_mgr.add_datapoint(iteratedModel.current_variables(),
-				 iteratedModel.interface_id(),
-				 responseCenterTruth.second);
+	dakota_graphics.add_datapoint(iteratedModel.current_variables(),
+				      responseCenterTruth.second);
 
       if (!convergenceFlag) {
 	// **************************************
@@ -550,8 +544,9 @@ void SurrBasedLocalMinimizer::core_run()
       iteratedModel.surrogate_response_mode(AUTO_CORRECTED_SURROGATE);
       if ( trConstraintRelax > NO_RELAX ) // relax constraints if requested
       	relax_constraints(tr_lower_bnds, tr_upper_bnds);
-      ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-      approxSubProbMinimizer.run(pl_iter); // pl_iter required for hierarchical
+      // This iterator constructed from DB, but summary output suppressed:
+      approxSubProbMinimizer.run_iterator(Cout);
+
       Cout << "\n<<<<< Approximate optimization cycle completed.\n";
       sbIterNum++; // full iteration performed: increment the counter
 
@@ -567,7 +562,7 @@ void SurrBasedLocalMinimizer::core_run()
 	     << "recasting.\n";
         iteratedModel.active_variables(vars_star);
 	// leave iteratedModel in AUTO_CORRECTED_SURROGATE mode
-	iteratedModel.evaluate(val_set);
+	iteratedModel.compute_response(val_set);
 	responseStarApprox.update(iteratedModel.current_response());
       }
       else // Note: fn values only
@@ -586,11 +581,11 @@ void SurrBasedLocalMinimizer::core_run()
       if (multiLayerBypassFlag) {
 	short mode = truth_model.surrogate_response_mode();
 	truth_model.surrogate_response_mode(BYPASS_SURROGATE);
-	truth_model.evaluate(val_set);
+	truth_model.compute_response(val_set);
 	truth_model.surrogate_response_mode(mode); // restore
       }
       else
-	truth_model.evaluate(val_set);
+	truth_model.compute_response(val_set);
       responseStarTruth.first = truth_model.evaluation_id();
       responseStarTruth.second.update(truth_model.current_response());
 
@@ -613,9 +608,8 @@ void SurrBasedLocalMinimizer::core_run()
 
       // record the iteration results (irregardless of new center)
       iteratedModel.continuous_variables(varsCenter.continuous_variables());
-      output_mgr.add_datapoint(iteratedModel.current_variables(),
-			       iteratedModel.interface_id(),
-			       responseCenterTruth.second);
+      dakota_graphics.add_datapoint(iteratedModel.current_variables(),
+				    responseCenterTruth.second);
 
       // If the soft convergence criterion is satisfied for a user-specified
       // number of iterations (softConvLimit), then SBLM is deemed converged.
@@ -833,11 +827,11 @@ find_center_truth(const Iterator& dace_iterator, Model& truth_model)
     if (multiLayerBypassFlag) {
       short mode = truth_model.surrogate_response_mode();
       truth_model.surrogate_response_mode(BYPASS_SURROGATE);
-      truth_model.evaluate(responseCenterTruth.second.active_set());
+      truth_model.compute_response(responseCenterTruth.second.active_set());
       truth_model.surrogate_response_mode(mode); // restore
     }
     else
-      truth_model.evaluate(responseCenterTruth.second.active_set());
+      truth_model.compute_response(responseCenterTruth.second.active_set());
     responseCenterTruth.first = truth_model.evaluation_id();
     responseCenterTruth.second.update(truth_model.current_response());
   }
@@ -881,29 +875,26 @@ void SurrBasedLocalMinimizer::find_center_approx()
   else if (hierarchApproxFlag && sbIterNum) {
     // search for fn vals, grads, and Hessians separately since they may
     // be different fn evaluations
+    Response desired_resp;
     ActiveSet search_set = responseCenterApprox.active_set(); // copy
     search_set.request_values(1);
     const Variables& search_vars = iteratedModel.current_variables();
     const String& search_id = iteratedModel.surrogate_model().interface_id();
-    PRPCacheHIter cache_it
-      = lookup_by_val(data_pairs, search_id, search_vars, search_set);
-    if (cache_it != data_pairs.get<hashed>().end()) {
-      responseCenterApprox.function_values(
-	cache_it->response().function_values());
+    if ( lookup_by_val(data_pairs, search_id, search_vars, search_set,
+		       desired_resp) ) {
+      responseCenterApprox.function_values(desired_resp.function_values());
       if (approxGradientFlag) {
 	search_set.request_values(2);
-	cache_it
-	  = lookup_by_val(data_pairs, search_id, search_vars, search_set);
-	if (cache_it != data_pairs.get<hashed>().end()) {
+	if ( lookup_by_val(data_pairs, search_id, search_vars, search_set,
+			   desired_resp) ) {
 	  responseCenterApprox.function_gradients(
-	    cache_it->response().function_gradients());
+	    desired_resp.function_gradients());
 	  if (approxHessianFlag) {
 	    search_set.request_values(4);
-	    cache_it
-	      = lookup_by_val(data_pairs, search_id, search_vars, search_set);
-	    if (cache_it != data_pairs.get<hashed>().end()) {
+	    if ( lookup_by_val(data_pairs, search_id, search_vars, search_set,
+			       desired_resp) ) {
 	      responseCenterApprox.function_hessians(
-		cache_it->response().function_hessians());
+		desired_resp.function_hessians());
 	      found = true;
 	    }
 	  }
@@ -922,7 +913,7 @@ void SurrBasedLocalMinimizer::find_center_approx()
   else { // responseCenterApprox not available
     Cout <<"\n>>>>> Evaluating approximation at trust region center.\n";
     iteratedModel.surrogate_response_mode(UNCORRECTED_SURROGATE);
-    iteratedModel.evaluate(responseCenterApprox.active_set());
+    iteratedModel.compute_response(responseCenterApprox.active_set());
     responseCenterApprox.update(iteratedModel.current_response());
   }
 }
@@ -1639,8 +1630,8 @@ relax_constraints(const RealVector& lower_bnds,
     RealVector lin_ineq_lower_bnds, lin_ineq_upper_bnds, lin_eq_targets;
     // initial (tau,x) point and bounds
     RealVector tau_and_x_initial(numContinuousVars+1),
-               tau_and_x_lower_bnds(numContinuousVars+1),
-               tau_and_x_upper_bnds(numContinuousVars+1);
+                    tau_and_x_lower_bnds(numContinuousVars+1),
+                    tau_and_x_upper_bnds(numContinuousVars+1);
     
     // tau
     tau_and_x_initial[0]    = tau;
@@ -1661,11 +1652,9 @@ relax_constraints(const RealVector& lower_bnds,
       hom_objective_eval, hom_constraint_eval, deriv_level, conv_tol), false);
 #endif
 
-    // find optimum tau by solving approximate subproblem
-    // (pl_iter could be needed for hierarchical surrogate case, in which case
-    // {set,free}_communicators must be added)
-    //ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-    tau_minimizer.run();//(pl_iter);
+    // find optimum tau
+    // no summary output since on-the-fly constructed:
+    tau_minimizer.run_iterator(Cout);
 
     // retrieve tau from current response
     const RealVector& tau_and_x_star
@@ -1784,14 +1773,14 @@ hom_constraint_eval(int& mode, int& ncnln, int& n, int& nrowj, int* needc,
     = sblmInstance->approxSubProbModel.current_response().active_set();
   local_set.request_vector(local_asv);
 
-  // update model variables x from tau_and_x for use in evaluate()
+  // update model variables x from tau_and_x for use in compute_response()
   //RealVector local_des_vars(n-1);
   // WJB: copy vs. view?? copy_data(&tau_and_x[1], n-1, local_des_vars);
   RealVector local_des_vars(Teuchos::View, &tau_and_x[1], n-1);
   sblmInstance->approxSubProbModel.continuous_variables(local_des_vars);
 
   // compute response
-  sblmInstance->approxSubProbModel.evaluate(local_set);
+  sblmInstance->approxSubProbModel.compute_response(local_set);
   const Response& resp = sblmInstance->approxSubProbModel.current_response();
 
   // get constraint relaxation slack vectors

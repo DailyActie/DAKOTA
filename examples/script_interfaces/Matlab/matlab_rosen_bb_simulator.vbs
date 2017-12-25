@@ -2,11 +2,9 @@ Dim mlobj
 
 Set mlobj = CreateObject("Matlab.Application")
 
-' Direct the matlab server to change to the current working directory, where the
-' parameters file will be written by Dakota, and where Dakota expects to find
-' the responses file after completion of this script
-sCurPath = CreateObject("Scripting.FileSystemObject").GetAbsolutePathName(".")
-cd_command = "cd('" & sCurPath & "')"
+' Change to the directory where the parameters file will be written by Dakota, and 
+' where Dakota expects to find the responses file after completion of this script
+cd_command = "cd('c:\matlab_blackbox')"
 mlobj.Execute(cd_command)
 
 'Get the command line arguments passed by DAKOTA, so we work on the correct files

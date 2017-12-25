@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -23,7 +23,6 @@
 #ifdef HAVE_OPTPP
 #include "SNLLOptimizer.hpp"
 #endif // HAVE_OPTPP
-#include "ParallelLibrary.hpp"
 
 //#define DEBUG
 
@@ -33,13 +32,12 @@ namespace Dakota {
 NonDLocalInterval* NonDLocalInterval::nondLIInstance(NULL);
 
 
-NonDLocalInterval::NonDLocalInterval(ProblemDescDB& problem_db, Model& model):
-  NonDInterval(problem_db, model)
+NonDLocalInterval::NonDLocalInterval(Model& model): NonDInterval(model)
 {
   bool err_flag = false;
 
   // Check for suitable active var types (discrete epistemic not supported)
-  if (numDiscreteIntVars || numDiscreteStringVars || numDiscreteRealVars) {
+  if (numDiscreteIntVars || numDiscreteRealVars) {
     Cerr << "\nError: discrete variables are not currently supported in "
 	 << "NonDLocalInterval." << std::endl;
     err_flag = true;
@@ -53,42 +51,44 @@ NonDLocalInterval::NonDLocalInterval(ProblemDescDB& problem_db, Model& model):
   // Configure a RecastModel with one objective and no constraints using the
   // alternate minimalist constructor: the recast fn pointers are reset for
   // each level within the run fn.
-  SizetArray recast_vars_comps_total;  // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  short recast_resp_order = 3; // gradient-based quasi-Newton optimizers
+  SizetArray recast_vars_comps_total; // default: empty; no change in size
   minMaxModel.assign_rep(
-    new RecastModel(iteratedModel, recast_vars_comps_total, all_relax_di,
-		    all_relax_dr, 1, 0, 0, recast_resp_order), false);
+    new RecastModel(iteratedModel, recast_vars_comps_total, 1, 0, 0),
+    false);
 
-  unsigned short opt_algorithm = probDescDB.get_ushort("method.sub_method");
-  if (opt_algorithm == SUBMETHOD_SQP) {
+#if !defined(HAVE_NPSOL) && !defined(HAVE_OPTPP)
+  Cerr << "Error: this executable not configured with NPSOL or OPT++.\n"
+       << "       NonDLocalInterval requires a gradient-based optimizer."
+       << std::endl;
+  err_flag = true;
+#endif
+  const String& opt_algorithm
+    = probDescDB.get_string("method.nond.optimization_algorithm");
+  if (opt_algorithm == "sqp") {
 #ifdef HAVE_NPSOL
     npsolFlag = true;
 #else
-    Cerr << "\nError: this executable not configured with NPSOL SQP.\n         "
-	 << "Please select OPT++ NIP within local_interval_est." << std::endl;
+    Cerr << "\nError: this executable not configured with NPSOL SQP.\n"
+	 << "         Please select OPT++ NIP within local_interval_est."
+	 << std::endl;
     err_flag = true;
 #endif
   }
-  else if (opt_algorithm == SUBMETHOD_NIP) {
+  else if (opt_algorithm == "nip") {
 #ifdef HAVE_OPTPP
     npsolFlag = false;
 #else
-    Cerr << "\nError: this executable not configured with OPT++ NIP.\n         "
-	 << "please select NPSOL SQP within local_interval_est." << std::endl;
+    Cerr << "\nError: this executable not configured with OPT++ NIP.\n"
+	 << "         please select NPSOL SQP within local_interval_est."
+	 << std::endl;
     err_flag = true;
 #endif
   }
-  else if (opt_algorithm == SUBMETHOD_DEFAULT) {
+  else if (opt_algorithm.empty()) {
 #ifdef HAVE_NPSOL
     npsolFlag = true;
 #elif HAVE_OPTPP
     npsolFlag = false;
-#else
-    Cerr << "\nError: this executable not configured with NPSOL or OPT++.\n"
-	 << "       NonDLocalInterval requires a gradient-based optimizer."
-	 << std::endl;
-    err_flag = true;
 #endif
   }
  
@@ -114,63 +114,42 @@ NonDLocalInterval::NonDLocalInterval(ProblemDescDB& problem_db, Model& model):
   // instance of the same iterator (which would result in data clashes since
   // Fortran does not support object independence).  Recurse through all
   // sub-models and test each sub-iterator for SOL presence.
-  // Note: NPSOL/NLSSOL share code modules, so we check for both.
+  // Note 1: This check is performed for DOT, CONMIN, and SOLBase, but not
+  //         for LHS since it is only active in pre-processing.
+  // Note 2: NPSOL/NLSSOL on the outer loop with NonDLocalReliability on the
+  //         inner loop precludes all NPSOL-based MPP searches;
+  //         NonDLocalReliability on the outer loop with NPSOL/NLSSOL on an
+  //         inner loop is only a problem for the no_approx MPP search (since
+  //         iteratedModel is not invoked w/i an approx-based MPP search).
   if (npsolFlag) {
     Iterator sub_iterator = iteratedModel.subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	 ( sub_iterator.method_name() ==  NPSOL_SQP ||
-	   sub_iterator.method_name() == NLSSOL_SQP ||
-	   sub_iterator.uses_method() ==  NPSOL_SQP ||
-	   sub_iterator.uses_method() == NLSSOL_SQP ) )
+	 ( strends(sub_iterator.method_name(), "sol_sqp") ||
+	   strends(sub_iterator.uses_method(), "sol_sqp") ) )
       sub_iterator.method_recourse();
     ModelList& sub_models = iteratedModel.subordinate_models();
     for (ModelLIter ml_iter = sub_models.begin();
 	 ml_iter != sub_models.end(); ml_iter++) {
       sub_iterator = ml_iter->subordinate_iterator();
       if (!sub_iterator.is_null() && 
-	   ( sub_iterator.method_name() ==  NPSOL_SQP ||
-	     sub_iterator.method_name() == NLSSOL_SQP ||
-	     sub_iterator.uses_method() ==  NPSOL_SQP ||
-	     sub_iterator.uses_method() == NLSSOL_SQP ) )
+	   ( strends(sub_iterator.method_name(), "sol_sqp") ||
+	     strends(sub_iterator.uses_method(), "sol_sqp") ) )
 	sub_iterator.method_recourse();
     }
   }
+
+  minMaxModel.init_communicators(minMaxOptimizer.maximum_concurrency());
 }
 
 
 NonDLocalInterval::~NonDLocalInterval()
-{ }
-
-
-void NonDLocalInterval::derived_init_communicators(ParLevLIter pl_iter)
-{
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // minMaxOptimizer uses NoDBBaseConstructor, so no need to manage DB
-  // list nodes at this level
-  minMaxOptimizer.init_communicators(pl_iter);
+{  
+  // deallocate communicators for minMaxOptimizer on minMaxModel
+  minMaxModel.free_communicators(minMaxOptimizer.maximum_concurrency());
 }
 
 
-void NonDLocalInterval::derived_set_communicators(ParLevLIter pl_iter)
-{
-  NonD::derived_set_communicators(pl_iter);
-
-  // minMaxOptimizer uses NoDBBaseConstructor, so no need to manage DB
-  // list nodes at this level
-  minMaxOptimizer.set_communicators(pl_iter);
-}
-
-
-void NonDLocalInterval::derived_free_communicators(ParLevLIter pl_iter)
-{
-  minMaxOptimizer.free_communicators(pl_iter);
-
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
-}
-
-
-void NonDLocalInterval::core_run()
+void NonDLocalInterval::quantify_uncertainty()
 {
   // set the object instance pointer for use within static member functions
   NonDLocalInterval* prev_instance = nondLIInstance;
@@ -192,12 +171,10 @@ void NonDLocalInterval::core_run()
 
   initialize(); // virtual fn for initializing loop controls
 
-  ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-
   for (respFnCntr=0; respFnCntr<numFunctions; ++respFnCntr) {
 
     primary_resp_map[0][0] = respFnCntr;
-    model_rep->init_maps(vars_map, false, NULL, NULL, primary_resp_map,
+    model_rep->initialize(vars_map, false, NULL, NULL, primary_resp_map,
 			  secondary_resp_map, nonlinear_resp_map,
 			  extract_objective, NULL);
 
@@ -212,7 +189,8 @@ void NonDLocalInterval::core_run()
       Cout << "\n>>>>> Initiating local minimization\n";
       truncate_to_cell_bounds(min_initial_pt);
       minMaxModel.continuous_variables(min_initial_pt); // set starting pt
-      minMaxOptimizer.run(pl_iter);
+      // no summary output since on-the-fly constructed:
+      minMaxOptimizer.run_iterator(Cout);
       if (numCells>1 && cellCntr<numCells-1)            // warm start next min
 	copy_data(minMaxOptimizer.variables_results().continuous_variables(),
 		  min_initial_pt);
@@ -225,7 +203,8 @@ void NonDLocalInterval::core_run()
       Cout << "\n>>>>> Initiating local maximization\n";
       truncate_to_cell_bounds(max_initial_pt);
       minMaxModel.continuous_variables(max_initial_pt); // set starting point
-      minMaxOptimizer.run(pl_iter); 
+      // no summary output since on-the-fly constructed:
+      minMaxOptimizer.run_iterator(Cout); 
       if (numCells>1 && cellCntr<numCells-1)            // warm start next max
 	copy_data(minMaxOptimizer.variables_results().continuous_variables(),
 		  max_initial_pt);
@@ -301,8 +280,10 @@ void NonDLocalInterval::method_recourse()
   if (npsolFlag) {
     // if NPSOL already assigned, then reassign; otherwise just set the flag.
 #ifdef HAVE_OPTPP
+    minMaxModel.free_communicators(minMaxOptimizer.maximum_concurrency());
     minMaxOptimizer.assign_rep(
       new SNLLOptimizer("optpp_q_newton", minMaxModel), false);
+    minMaxModel.init_communicators(minMaxOptimizer.maximum_concurrency());
 #else
     Cerr << "\nError: method recourse not possible in NonDLocalInterval "
 	 << "(OPT++ NIP unavailable).\n";

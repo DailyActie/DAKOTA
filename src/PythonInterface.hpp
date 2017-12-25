@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -43,12 +43,8 @@ protected:
 
   /// direct interface to Python via API, BMA 07/02/07
   int python_run(const String& ac_name);
-
   /// whether the user requested numpy data structures in the input file
   bool userNumpyFlag;
-  /// true if this class created the interpreter instance
-  bool ownPython;
-
   /// convert arrays of integer types to Python list or numpy array
   template<class ArrayT, class Size>
   bool python_convert_int(const ArrayT& src, Size size, PyObject** dst);

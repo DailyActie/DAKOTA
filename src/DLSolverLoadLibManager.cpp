@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -47,7 +47,8 @@ typedef void (*p_vf)(void);
 
 // WJB - ToDo: prefer function over macro
 #ifdef _WIN32
-#include "dakota_windows.h"
+#define NOMINMAX
+#include <windows.h>
 #define find_dlsym(a,b,c) (a = (p_vf)GetProcAddress((HINSTANCE)(b),c))
 #define NO_DLERROR
 #else
@@ -123,10 +124,7 @@ static SharedLib
 #define DOT510 F77_FUNC(dot510,DOT510)
 #define NPSOL F77_FUNC(npsol,NPSOL)
 #define NLSSOL F77_FUNC(nlssol,NLSSOL)
-// BMA (20160315): Changed to use Fortran 2003 ISO C bindings.
-// The Fortran symbol will be lowercase with same name as if in C
-//#define NPOPTN2 F77_FUNC(npoptn2,NPOPTN2)
-#define NPOPTN2 npoptn2
+#define NPOPTN2 F77_FUNC(npoptn2,NPOPTN2)
 #define NLPQLP F77_FUNC(nlpqlp,NLPQLP)
 #define QL F77_FUNC(ql,QL)
 

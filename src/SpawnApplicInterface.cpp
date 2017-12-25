@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -16,8 +16,9 @@
 #include "ParamResponsePair.hpp"
 #include "ProblemDescDB.hpp"
 #include "ParallelLibrary.hpp"
-#include "dakota_windows.h"
+#define NOMINMAX
 #include <process.h>
+#include <windows.h>
 #include <algorithm>
 
 
@@ -152,30 +153,18 @@ void SpawnApplicInterface::test_local_evaluations(PRPQueue& prp_queue)
 pid_t SpawnApplicInterface::
 create_analysis_process(bool block_flag, bool new_group)
 {
-  // Convert argList StringArray to an array of const char*'s.  av
-  // will point to tokens in driver_and_args, so both get passed in.
-  boost::shared_array<const char*> av;  // delete[] called when av out of scope
-  StringArray driver_and_args;
-  create_command_arguments(av, driver_and_args);
-
-  // Set PATH, environment, and change directory
-  prepare_process_environment();
-
-  pid_t status = 0;
+  const char *arg_list[4], **av;
+  pid_t status;
   pid_t pid = 0;
+  static std::string no_workdir;
 
-  // TODO: consider using exec so we can spawn scripts not just .exe
-  if (block_flag) status = _spawnvp(  _P_WAIT, av[0], av.get());
-  else               pid = _spawnvp(_P_NOWAIT, av[0], av.get());
+  av = WorkdirHelper::arg_adjust(commandLineArgs, argList, arg_list,
+				 useWorkdir ? curWorkdir : no_workdir);
+  if (block_flag) status = _spawnvp(  _P_WAIT, av[0], av);
+  else               pid = _spawnvp(_P_NOWAIT, av[0], av);
 
-  if (status != 0 || pid == -1) {
-    Cerr << "\nCould not spawn; error code " << errno << " (" 
-	 << std::strerror(errno) << ")" << std::endl;
-    abort_handler(-1);
-  }
-
-  // Spawn returns control here, so must change directory back and free memory
-  reset_process_environment();
+  if (curWorkdir.c_str())
+    WorkdirHelper::reset();
 
   return(pid);
 }

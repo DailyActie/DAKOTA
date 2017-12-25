@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -39,43 +39,30 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NonDGPImpSampling(ProblemDescDB& problem_db, Model& model);
+  NonDGPImpSampling(Model& model); ///< standard constructor
 
-  // alternate constructor for sample generation and evaluation "on the fly"
+  /// alternate constructor for sample generation and evaluation "on the fly"
   //NonDGPImpSampling(Model& model, const String& sample_type,
-  //		      int samples, int seed, const String& rng,
-  //		      short sampling_vars_mode = ACTIVE, 
-  //                  const RealVector& lower_bnds,
-  //                  const RealVector& upper_bnds);
+  //		  int samples, int seed, const String& rng,
+  //		  short sampling_vars_mode = ACTIVE, 
+  //                  const RealVector& lower_bnds, const RealVector& upper_bnds
+  //                             );
 
-  /// destructor
-  ~NonDGPImpSampling();
+  ~NonDGPImpSampling(); ///< destructor
 
   //
   //- Heading: Virtual function redefinitions
   //
 
-  bool resize();
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
-  /// perform the GP importance sampling and return probability of failure
-  void core_run();
+  /// perform the GP importance sampling and return probability of failure.
+  void quantify_uncertainty();
   
+  /// returns the probability calculated by the importance sampling
+  const Real& get_probability();
+ 
   /// print the final statistics
   void print_results(std::ostream& s);
 
-  //
-  //- Heading: Member functions
-  //
-
-  /// returns the probability calculated by the importance sampling
-  Real final_probability();
-
-protected:
- 
 private:
 
   //
@@ -134,11 +121,14 @@ private:
   void calcRhoDraw();
   /// function to pick the next X value to be evaluated by the Iterated model
   RealVector drawNewX(int this_k);
+  
+
 };
 
 
-inline Real NonDGPImpSampling::final_probability()
+inline const Real& NonDGPImpSampling::get_probability()
 { return finalProb; }
+
 
 } // namespace Dakota
 

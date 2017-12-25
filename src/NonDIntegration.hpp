@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -72,40 +72,34 @@ public:
   // return the number of unique points in the current grid
   //size_t grid_size();
 
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
-
 protected:
 
   //
   //- Heading: Constructors and destructor
   //
 
-  /// constructor
-  NonDIntegration(ProblemDescDB& problem_db, Model& model);
+  NonDIntegration(Model& model); ///< constructor
+
   /// alternate constructor for instantiations "on the fly"
-  NonDIntegration(unsigned short method_name, Model& model);
+  NonDIntegration(NoDBBaseConstructor, Model& model);
   /// alternate constructor for instantiations "on the fly"
-  NonDIntegration(unsigned short method_name, Model& model,
+  NonDIntegration(NoDBBaseConstructor, Model& model,
 		  const RealVector& dim_pref);
-  /// destructor
-  ~NonDIntegration();
+
+  ~NonDIntegration();            ///< destructor
 
   //
   //- Heading: Virtual function redefinitions
   //
 
-  void core_run();
+  void quantify_uncertainty();
 
   //
   //- Heading: Member functions
   //
 
   /// verify self-consistency of variables data
-  void check_variables(const std::vector<Pecos::RandomVariable>& x_ran_vars);
+  void check_variables(const Pecos::ShortArray& x_types);
 
   /// output integration points and weights to a tabular file
   void print_points_weights(const String& tabular_name);

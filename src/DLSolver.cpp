@@ -1,5 +1,6 @@
 #ifdef _WIN32
-#include "dakota_windows.h"
+#define NOMINMAX
+#include <windows.h>
 #define dlopen(x,y) LoadLibrary(x)
 #define find_dlsym(a,b,c) (a = (dl_constructor_t)GetProcAddress((HINSTANCE)(b),c))
 #define dlclose(x) FreeLibrary((HMODULE)x)
@@ -86,7 +87,7 @@ ComputeResponses1(Optimizer1 *o, int mode, int n, double *x)
 	copy_data(x, n, lx);
 	o->M->continuous_variables(lx);
 	o->activeSet_()->request_values(mode);
-	o->M->evaluate(*o->activeSet_());
+	o->M->compute_response(*o->activeSet_());
 	}
 
  static void
@@ -228,7 +229,7 @@ DLSolver::botch(const char *fmt, ...)
 	}
 
 DLSolver::DLSolver(Model& model):
-	Optimizer1(model), dl_core_run(0), dl_destructor(0), dlLib(0)
+	Optimizer1(model), dl_find_optimum(0), dl_destructor(0), dlLib(0)
 {
 	const String &dlDetails = probDescDB.get_string("method.dl_solver.dlDetails");
 	char *s, *s0;
@@ -249,17 +250,17 @@ DLSolver::~DLSolver()
 { cleanup(); }
 
  void
-DLSolver::core_run()
+DLSolver::find_optimum()
 {
 	Dakota_funcs *df;
 	Dakota_probsize ps;
 	char *s, *s0;
 	typedef void* (*dl_constructor_t)(Optimizer1*, Dakota_funcs*,
-			dl_core_run_t*, dl_destructor_t*);
+			dl_find_optimum_t*, dl_destructor_t*);
 	dl_constructor_t dl_constructor;
 	void *h;
-	if (!dl_core_run) {	// Load the shared library if this is
-				// the first core_run() invocation.
+	if (!dl_find_optimum) {	// Load the shared library if this is
+				// the first find_optimum() invocation.
 		df = DF = new Dakota_funcs;
 		if (!df)
 			botch("new Dakota_Funcs failure");
@@ -289,10 +290,10 @@ DLSolver::core_run()
 		df->dakota_cerr = dakota_cerr;
 		df->dakota_cout = dakota_cout;
 		DEBUG_unlock
-		dl_Optimizer = (*dl_constructor)(this, df, &dl_core_run, &dl_destructor);
+		dl_Optimizer = (*dl_constructor)(this, df, &dl_find_optimum, &dl_destructor);
 		DEBUG_lock
 		}
-	if (dl_core_run) {
+	if (dl_find_optimum) {
 		df = DF;
 		df->Stderr = stderr;
 		df->dakota_cerr = dakota_cerr;
@@ -306,10 +307,10 @@ DLSolver::core_run()
 		ps.objrecast = localObjectiveRecast_();
 		df->ps = &ps;
 		M = iteratedModel_();
-		(*dl_core_run)(dl_Optimizer, this, options);
+		(*dl_find_optimum)(dl_Optimizer, this, options);
 		}
 	else
-		botch("dl_core_run is null in core_run");
+		botch("dl_find_optimum is null in find_optimum");
 	}
 
  int

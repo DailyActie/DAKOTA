@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -42,7 +42,7 @@ public:
 
   /// standard constructor
   RelaxedVariables(const ProblemDescDB& problem_db,
-		   const std::pair<short,short>& view);
+		  const std::pair<short,short>& view);
   /// lightweight constructor
   RelaxedVariables(const SharedVariablesData& svd);
   /// destructor
@@ -57,21 +57,13 @@ protected:
   void read(std::istream& s);
   void write(std::ostream& s) const;
   void write_aprepro(std::ostream& s) const;
-  void read_tabular(std::istream& s, bool active_only = false);
-  void write_tabular(std::ostream& s, bool active_only = false) const;
-  void write_tabular_labels(std::ostream& s, bool active_only = false) const;
+  void read_tabular(std::istream& s);
+  void write_tabular(std::ostream& s) const;
 
+  void reshape(const SizetArray& vc_totals);
 
-  /// Implementation of reading various formats using the specified
-  /// read handler, accounting for reordering due to relaxation
-  template<typename Reader>
-  void read_core(std::istream& s, Reader read_handler, 
-		 const SizetArray& vc_totals);
-  /// Implementation of writing various formats using the specified
-  /// write handler, accounting for reordering due to relaxation
-  template<typename Writer>
-  void write_core(std::ostream& s, Writer write_handler, 
-		  const SizetArray& vc_totals) const;
+  void build_active_views();
+  void build_inactive_views();
 
 private:
 
@@ -84,7 +76,7 @@ private:
 
 inline RelaxedVariables::RelaxedVariables(const SharedVariablesData& svd):
   Variables(BaseConstructor(), svd)
-{ }
+{ reshape(svd.components_totals()); }
 
 
 inline RelaxedVariables::~RelaxedVariables()

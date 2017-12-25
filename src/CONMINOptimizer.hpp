@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -33,7 +33,7 @@ namespace Dakota {
     The user input mappings are as follows: \c max_iterations is
     mapped into CONMIN's \c ITMAX parameter, \c
     max_function_evaluations is implemented directly in the
-    core_run() loop since there is no CONMIN parameter equivalent,
+    find_optimum() loop since there is no CONMIN parameter equivalent,
     \c convergence_tolerance is mapped into CONMIN's \c DELFUN and \c
     DABFUN parameters, \c output verbosity is mapped into CONMIN's \c
     IPRINT parameter (verbose: \c IPRINT = 4; quiet: \c IPRINT = 2),
@@ -50,18 +50,15 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  CONMINOptimizer(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor; construct without ProblemDescDB
-  CONMINOptimizer(const String& method_string, Model& model);
-  /// destructor
-  ~CONMINOptimizer();
-
+  CONMINOptimizer(Model& model);                      ///< standard constructor
+  CONMINOptimizer(NoDBBaseConstructor, Model& model); ///< alternate constructor
+  ~CONMINOptimizer();                                 ///< destructor
+    
   //
   //- Heading: Virtual member function redefinitions
   //
 
-  void core_run();
+  void find_optimum();
 
 protected:
 
@@ -106,6 +103,10 @@ private:
       5 = all of #4 plus proposed design vector, plus objective and 
           constraint functions from the 1-D search */
   int printControl;
+
+  /// MINMAX from DOT manual (minimize or maximize)
+  /** Values of 0 or -1 (minimize) or 1 (maximize). */
+  int optimizationType;
 
   /// value of the objective function passed to CONMIN
   Real objFnValue;

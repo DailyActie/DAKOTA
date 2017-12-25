@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -43,26 +43,16 @@ void NLPQLP_F77(int&, int&, int&, int&, int&, int&, int&, double*, double*,
 
 namespace Dakota {
 
-NLPQLPOptimizer::NLPQLPOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model)
+NLPQLPOptimizer::NLPQLPOptimizer(Model& model): Optimizer(model)
 { initialize(); }
 
 
-NLPQLPOptimizer::NLPQLPOptimizer(Model& model): Optimizer(NLPQL_SQP, model)
+NLPQLPOptimizer::NLPQLPOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model)
 { initialize(); }
 
 
 #ifdef HAVE_DYNLIB_FACTORIES
-NLPQLPOptimizer* new_NLPQLPOptimizer(ProblemDescDB& problem_db)
-{
-#ifdef DAKOTA_DYNLIB
-  not_available("NLPQLP");
-  return 0;
-#else
-  return new NLPQLPOptimizer(problem_db);
-#endif // DAKOTA_DYNLIB
-}
-
 NLPQLPOptimizer* new_NLPQLPOptimizer(Model& model)
 {
 #ifdef DAKOTA_DYNLIB
@@ -70,6 +60,16 @@ NLPQLPOptimizer* new_NLPQLPOptimizer(Model& model)
   return 0;
 #else
   return new NLPQLPOptimizer(model);
+#endif // DAKOTA_DYNLIB
+}
+
+NLPQLPOptimizer* new_NLPQLPOptimizer(NoDBBaseConstructor, Model& model)
+{
+#ifdef DAKOTA_DYNLIB
+  not_available("NLPQLP");
+  return 0;
+#else
+  return new NLPQLPOptimizer(NoDBBaseConstructor(), model);
 #endif // DAKOTA_DYNLIB
 }
 #endif // HAVE_DYNLIB_FACTORIES
@@ -90,16 +90,16 @@ void NLPQLPOptimizer::initialize()
   // sub-models and test each sub-iterator for NLPQL presence.
   Iterator sub_iterator = iteratedModel.subordinate_iterator();
   if (!sub_iterator.is_null() && 
-       ( sub_iterator.method_name() == NLPQL_SQP  ||
-	 sub_iterator.uses_method() == NLPQL_SQP ) )
+       ( strbegins(sub_iterator.method_name(), "nlpql") ||
+	 strbegins(sub_iterator.uses_method(), "nlpql") ) )
     sub_iterator.method_recourse();
   ModelList& sub_models = iteratedModel.subordinate_models();
   for (ModelLIter ml_iter = sub_models.begin();
        ml_iter != sub_models.end(); ml_iter++) {
     sub_iterator = ml_iter->subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	 ( sub_iterator.method_name() == NLPQL_SQP  ||
-	   sub_iterator.uses_method() == NLPQL_SQP ) )
+	 ( strbegins(sub_iterator.method_name(), "nlpql") ||
+	   strbegins(sub_iterator.uses_method(), "nlpql") ) )
       sub_iterator.method_recourse();
   }
 
@@ -247,9 +247,9 @@ void NLPQLPOptimizer::initialize_run()
 }
 
 
-void NLPQLPOptimizer::core_run()
+void NLPQLPOptimizer::find_optimum()
 {
-  // TO DO: utilize L concurrency with evaluate_nowait()/synchronize()
+  // TO DO: utilize L concurrency with asynch_compute_response()/synchronize()
 
   const RealVector& cdv_lower_bnds
     = iteratedModel.continuous_lower_bounds();
@@ -304,7 +304,7 @@ void NLPQLPOptimizer::core_run()
       copy_data(X, N, local_cdv); // Note: X is [NMAX,L]
       iteratedModel.continuous_variables(local_cdv);
     }
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response& local_response = iteratedModel.current_response();
 
     // pack up the response function values

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -43,9 +43,8 @@ PecosApproximation::PecosApproximation(const SharedApproxData& shared_data):
 
 PecosApproximation::
 PecosApproximation(ProblemDescDB& problem_db,
-		   const SharedApproxData& shared_data,
-                   const String& approx_label):
-  Approximation(BaseConstructor(), problem_db, shared_data, approx_label)
+		   const SharedApproxData& shared_data):
+  Approximation(BaseConstructor(), problem_db, shared_data)
   //sharedPecosDataRep((SharedPecosApproxData*)sharedDataRep)
 {
   // Dakota::PecosApproximation manages the Pecos::BasisApproximation instance,

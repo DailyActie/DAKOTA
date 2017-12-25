@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,34 +21,49 @@ static const char rcsId[]="@(#) $Id: RichExtrapVerification.cpp 6972 2010-09-17 
 
 namespace Dakota {
 
-RichExtrapVerification::
-RichExtrapVerification(ProblemDescDB& problem_db, Model& model):
-  Verification(problem_db, model),
-  studyType(probDescDB.get_ushort("method.sub_method")),
+// special values for studyType
+enum { ESTIMATE_ORDER=1, CONVERGE_ORDER, CONVERGE_QOI };
+
+
+RichExtrapVerification::RichExtrapVerification(Model& model):
+  Verification(model), studyType(0),
   refinementRate(probDescDB.get_real("method.verification.refinement_rate"))
 {
+  bool err_flag = false;
+  const String& sub_method = probDescDB.get_string("method.sub_method_name");
+  // Set studyType
+  if (sub_method == "estimate_order")
+    studyType = ESTIMATE_ORDER;
+  else if (sub_method == "converge_order")
+    studyType = CONVERGE_ORDER;
+  else if (sub_method == "converge_qoi")
+    studyType = CONVERGE_QOI;
+  else {
+    Cerr << "\nError: bad sub-method (" << sub_method
+	 << ") in RichExtrapVerification constructor." << std::endl;
+    err_flag = true;
+  }
+  if (err_flag)
+    abort_handler(-1);
+
   // one iter with 3 pts, possibly followed by iters. with 1 addtnl pt
   //numEvals = 3;
-  maxEvalConcurrency *= 3; //numEvals;
+  maxConcurrency *= 3; //numEvals;
 }
 
 
 /*
 void RichExtrapVerification::pre_run()
 {
-  Analyzer::pre_run();
-
   // Capture any changes resulting from the strategy layer's
   // passing of best variable info between iterators.
   if (studyType == ) {
-    copy_data(iteratedModel.continuous_variables(),     initialCVPoint); // copy
-    copy_data(iteratedModel.discrete_int_variables(),   initialDIVPoint);// copy
-    copy_data(iteratedModel.discrete_string_variables(),initialDSVPoint);// copy
-    copy_data(iteratedModel.discrete_real_variables(),  initialDRVPoint);// copy
+    copy_data(iteratedModel.continuous_variables(),    initialCVPoint);  // copy
+    copy_data(iteratedModel.discrete_int_variables(),  initialDIVPoint); // copy
+    copy_data(iteratedModel.discrete_real_variables(), initialDRVPoint); // copy
   }
 
-  size_t i, num_vars = numContinuousVars     + numDiscreteIntVars
-                     + numDiscreteStringVars + numDiscreteRealVars;
+  size_t i, num_vars = numContinuousVars+numDiscreteIntVars+numDiscreteRealVars;
   if (allSamples.numRows() != num_vars || allSamples.numCols() != numEvals)
     allSamples.shapeUninitialized(num_vars, numEvals);
   if ( outputLevel > SILENT_OUTPUT &&
@@ -59,7 +74,7 @@ void RichExtrapVerification::pre_run()
 */
 
 
-void RichExtrapVerification::core_run()
+void RichExtrapVerification::perform_verification()
 {
   /*
   // perform the evaluations; multidim exception
@@ -79,21 +94,21 @@ void RichExtrapVerification::core_run()
   }
 
   switch (studyType) {
-  case SUBMETHOD_ESTIMATE_ORDER:
+  case ESTIMATE_ORDER:
     if (outputLevel > SILENT_OUTPUT)
       Cout << "\nEstimating order of convergence.\n\n";
     estimate_order(); break;
-  case SUBMETHOD_CONVERGE_ORDER:
+  case CONVERGE_ORDER:
     if (outputLevel > SILENT_OUTPUT)
       Cout << "\nConverging estimate of order of convergence.\n\n";
     converge_order(); break;
-  case SUBMETHOD_CONVERGE_QOI:
+  case CONVERGE_QOI:
     if (outputLevel > SILENT_OUTPUT)
       Cout << "\nConverging estimates of quantities of interest.\n\n";
     converge_qoi();   break;
   default:
-    Cerr << "\nError: bad study type in RichExtrapVerification::core_run()."
-	 << "\n       studyType = " << studyType << std::endl;
+    Cerr << "\nError: bad study type in RichExtrapVerification::perform_"
+	 << "verification().\n       studyType = " << studyType << std::endl;
     abort_handler(-1);
   }
 }
@@ -112,9 +127,8 @@ extrapolation(const RealVector& refine_triple, RealMatrix& qoi_triples)
   for (size_t i=0; i<3; i++) {
     iteratedModel.continuous_variable(refine_triple[i], factorIndex);
     //iteratedModel.discrete_int_variables(di_vars);
-    //iteratedModel.discrete_string_variables(ds_vars);
     //iteratedModel.discrete_real_variables(dr_vars);
-    iteratedModel.evaluate_nowait(activeSet);
+    iteratedModel.asynch_compute_response(activeSet);
   }
   const IntResponseMap& response_map = iteratedModel.synchronize();
   IntRespMCIter   r_cit = response_map.begin();
@@ -290,7 +304,7 @@ extrapolate_result(const RealVector& refine_triple,
 
 /*
 void RichExtrapVerification::post_run(std::ostream& s)
-{ Analyzer::post_run(s); }
+{ Iterator::post_run(s); }
 */
 
 

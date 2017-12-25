@@ -1,0 +1,17 @@
+Blurb::
+Choose the sampling algorithm
+Description::
+There are only two types of sampling:
+\li Monte Carlo (pure random)
+\li Latin Hypercube Sampling
+
+However, some methods allow an existing study to be augmented with additional or incremental sampling.
+This is used to get better estimates of mean, variance, and percentiles.
+The incremental study must use the same type of sampling 
+as the existing study.
+
+Topics::	
+Examples::
+Theory::
+Faq::
+See_Also::	

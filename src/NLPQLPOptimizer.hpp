@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -70,19 +70,15 @@ public:
   //
   //- Heading: Constructors and destructor
   //
-
-  /// standard constructor
-  NLPQLPOptimizer(ProblemDescDB& problem_db, Model& model);
-  /// alternate constructor
-  NLPQLPOptimizer(Model& model);
-  /// destructor
-  ~NLPQLPOptimizer();
+  NLPQLPOptimizer(Model& model);                      ///< standard constructor
+  NLPQLPOptimizer(NoDBBaseConstructor, Model& model); ///< alternate constructor
+  ~NLPQLPOptimizer();                                 ///< destructor
 
   //
   //- Heading: Virtual member function redefinitions
   //
 
-  void core_run();
+  void find_optimum();
 
 protected:
 
@@ -338,8 +334,8 @@ private:
 // Factory functions for dynamic loading of solver libraries
 // ---------------------------------------------------------
 
-NLPQLPOptimizer* new_NLPQLPOptimizer(ProblemDescDB& problem_db, Model& model);
 NLPQLPOptimizer* new_NLPQLPOptimizer(Model& model);
+NLPQLPOptimizer* new_NLPQLPOptimizer(NoDBBaseConstructor dummy, Model& model);
 #endif // HAVE_DYNLIB_FACTORIES
 
 } // namespace Dakota

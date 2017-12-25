@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -29,13 +29,13 @@ namespace Dakota {
     and probDescDB can be queried for settings from the method
     specification.  It is not currently used, as there are not yet
     separate nond_quadrature/nond_sparse_grid method specifications. */
-NonDIntegration::NonDIntegration(ProblemDescDB& problem_db, Model& model):
-  NonD(problem_db, model), numIntegrations(0), sequenceIndex(0),
+NonDIntegration::NonDIntegration(Model& model):
+  NonD(model), numIntegrations(0), sequenceIndex(0),
   dimPrefSpec(probDescDB.get_rv("method.nond.dimension_preference"))
   //, standAloneMode(true)
 {
   // Check for suitable distribution types.
-  if (numDiscreteIntVars || numDiscreteStringVars || numDiscreteRealVars) {
+  if (numDiscreteIntVars || numDiscreteRealVars) {
     Cerr << "\nError: discrete random variables are not currently supported in "
 	 << "NonDIntegration." << std::endl;
     abort_handler(-1);
@@ -45,64 +45,50 @@ NonDIntegration::NonDIntegration(ProblemDescDB& problem_db, Model& model):
   initialize_random_variable_types(EXTENDED_U);
   // Note: initialize_random_variable_parameters() is performed at run time
   initialize_random_variable_correlations();
-  verify_correlation_support(EXTENDED_U);
+  verify_correlation_support();
   initialize_final_statistics(); // default statistics set
 }
 
 
 /** This alternate constructor is used for on-the-fly generation and
     evaluation of numerical integration points. */
-NonDIntegration::NonDIntegration(unsigned short method_name, Model& model): 
-  NonD(method_name, model), numIntegrations(0), sequenceIndex(0)
+NonDIntegration::NonDIntegration(NoDBBaseConstructor, Model& model): 
+  NonD(NoDBBaseConstructor(), model), numIntegrations(0), sequenceIndex(0)
   //, standAloneMode(false)
 {
   // The passed model (stored in iteratedModel) is G(u): it is recast to
   // standard space and does not include a DataFit recursion.
 
   // initialize_random_variables(natafTransform) is called externally (e.g.,
-  // NonDExpansion::initialize_u_space_model()) to allow access to data from
-  // outer context.
+  // NonDExpansion::initialize_expansion()) and passed data from outer context.
 }
 
 
 /** This alternate constructor is used for on-the-fly generation and
     evaluation of numerical integration points. */
 NonDIntegration::
-NonDIntegration(unsigned short method_name, Model& model,
-		const RealVector& dim_pref): 
-  NonD(method_name, model), numIntegrations(0), sequenceIndex(0),
+NonDIntegration(NoDBBaseConstructor, Model& model, const RealVector& dim_pref): 
+  NonD(NoDBBaseConstructor(), model), numIntegrations(0), sequenceIndex(0),
   dimPrefSpec(dim_pref) //, standAloneMode(false)
 {
   // The passed model (stored in iteratedModel) is G(u): it is recast to
   // standard space and does not include a DataFit recursion.
 
   // initialize_random_variables(natafTransform) is called externally (e.g.,
-  // NonDExpansion::initialize_u_space_model()) to allow access to data from
-  // outer context.
+  // NonDExpansion::initialize_expansion()) and passed data from outer context.
 }
 
 
 NonDIntegration::~NonDIntegration()
 { }
 
-bool NonDIntegration::resize()
-{
-  bool parent_reinit_comms = NonD::resize();
 
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
-
-
-void NonDIntegration::core_run()
+void NonDIntegration::quantify_uncertainty()
 {
   //if (standAloneMode)
   //  initialize_random_variable_parameters(); // capture any dist param updates
   //else
-  check_variables(natafTransform.x_random_variables());//deferred from alt ctors
+  check_variables(natafTransform.x_types()); // deferred from alternate ctor
 
   // generate integration points
   get_parameter_sets(iteratedModel);
@@ -120,26 +106,20 @@ void NonDIntegration::core_run()
 
 
 /** Virtual function called from probDescDB-based constructors and from
-    NonDIntegration::core_run() */
-void NonDIntegration::
-check_variables(const std::vector<Pecos::RandomVariable>& x_ran_vars)
+    NonDIntegration::quantify_uncertainty() */
+void NonDIntegration::check_variables(const Pecos::ShortArray& x_types)
 {
   // base class default definition of virtual function
   bool err_flag = false;
 
-  numContDesVars = numContIntervalVars = numContStateVars = 0;
-  size_t i, num_v = x_ran_vars.size(); short x_type;
-  for (i=0; i<num_v; ++i) {
-    x_type = x_ran_vars[i].type();
-    if      (x_type == Pecos::CONTINUOUS_DESIGN)   ++numContDesVars;
-    else if (x_type == Pecos::CONTINUOUS_INTERVAL) ++numContIntervalVars;
-    else if (x_type == Pecos::CONTINUOUS_STATE)    ++numContStateVars;
-  }
+  numContDesVars   = std::count(x_types.begin(), x_types.end(),
+				(short)Pecos::CONTINUOUS_DESIGN);
+  numContStateVars = std::count(x_types.begin(), x_types.end(),
+				(short)Pecos::CONTINUOUS_STATE);
 
-  if (x_ran_vars.size()   != numContinuousVars   ||
-      numContEpistUncVars != numContIntervalVars ||
-      numContinuousVars   != numContDesVars      + numContAleatUncVars +
-                             numContEpistUncVars + numContStateVars) {
+  if (x_types.size()    != numContinuousVars ||
+      numContinuousVars != numContDesVars      + numContAleatUncVars +
+                           numContEpistUncVars + numContStateVars) {
     Cerr << "Error: mismatch in active variable counts in NonDIntegration::"
 	 << "check_variables()." << std::endl;
     err_flag = true;

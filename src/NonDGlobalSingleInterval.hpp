@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,10 +41,8 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// constructor
-  NonDGlobalSingleInterval(ProblemDescDB& problem_db, Model& model);
-  /// destructor
-  ~NonDGlobalSingleInterval();
+  NonDGlobalSingleInterval(Model& model); ///< constructor
+  ~NonDGlobalSingleInterval();            ///< destructor
 
 protected:
 

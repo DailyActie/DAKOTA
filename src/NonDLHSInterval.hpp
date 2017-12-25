@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -35,19 +35,15 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  NonDLHSInterval(ProblemDescDB& problem_db, Model& model); ///< constructor
-  ~NonDLHSInterval();                                       ///< destructor
+  NonDLHSInterval(Model& model); ///< constructor
+  ~NonDLHSInterval();            ///< destructor
 
   //
-  //- Heading: Virtual function redefinitions
+  //- Heading: Member functions
   //
-
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
 
   /// performs an epistemic uncertainty propagation using LHS samples
-  void core_run();
+  void quantify_uncertainty();
 
 protected:
 

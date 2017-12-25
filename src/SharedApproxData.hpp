@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,7 +41,6 @@ class SharedApproxData
   friend class TaylorApproximation;
   friend class TANA3Approximation;
   friend class GaussProcApproximation;
-  friend class VPSApproximation;
   friend class SurfpackApproximation;
   friend class PecosApproximation;
 
@@ -78,34 +77,27 @@ public:
   virtual void rebuild();
   /// back out the previous increment to the shared approximation data 
   virtual void pop(bool save_surr_data);
-  /// queries availability of pushing data associated with a trial set
-  virtual bool push_available();
-  /// return index of trial set within popped bookkeeping sets
-  virtual size_t retrieval_index();
-  /// push a previous state of the shared approximation data 
-  virtual void pre_push();
-  /// clean up popped bookkeeping following push 
-  virtual void post_push();
+  /// queries availability of restoration for trial set
+  virtual bool restore_available();
+  /// return index of trial set within restorable bookkeeping sets
+  virtual size_t restoration_index();
+  /// restore a previous state of the shared approximation data 
+  virtual void pre_restore();
+  /// clean up saved storage following restoration 
+  virtual void post_restore();
   /// return index of i-th trailing trial set within restorable bookkeeping sets
   virtual size_t finalization_index(size_t i);
   /// finalize the shared approximation data following a set of increments
   virtual void pre_finalize();
-  /// clean up popped bookkeeping following aggregation
+  /// clean up saved storage following aggregation
   virtual void post_finalize();
 
   /// store the current state of the shared approximation data for
-  /// later combination (defaults to push_back)
-  virtual void store(size_t index = _NPOS);
-  /// restore a previous state of the shared approximation data
-  /// (defaults to pop_back from stored)
-  virtual void restore(size_t index = _NPOS);
-  /// remove an instance of stored approximation data prior to combination
-  /// (defaults to pop_back)
-  virtual void remove_stored(size_t index = _NPOS);
-
-  /// aggregate the shared approximation data from current and stored states
-  virtual size_t pre_combine(short corr_type);
-  /// clean up stored data sets after aggregation
+  /// later combination
+  virtual void store();
+  /// aggregate the shared approximation data from current and saved states
+  virtual void pre_combine(short corr_type);
+  /// clean up saved storage after aggregation
   virtual void post_combine(short corr_type);
 
   //
@@ -164,12 +156,6 @@ protected:
 
   /// output verbosity level: {SILENT,QUIET,NORMAL,VERBOSE,DEBUG}_OUTPUT
   short outputLevel;
-
-  /// Prefix for model export files
-  String modelExportPrefix;
-  /// Bitmapped format reques for exported models
-  unsigned short modelExportFormat;
-
 
   /// approximation continuous lower bounds (used by 3D graphics and
   /// Surfpack KrigingModel)

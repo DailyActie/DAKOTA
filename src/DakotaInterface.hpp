@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -19,11 +19,16 @@
 #include "dakota_global_defs.hpp" // for BaseConstructor
 #include "dakota_data_types.hpp"
 
-// forward declarations
+#ifdef HAVE_AMPL
+struct ASL; // forward declaration
+#endif // HAVE_AMPL
 
-// always declare ASL rather than have a conditionally included class member
-struct ASL;
+// likely need more general _WIN32 here
+#ifdef __MINGW32__
+#undef interface
+#endif
 
+// forward declaration
 namespace Pecos { class SurrogateData; }
 
 namespace Dakota {
@@ -64,13 +69,13 @@ public:
   /// standard constructor for envelope
   Interface(ProblemDescDB& problem_db);
   /// copy constructor
-  Interface(const Interface& interface_in);
+  Interface(const Interface& interface);
 
   /// destructor
   virtual ~Interface();
 
   /// assignment operator
-  Interface operator=(const Interface& interface_in);
+  Interface operator=(const Interface& interface);
 
   //
   //- Heading: Virtual functions
@@ -82,9 +87,10 @@ public:
 		   Response& response, bool asynch_flag = false);
 
   /// recovers data from a series of asynchronous evaluations (blocking)
-  virtual const IntResponseMap& synchronize(); 
+  virtual const IntResponseMap& synch(); 
+
   /// recovers data from a series of asynchronous evaluations (nonblocking)
-  virtual const IntResponseMap& synchronize_nowait(); 
+  virtual const IntResponseMap& synch_nowait(); 
 
   /// evaluation server function for multiprocessor executions
   virtual void serve_evaluations();
@@ -95,16 +101,16 @@ public:
   /// allocate communicator partitions for concurrent evaluations within an
   /// iterator and concurrent multiprocessor analyses within an evaluation.
   virtual void init_communicators(const IntArray& message_lengths, 
-				  int max_eval_concurrency);
+				  int max_iterator_concurrency);
 
   /// set the local parallel partition data for an interface
   /// (the partitions are already allocated in ParallelLibrary).
   virtual void set_communicators(const IntArray& message_lengths,
-				 int max_eval_concurrency);
+				 int max_iterator_concurrency);
 
-  // deallocate communicator partitions for concurrent evaluations within an
-  // iterator and concurrent multiprocessor analyses within an evaluation.
-  //virtual void free_communicators();
+  /// deallocate communicator partitions for concurrent evaluations within an
+  /// iterator and concurrent multiprocessor analyses within an evaluation.
+  virtual void free_communicators();
 
   /// reset certain defaults for serial interface objects.
   virtual void init_serial();
@@ -113,7 +119,7 @@ public:
   virtual int asynch_local_evaluation_concurrency() const;
 
   /// return the user-specified interface synchronization
-  virtual short interface_synchronization() const;
+  virtual String interface_synchronization() const;
 
   /// returns the minimum number of points required to build a particular
   /// ApproximationInterface (used by DataFitSurrModels).
@@ -152,49 +158,31 @@ public:
     const IntVector&  di_u_bnds, const RealVector& dr_l_bnds,
     const RealVector& dr_u_bnds);
 
-  /// export the approximation to disk
-  virtual void export_approximation();
-
   /// rebuilds the approximation after a data update
   virtual void rebuild_approximation(const BoolDeque& rebuild_deque);
 
   /// removes data from last append from the approximation
   virtual void pop_approximation(bool save_surr_data);
 
-  /// retrieves approximation data from a previous state (negates pop)
-  virtual void push_approximation();
-  /// queries the approximation for the ability to retrieve a previous increment
-  virtual bool push_available();
+  /// restores the approximation to a selected previous state
+  virtual void restore_approximation();
+  /// queries the approximation for the ability to restore a previous increment
+  virtual bool restore_available();
 
   /// finalizes the approximation by applying all trial increments
   virtual void finalize_approximation();
 
-  /// move the current approximation into storage for later combination;
-  /// the index of the stored approximation can be passed to allow
-  /// replacement instead of augmentation (default is push_back)
-  virtual void store_approximation(size_t index = _NPOS);
-  /// return an approximation from storage; the index identifies a
-  /// particular stored data set (default is pop_back from stored)
-  virtual void restore_approximation(size_t index = _NPOS);
-  /// remove a stored approximation, due to redundancy with the current
-  /// approximation, prior to combination (default for no index is pop_back)
-  virtual void remove_stored_approximation(size_t index = _NPOS);
-  /// combine the current approximation with previously stored data sets
+  /// move the current approximation into storage for later combination
+  virtual void store_approximation();
+  /// combine the current approximation with one previously stored
   virtual void combine_approximation(short corr_type);
-
-  /// approximation cross-validation quality metrics per response function
-  virtual Real2DArray cv_diagnostics(const StringArray& metric_types, 
-				     unsigned num_folds);
-  /// approximation challenge data metrics per response function
-  virtual RealArray challenge_diagnostics(const String& metric_type,
-					  const RealMatrix& challenge_pts);
 
   /// clears current data from an approximation interface
   virtual void clear_current();
   /// clears all data from an approximation interface
   virtual void clear_all();
-  /// clears bookkeeping for popped data sets from an approximation interface
-  virtual void clear_popped();
+  /// clears saved data (from pop invocations) from an approximation interface
+  virtual void clear_saved();
 
   /// retrieve the SharedApproxData within an ApproximationInterface
   virtual SharedApproxData& shared_approximation();
@@ -206,12 +194,10 @@ public:
 
   /// retrieve the approximation coefficients from each Approximation
   /// within an ApproximationInterface
-  virtual const RealVectorArray&
-    approximation_coefficients(bool normalized = false);
+  virtual const RealVectorArray& approximation_coefficients();
   /// set the approximation coefficients within each Approximation
   /// within an ApproximationInterface
-  virtual void approximation_coefficients(const RealVectorArray& approx_coeffs,
-					  bool normalized = false);
+  virtual void approximation_coefficients(const RealVectorArray& approx_coeffs);
   /// retrieve the approximation variances from each Approximation
   /// within an ApproximationInterface
   virtual const RealVector& approximation_variances(const Variables& vars);
@@ -229,15 +215,11 @@ public:
   //- Heading: Set and Inquire functions
   //
 
-  /// migrate an unmatched response record from rawResponseMap to
-  /// cachedResponseMap
-  void cache_unmatched_response(int raw_id);
-
-  /// assign letter or replace existing letter with a new one
+  /// replaces existing letter with a new one
   void assign_rep(Interface* interface_rep, bool ref_count_incr = true);
 
   /// returns the interface type
-  unsigned short interface_type() const;
+  const String& interface_type() const;
 
   /// returns the interface identifier
   const String& interface_id() const;
@@ -247,7 +229,7 @@ public:
 
   /// set fineGrainEvalCounters to true and initialize counters if needed
   void fine_grained_evaluation_counters(size_t num_fns);
-  /// initialize fine grained evaluation counters, sizing if needed
+  /// initialize fine grained evaluation counters
   void init_evaluation_counters(size_t num_fns);
   /// set evaluation count reference points for the interface
   void set_evaluation_reference();
@@ -257,11 +239,11 @@ public:
 				bool relative_count) const;
 
   /// returns a flag signaling the use of multiprocessor evaluation partitions
-  bool multi_proc_eval() const;
+  bool multi_proc_eval_flag() const;
 
   /// returns a flag signaling the use of a dedicated master processor at the
   /// iterator-evaluation scheduling level
-  bool iterator_eval_dedicated_master() const;
+  bool iterator_eval_dedicated_master_flag() const;
 
   /// function to check interfaceRep (does this envelope contain a letter?)
   bool is_null() const;
@@ -318,8 +300,8 @@ protected:
   //- Heading: Data
   //
 
-  /// the interface type: enum for system, fork, direct, grid, or approximation
-  unsigned short interfaceType;
+  /// the interface type: system, fork, direct, grid, or approximation
+  String interfaceType;
   /// the interface specification identifier string from the DAKOTA input file
   String interfaceId;
 
@@ -330,9 +312,6 @@ protected:
   /// Interface's parameter to response mapping (using analysis_drivers for
   /// ApplicationInterface or functionSurfaces for ApproximationInterface).
   bool coreMappings;
-
-  /// output verbosity level: {SILENT,QUIET,NORMAL,VERBOSE,DEBUG}_OUTPUT
-  short outputLevel;
 
   /// identifier for the current evaluation, which may differ from the
   /// evaluation counters in the case of evaluation scheduling; used on
@@ -345,15 +324,12 @@ protected:
   // evaluation counters specific to each interface instance that track
   // counts on the iterator master processor
 
-  /// controls use of fn val/grad/hess counters for detailed evaluation report
-  bool fineGrainEvalCounters;
+  bool fineGrainEvalCounters; ///< controls use of fn val/grad/hess counters
   int evalIdCntr;     ///< total interface evaluation counter
   int newEvalIdCntr;  ///< new (non-duplicate) interface evaluation counter
   int evalIdRefPt;    ///< iteration reference point for evalIdCntr
   int newEvalIdRefPt; ///< iteration reference point for newEvalIdCntr
-  // counter arrays provide more detailed reporting if output level >=
-  // verbose; these are initalized on-demand in map() as sizes may
-  // change due to fields or RecastModels
+  // counter arrays provide more detailed reporting if output level >= verbose
   IntArray fnValCounter;     ///< number of value evaluations by resp fn
   IntArray fnGradCounter;    ///< number of gradient evaluations by resp fn
   IntArray fnHessCounter;    ///< number of Hessian evaluations by resp fn
@@ -367,20 +343,15 @@ protected:
   IntArray newFnGradRefPt;   ///< iteration reference point for newFnGradCounter
   IntArray newFnHessRefPt;   ///< iteration reference point for newFnHessCounter
 
-  /// Set of responses returned by either a blocking or nonblocking schedule
+  /// Set of responses returned after either a blocking or nonblocking schedule
+  /// of asynchronous evaluations.
   /** The map is a full/partial set of completions which are identified through
       their evalIdCntr key.  The raw set is postprocessed (i.e., finite diff
       grads merged) in Model::synchronize() where it becomes responseMap. */
   IntResponseMap rawResponseMap;
-  /// Set of available asynchronous responses completed within a blocking
-  /// or nonblocking scheduler that cannot be processed in a higher
-  /// level context and need to be stored for later
-  IntResponseMap cachedResponseMap;
 
-  /// response function descriptors (used in
-  /// print_evaluation_summary() and derived direct interface
-  /// classes); initialized in map() functions due to potential
-  /// updates after construction
+  /// response function descriptors from the DAKOTA input file (used in
+  /// print_evaluation_summary() and derived direct interface classes)
   StringArray fnLabels;
 
   /// flag for multiprocessor evaluation partitions (evalComm)
@@ -388,6 +359,9 @@ protected:
 
   /// flag for dedicated master partitioning at the iterator level
   bool ieDedMasterFlag;
+
+  /// output verbosity level: {SILENT,QUIET,NORMAL,VERBOSE,DEBUG}_OUTPUT
+  short outputLevel;
 
   /// set of period-delimited evaluation ID tags to use in evaluation tagging
   String evalTagPrefix;
@@ -438,14 +412,16 @@ private:
   /// number of objects sharing interfaceRep
   int referenceCount;
 
+#ifdef HAVE_AMPL
   /// pointer to an AMPL solver library (ASL) object
   ASL *asl;
+#endif // HAVE_AMPL
 };
 
 
 // nonvirtual functions can access letter attributes directly (only need to fwd
 // member function call when the function could be redefined).
-inline unsigned short Interface::interface_type() const
+inline const String& Interface::interface_type() const
 { return (interfaceRep) ? interfaceRep->interfaceType : interfaceType; }
 
 
@@ -457,11 +433,11 @@ inline int Interface::evaluation_id() const
 { return (interfaceRep) ? interfaceRep->evalIdCntr : evalIdCntr; }
 
 
-inline bool Interface::multi_proc_eval() const
+inline bool Interface::multi_proc_eval_flag() const
 { return (interfaceRep) ? interfaceRep->multiProcEvalFlag : multiProcEvalFlag; }
 
 
-inline bool Interface::iterator_eval_dedicated_master() const
+inline bool Interface::iterator_eval_dedicated_master_flag() const
 { return (interfaceRep) ? interfaceRep->ieDedMasterFlag : ieDedMasterFlag; }
 
 
@@ -470,8 +446,8 @@ inline bool Interface::is_null() const
 
 
 /// global comparison function for Interface
-inline bool interface_id_compare(const Interface& interface_in, const void* id)
-{ return ( *(const String*)id == interface_in.interface_id() ); }
+inline bool interface_id_compare(const Interface& interface, const void* id)
+{ return ( *(const String*)id == interface.interface_id() ); }
 
 } // namespace Dakota
 

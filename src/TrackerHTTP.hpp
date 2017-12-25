@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -17,11 +17,9 @@
 #include <string>
 #include <curl/curl.h>
 #include "dakota_system_defs.hpp"
+#include "ProblemDescDB.hpp"
 
 namespace Dakota {
-
-// forward declarations
-class ProblemDescDB;
 
 /// TrackerHTTP: a usage tracking module that uses HTTP/HTTPS via the
 /// curl library
@@ -29,17 +27,18 @@ class TrackerHTTP {
 
 public:
 
-  /// default constructor is allowed, but doesn't generate output
+  /// default constructor is allowed, but doesn't track methods used
+  /// and outputs on all ranks
   TrackerHTTP();
 
   /// standard constructor with ProblemDescDB, rank
-  TrackerHTTP(int world_rank = 0);
+  TrackerHTTP(ProblemDescDB& problem_db, int world_rank = 0);
 
   /// destructor to free handles
   ~TrackerHTTP();
 
   /// post the start of an analysis and archive start time
-  void post_start(ProblemDescDB& problem_db);
+  void post_start();
 
   /// post the completion of an analysis including elapsed time
   void post_finish(unsigned runtime = 0); 

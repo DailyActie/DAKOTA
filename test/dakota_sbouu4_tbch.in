@@ -1,12 +1,11 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
 # DAKOTA INPUT FILE: dakota_sbouu4_tbch.in
 #
 # OUU with surrogates: surrogate containing nested containing surrogate
 #
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -103,7 +102,7 @@ method,
         sampling
 	  samples = 5000 sample_type lhs
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  response_levels = 4.2e+11 1.6e+05 7.5e+05
 	  complementary distribution
 	  output quiet

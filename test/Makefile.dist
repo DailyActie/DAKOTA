@@ -30,7 +30,6 @@ EXTRA_DIST = container_alt.c \
 	     dakota_cyl_head.in \
 	     dakota_dace.in \
 	     dakota_drivers.in \
-             dakota_field.in \
 	     dakota_graphics1.in \
 	     dakota_graphics2.in \
 	     dakota_graphics3.in \
@@ -49,7 +48,6 @@ EXTRA_DIST = container_alt.c \
 	     dakota_mv.in \
 	     dakota_nl2test.in \
 	     dakota_nondevid.in \
-	     dakota_optdarts.in \
 	     dakota_ouu1_cantilever.in \
 	     dakota_ouu1_tbch.in \
 	     dakota_ouu1_tb.in \
@@ -70,7 +68,6 @@ EXTRA_DIST = container_alt.c \
 	     dakota_pcbdo_steel_column_trsb.in \
 	     dakota_pof.in \
 	     dakota_portal_frame.in \
-             dakota_princ_comp.in \
 	     dakota_pstudy.in \
 	     dakota_rbdo_cantilever_analytic2.in \
 	     dakota_rbdo_cantilever_analytic2_verify.in \

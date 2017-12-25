@@ -1,0 +1,32 @@
+Blurb::
+Design and Analysis of Computer Experiments
+Description::
+The Distributed Design and Analysis of Computer Experiments (DDACE)
+library provides the following DACE techniques: 
+ -# grid sampling (\c grid)
+ -# pure random sampling (\c random)
+ -# orthogonal array sampling (\c oas)
+ -# latin hypercube sampling (\c lhs)
+ -# orthogonal array latin hypercube sampling (\c oa_lhs)
+ -# Box-Behnken (\c box_behnken)
+ -# central composite design (\c central_composite)
+
+In addition to the selection of the method, there are keywords
+that affect the method outputs: 
+ -# \ref method-dace-main_effects
+ -# \ref method-dace-quality_metrics
+ -# \ref method-dace-variance_based_decomp
+
+And keywords that affect the sampling:
+ -# \ref method-dace-fixed_seed
+ -# \ref method-dace-symbols
+ -# \ref method-dace-samples
+ -# \ref method-dace-seed
+
+
+
+Topics::	package_ddace, dace, not_yet_reviewed
+Examples::
+Theory::
+Faq::
+See_Also::	method-fsu_cvt, method-fsu_quasi_mc, method-psuade_moat

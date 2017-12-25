@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -66,13 +66,11 @@ typedef std::vector<UShortArray>    UShort2DArray;
 typedef std::vector<UShort2DArray>  UShort3DArray;
 typedef std::vector<size_t>         SizetArray;
 typedef std::vector<SizetArray>     Sizet2DArray;
-typedef std::vector<Sizet2DArray>   Sizet3DArray;
 typedef std::vector<String>         StringArray;
 typedef std::vector<StringArray>    String2DArray;
 
 typedef boost::multi_array_types::index_range       idx_range;
 typedef boost::multi_array<String, 1>               StringMultiArray;
-typedef boost::multi_array<String, 2>               StringMulti2DArray;
 typedef StringMultiArray::array_view<1>::type       StringMultiArrayView;
 typedef StringMultiArray::const_array_view<1>::type StringMultiArrayConstView;
 typedef boost::multi_array<unsigned short, 1>       UShortMultiArray;
@@ -81,9 +79,6 @@ typedef UShortMultiArray::const_array_view<1>::type UShortMultiArrayConstView;
 typedef boost::multi_array<size_t, 1>               SizetMultiArray;
 typedef SizetMultiArray::array_view<1>::type        SizetMultiArrayView;
 typedef SizetMultiArray::const_array_view<1>::type  SizetMultiArrayConstView;
-typedef boost::multi_array<Real, 1>                 RealMultiArray;
-typedef boost::multi_array<Real, 2>                 RealMulti2DArray;
-typedef boost::multi_array<Real, 3>                 RealMulti3DArray;
 
 typedef std::vector<RealVector>        RealVectorArray;
 typedef std::vector<RealVectorArray>   RealVector2DArray;
@@ -96,10 +91,7 @@ typedef std::vector<ParamResponsePair> PRPArray;
 typedef std::vector<PRPArray>          PRP2DArray;
 typedef std::vector<Model>             ModelArray;
 typedef std::vector<Iterator>          IteratorArray;
-typedef std::vector<RealMultiArray>    BoostMAArray;
-typedef std::vector<RealMulti2DArray>  BoostMA2DArray;
-typedef std::vector<RealMulti3DArray>  BoostMA3DArray;
- 
+
 typedef std::list<bool>                BoolList;
 typedef std::list<int>                 IntList;
 typedef std::list<size_t>              SizetList;
@@ -115,41 +107,27 @@ typedef std::list<Iterator>            IteratorList;
 //typedef std::list<ParallelConfiguration> ParConfigList;
 
 typedef std::pair<int, int>            IntIntPair;
-typedef std::pair<size_t, size_t>      SizetSizetPair;
-typedef std::pair<size_t, int>         SizetIntPair;
-typedef std::pair<int, size_t>         IntSizetPair;
 typedef std::pair<int, String>         IntStringPair;
 typedef std::pair<Real, Real>          RealRealPair;
 typedef std::pair<int, Response>       IntResponsePair;
 typedef std::set<Real>                 RealSet;
 typedef std::set<int>                  IntSet;
-typedef std::set<String>               StringSet;
 typedef std::set<unsigned short>       UShortSet;
 typedef std::set<size_t>               SizetSet;
 typedef std::vector<RealSet>           RealSetArray;
 typedef std::vector<IntSet>            IntSetArray;
-typedef std::vector<StringSet>         StringSetArray;
 typedef std::vector<UShortSet>         UShortSetArray;
 typedef std::map<int, int>             IntIntMap;
 typedef std::map<int, short>           IntShortMap;
 typedef std::map<int, Real>            IntRealMap;
 typedef std::map<Real, Real>           RealRealMap;
-typedef std::map<String, Real>         StringRealMap;
-typedef std::multimap<Real, int>       RealIntMultiMap;
-typedef std::vector<RealRealPair>      RealRealPairArray;
 typedef std::vector<IntRealMap>        IntRealMapArray;
 typedef std::vector<RealRealMap>       RealRealMapArray;
-typedef std::vector<StringRealMap>     StringRealMapArray;
 typedef std::map<int, RealVector>      IntRealVectorMap;
-typedef std::map<int, RealMatrix>      IntRealMatrixMap;
 typedef std::map<int, ActiveSet>       IntActiveSetMap;
 typedef std::map<int, Variables>       IntVariablesMap;
 typedef std::map<int, Response>        IntResponseMap;
 typedef std::map<IntArray, size_t>     IntArraySizetMap;
-typedef std::map<IntIntPair, Real>     IntIntPairRealMap;
-typedef std::map<RealRealPair, Real>   RealRealPairRealMap;
-typedef std::vector<IntIntPairRealMap> IntIntPairRealMapArray;
-typedef std::vector<RealRealPairRealMap> RealRealPairRealMapArray;
 typedef std::multimap<RealRealPair, ParamResponsePair> RealPairPRPMultiMap;
 //typedef std::multimap<Real, ParamResponsePair> RealPRPMultiMap;
 
@@ -177,8 +155,6 @@ typedef std::list<ParallelConfiguration>::iterator ParConfigLIter;
 
 typedef IntSet::iterator                       ISIter;
 typedef IntSet::const_iterator                 ISCIter;
-typedef StringSet::iterator                    SSIter;
-typedef StringSet::const_iterator              SSCIter;
 typedef RealSet::iterator                      RSIter;
 typedef RealSet::const_iterator                RSCIter;
 typedef IntIntMap::iterator                    IntIntMIter;
@@ -187,18 +163,10 @@ typedef IntShortMap::iterator                  IntShMIter;
 typedef IntShortMap::const_iterator            IntShMCIter;
 typedef IntRealMap::iterator                   IRMIter;
 typedef IntRealMap::const_iterator             IRMCIter;
-typedef StringRealMap::iterator                SRMIter;
-typedef StringRealMap::const_iterator          SRMCIter;
 typedef RealRealMap::iterator                  RRMIter;
 typedef RealRealMap::const_iterator            RRMCIter;
-typedef IntIntPairRealMap::iterator            IIPRMIter;
-typedef IntIntPairRealMap::const_iterator      IIPRMCIter;
-typedef RealRealPairRealMap::iterator          RRPRMIter;
-typedef RealRealPairRealMap::const_iterator    RRPRMCIter;
-typedef IntRealVectorMap::iterator             IntRVMIter;
-typedef IntRealVectorMap::const_iterator       IntRVMCIter;
-typedef IntRealMatrixMap::iterator             IntRMMIter;
-typedef IntRealMatrixMap::const_iterator       IntRMMCIter;
+typedef IntRealVectorMap::iterator             IntRDVMIter;
+typedef IntRealVectorMap::const_iterator       IntRDVMCIter;
 typedef IntActiveSetMap::iterator              IntASMIter;
 typedef IntVariablesMap::iterator              IntVarsMIter;
 typedef IntVariablesMap::const_iterator        IntVarsMCIter;

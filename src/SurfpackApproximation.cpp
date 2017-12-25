@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -43,9 +43,8 @@ using surfpack::fromVec;
     surface is created later. */
 SurfpackApproximation::
 SurfpackApproximation(const ProblemDescDB& problem_db,
-		      const SharedApproxData& shared_data,
-                      const String& approx_label):
-  Approximation(BaseConstructor(), problem_db, shared_data, approx_label), //surface(NULL),
+		      const SharedApproxData& shared_data):
+  Approximation(BaseConstructor(), problem_db, shared_data), //surface(NULL),
   surfData(NULL), model(NULL), factory(NULL)
   //sharedDataRep((SharedSurfpackApproxData*)shared_data.data_rep())
 {
@@ -213,7 +212,7 @@ SurfpackApproximation(const ProblemDescDB& problem_db,
     if (weight > 0) {
       args["weight"] = toString<short>(weight);
     }
-    short order = problem_db.get_short("model.surrogate.polynomial_order");
+    short order = problem_db.get_short("model.surrogate.mls_poly_order");
     if (order > 0) {
       args["order"] = toString<short>(order);
     }
@@ -222,10 +221,9 @@ SurfpackApproximation(const ProblemDescDB& problem_db,
   //// For radial basis function networks
   else if (sharedDataRep->approxType == "global_radial_basis") {
     args["type"] = "rbf";
-    // mapping number bases to number of centers
     short bases = problem_db.get_short("model.surrogate.rbf_bases");
     if (bases > 0) {
-      args["centers"] = toString<short>(bases);
+      args["bases"] = toString<short>(bases);
     }
     short min_partition
       = problem_db.get_short("model.surrogate.rbf_min_partition");
@@ -237,10 +235,9 @@ SurfpackApproximation(const ProblemDescDB& problem_db,
     if (max_subsets > 0) {
       args["max_iter"] = toString<short>(max_subsets);
     }
-    // mapping max_pts to cvt_pts
     short max_pts = problem_db.get_short("model.surrogate.rbf_max_pts");
     if (max_pts > 0) {
-      args["cvt_pts"] = toString<short>(max_pts);
+      args["max_pts"] = toString<short>(max_pts);
     }
   }
 
@@ -268,6 +265,22 @@ SurfpackApproximation(const ProblemDescDB& problem_db,
   //       << std::endl;
   //  abort_handler(-1);
   //}
+
+  if (!shared_surf_data_rep->exportModelName.empty()) {
+    if (SurfpackInterface::HasFeature("model_save")) {
+      if (!strends(shared_surf_data_rep->exportModelName, ".sps") && 
+	  !strends(shared_surf_data_rep->exportModelName, ".bsps")) {
+	Cerr << "\nError: export_model_file name must end in .sps or .bsps."
+	     << std::endl;
+	abort_handler(-1);
+      }
+    }
+    else {
+      Cerr << "\nError: export_model_file requires compilation with option\n"
+	   <<"       HAVE_BOOST_SERIALIZATION." << std::endl;
+      abort_handler(-1);
+    }
+  }
 
   // validate diagnostic settings (preliminary); TODO: do more at
   // run time and move to both ctors
@@ -379,10 +392,8 @@ SurfpackApproximation(const SharedApproxData& shared_data):
   }
   else if (sharedDataRep->approxType == "global_neural_network")
     args["type"] = "ann";
-  else if (sharedDataRep->approxType == "global_moving_least_squares") {
+  else if (sharedDataRep->approxType == "global_moving_least_squares")
     args["type"] = "mls";
-    args["order"] = toString<unsigned short>(shared_surf_data_rep->approxOrder);
-  }
   else if (sharedDataRep->approxType == "global_radial_basis")
     args["type"] = "rbf";
   else if (sharedDataRep->approxType == "global_mars")
@@ -466,6 +477,21 @@ void SurfpackApproximation::build()
     }
 
     model = factory->Build(*surfData); 
+    if (sharedDataRep->outputLevel > NORMAL_OUTPUT) { 
+
+      Cout << model->asString();
+
+      //      ModelFitness* SS_fitness = ModelFitness::Create("sum_squared");
+      //Cout << "Sum-squared goodness of fit =  " 
+      //   << (*SS_fitness)(*model,*surfData) << "\n" ;
+      //delete SS_fitness;
+
+      //ModelFitness* R2_fitness = ModelFitness::Create("rsquared");
+      //Cout << "R-squared goodness of fit =  " 
+      //   << (*R2_fitness)(*model,*surfData) << "\n" ;
+      //delete R2_fitness;
+
+    }
     // TO DO: extract coefficients array
   }
   catch (std::runtime_error& e) {
@@ -483,63 +509,15 @@ void SurfpackApproximation::build()
     abort_handler(-1);
   }
 
-/*  if (!shared_surf_data_rep->exportModelName.empty() &&
+  if (!shared_surf_data_rep->exportModelName.empty() &&
       SurfpackInterface::HasFeature("model_save")) {
     if (sharedDataRep->outputLevel >= VERBOSE_OUTPUT)
       Cout << "\nSaving surrogate model to file "
 	   << shared_surf_data_rep->exportModelName << std::endl;
     SurfpackInterface::Save(model, shared_surf_data_rep->exportModelName);
-  }*/
+  }
 }
 
-
-void SurfpackApproximation::export_model(const String& fn_label,
- 					 const String& export_prefix, 
-                                         const unsigned short export_format)
-{
-  String without_extension;
-  unsigned short formats;
-  if(export_format) {
-    without_extension = export_prefix + "." + fn_label;
-    formats = export_format;
-  } else {
-    without_extension = sharedDataRep->modelExportPrefix + "." + approxLabel;
-    formats = sharedDataRep->modelExportFormat;
-  }
-  //unsigned short formats = export_format; 
-  const bool &can_save = SurfpackInterface::HasFeature("model_save");
-  // Saving to text archive
-  if(formats & TEXT_ARCHIVE) {
-    if(can_save) {
-      String filename = without_extension + ".sps";
-      SurfpackInterface::Save(model,filename);
-    } else
-        Cerr << "\nRequested surrogate export to text archive failed: "
-		<< "Surfpack lacks support for model saving.\n";
-  }
-  // Saving to binary archive
-  if(formats & BINARY_ARCHIVE) {
-    if(can_save) {
-      String filename = without_extension + ".bsps";
-      SurfpackInterface::Save(model,filename);
-    } else
-        Cerr << "\nRequested surrogate export to binary archive failed: "
-	        << "Surfpack lacks support for model saving.\n";
-  }
-  // Saving to algebraic file
-  if(formats & ALGEBRAIC_FILE) {
-    String filename = without_extension + ".alg";
-    std::ofstream af(filename.c_str(),std::ofstream::out);
-    af << "Model for response " << fn_label << ":\n" << model->asString();
-    af.close();
-    Cout << "Model saved in algebraic format to file '" << filename << "'.\n";
-  }
-  // Writing in algebraic format to screen
-  if(formats & ALGEBRAIC_CONSOLE) {
-    Cout << "\nModel for response " << fn_label << ":\n";
-    Cout << model->asString();
-  }    
-}
 
 Real SurfpackApproximation::value(const Variables& vars)
 { 
@@ -619,92 +597,12 @@ Real SurfpackApproximation::prediction_variance(const Variables& vars)
   }
 }
 
-Real SurfpackApproximation::value(const RealVector& c_vars)
-{
-    //static int times_called = 0;
-    if (!model) {
-        Cerr << "Error: surface is null in SurfpackApproximation::value()"
-        << std::endl;
-        abort_handler(-1);
-    }
-        
-    RealArray x_array;
-    size_t num_vars = c_vars.length();
-    for (size_t i = 0; i < num_vars; i++) x_array.push_back(c_vars[i]);
-    return (*model)(x_array);
-}
-    
-    
-const RealVector& SurfpackApproximation::gradient(const RealVector& c_vars)
-{
-    approxGradient.sizeUninitialized(c_vars.length());
-    try {
-        RealArray x_array;
-        size_t num_vars = c_vars.length();
-        for (size_t i = 0; i < num_vars; i++) x_array.push_back(c_vars[i]);
-        
-        VecDbl local_grad = model->gradient(x_array);
-        for (unsigned i = 0; i < surfData->xSize(); i++)
-            approxGradient[i] = local_grad[i];
-    }
-    catch (...) {
-        Cerr << "Error: gradient() not available for this approximation type."
-        << std::endl;
-        abort_handler(-1);
-    }
-    return approxGradient;
-}
-    
-    
-const RealSymMatrix& SurfpackApproximation::hessian(const RealVector& c_vars)
-{
-    size_t num_cv = c_vars.length();
-    approxHessian.reshape(num_cv);
-    try {
-        if (sharedDataRep->approxType == "global_moving_least_squares") {
-            Cerr << "Have not implemented analytical hessians in this surfpack class"
-            << std::endl;
-            abort_handler(-1);
-        }
-        RealArray x_array;
-        for (size_t i = 0; i < num_cv; i++) x_array.push_back(c_vars[i]);
-        
-        MtxDbl sm = model->hessian(x_array);
-        ///\todo Make this acceptably efficient
-        for (size_t i = 0; i < num_cv; i++)
-            for(size_t j = 0; j < num_cv; j++)
-                approxHessian(i,j) = sm(i,j);
-    }
-    catch (...) {
-        Cerr << "Error: hessian() not available for this approximation type."
-        << std::endl;
-        abort_handler(-1);
-    }
-    return approxHessian;
-}
-    
-    
-Real SurfpackApproximation::prediction_variance(const RealVector& c_vars)
-{
-    try {
-        RealArray x_array;
-        size_t num_vars = c_vars.length();
-        for (size_t i = 0; i < num_vars; i++) x_array.push_back(c_vars[i]);
-        return model->variance(x_array);
-    }
-    catch (...) {
-        Cerr << "Error: prediction_variance() not available for this "
-        << "approximation type." << std::endl;
-        abort_handler(-1);
-    }
-}
-
 
 Real SurfpackApproximation::diagnostic(const String& metric_type)
 { 
   if (!model) { 
     Cerr << "Error: surface is null in SurfpackApproximation::diagnostic()"
-         << std::endl;  
+	 << std::endl;  
     abort_handler(-1);
   }
 
@@ -727,32 +625,33 @@ Real SurfpackApproximation::diagnostic(const String& metric_type,
     abort_handler(-1);
   }
 
-  Cout << std::setw(20) << metric_type << std::setw(20) << approx_diag << '\n';
+  Cout << metric_type << " goodness of fit: " << approx_diag << '\n';
   return approx_diag;
 }
 
 
 void SurfpackApproximation::primary_diagnostics(int fn_index)
 {
-  String func_description = approxLabel.empty() ? 
-    "function " + boost::lexical_cast<std::string>(fn_index+1) : approxLabel;  
   SharedSurfpackApproxData* shared_surf_data_rep
     = (SharedSurfpackApproxData*)sharedDataRep;
   const StringArray& diag_set = shared_surf_data_rep->diagnosticSet;
   if (diag_set.empty()) {
     // conditionally print default diagnostics
     if (sharedDataRep->outputLevel > NORMAL_OUTPUT) {
-      Cout << "\nSurrogate quality metrics for " << func_description << ":\n";
+      Cout << "\n--- Default surrogate metrics; function " << (fn_index + 1)
+	   << std::endl;
       diagnostic("root_mean_squared");	
       diagnostic("mean_abs");
       diagnostic("rsquared");
     }
   }
   else {
-    Cout << "\nSurrogate quality metrics for " << func_description << ":\n";
+    Cout << "\n--- User-requested surrogate metrics; function " 
+	 << (fn_index + 1) << std::endl;
     int num_diag = diag_set.size();
     for (int j = 0; j < num_diag; ++j)
       diagnostic(diag_set[j]);
+
    
     // BMA TODO: at runtime verify (though Surfpack will too) 
     //  * 1/N <= percentFold <= 0.5
@@ -761,60 +660,61 @@ void SurfpackApproximation::primary_diagnostics(int fn_index)
       int num_folds = shared_surf_data_rep->numFolds;
       // if no folds, try percent, otherwise set default = 10
       if (num_folds == 0) {
-        if (shared_surf_data_rep->percentFold > 0.0) {
-          num_folds = boost::math::iround(1./shared_surf_data_rep->percentFold);
-          if (sharedDataRep->outputLevel >= DEBUG_OUTPUT)
-            Cout << "Info: cross_validate num_folds = " << num_folds 
-                 << " calculated from specified percent = "
-                 << shared_surf_data_rep->percentFold << "." << std::endl;
-        }
-        else {
-          num_folds = 10;
-          if (sharedDataRep->outputLevel >= DEBUG_OUTPUT)
-            Cout << "Info: default num_folds = " << num_folds << " used."
-                 << std::endl;
-        }
+	if (shared_surf_data_rep->percentFold > 0.0) {
+	  num_folds = boost::math::iround(1./shared_surf_data_rep->percentFold);
+	  if (sharedDataRep->outputLevel >= DEBUG_OUTPUT)
+	    Cout << "Info: cross_validate num_folds = " << num_folds 
+		 << " calculated from specified percent = "
+		 << shared_surf_data_rep->percentFold << "." << std::endl;
+	}
+	else {
+	  num_folds = 10;
+	  if (sharedDataRep->outputLevel >= DEBUG_OUTPUT)
+	    Cout << "Info: default num_folds = " << num_folds << " used."
+		 << std::endl;
+	}
       }
 
-      Cout << "\nSurrogate quality metrics (" << num_folds << "-fold CV) for " 
-           << func_description << ":\n";
-      RealArray cv_metrics = cv_diagnostic(diag_set, num_folds);
-      //CrossValidationFitness CV_fitness(num_folds);
-      //VecDbl cv_metrics;
-      //CV_fitness.eval_metrics(cv_metrics, *model, *surfData, diag_set);
+      Cout << "\n--- Cross validation (" << num_folds << " folds) of user-"
+	   << "requested surrogate metrics; function " << (fn_index + 1) 
+	   << std::endl;
+
+      CrossValidationFitness CV_fitness(num_folds);
+      VecDbl cv_metrics;
+      CV_fitness.eval_metrics(cv_metrics, *model, *surfData, diag_set);
       
       for (int j = 0; j < num_diag; ++j) {
-        const String& metric_type = diag_set[j];
-        if (metric_type == "rsquared")
-          Cout << std::setw(20) << metric_type
-               << std::setw(20) << std::numeric_limits<Real>::quiet_NaN()
-               << "  (n/a for cross-validation)" 
-               << std::endl;
-        else
-          Cout << std::setw(20) << metric_type << std::setw(20) << cv_metrics[j] 
-               << std::endl;
+	const String& metric_type = diag_set[j];
+	if (metric_type == "rsquared")
+	  Cout << metric_type << " goodness of fit: " 
+	       << std::numeric_limits<Real>::quiet_NaN()
+	       << " (n/a for cross-validation)" 
+	       << std::endl;
+	else
+	  Cout << metric_type << " goodness of fit: " << cv_metrics[j] 
+	       << std::endl;
       }
 
     }
     if (shared_surf_data_rep->pressFlag) {
-      Cout << "\nSurrogate quality metrics (PRESS/leave-one-out) for " 
-           << func_description << ":\n";
-     
+      Cout << "\n--- PRESS (leave one out CV) of user-requested "
+	   << "surrogate metrics; function " << (fn_index + 1) << std::endl;
+
       // perform press as CV with N folds
-      RealArray cv_metrics = cv_diagnostic(diag_set, surfData->size());
-      //CrossValidationFitness CV_fitness(surfData->size());
-      //VecDbl cv_metrics;
-      //CV_fitness.eval_metrics(cv_metrics, *model, *surfData, diag_set);
+      CrossValidationFitness CV_fitness(surfData->size());
+      VecDbl cv_metrics;
+      CV_fitness.eval_metrics(cv_metrics, *model, *surfData, diag_set);
      
       for (int j = 0; j < num_diag; ++j) {
-        const String& metric_type = diag_set[j];
-        if (metric_type == "rsquared")
-          Cout << std::setw(20) << metric_type 
-               << std::setw(20) << std::numeric_limits<Real>::quiet_NaN()
-               << "  (n/a for PRESS)" << std::endl;
-        else
-          Cout << std::setw(20) << metric_type << std::setw(20) << cv_metrics[j] 
-               << std::endl;
+	const String& metric_type = diag_set[j];
+	if (metric_type == "rsquared")
+	  Cout << metric_type << " goodness of fit: " 
+	       << std::numeric_limits<Real>::quiet_NaN()
+	       << " (n/a for PRESS)" 
+	       << std::endl;
+	else
+	  Cout << metric_type << " goodness of fit: " << cv_metrics[j] 
+	       << std::endl;
       }
 
     }
@@ -823,72 +723,49 @@ void SurfpackApproximation::primary_diagnostics(int fn_index)
 
 
 void SurfpackApproximation::
-challenge_diagnostics(int fn_index, const RealMatrix& challenge_points,
-                      const RealVector& challenge_responses)
+challenge_diagnostics(const RealMatrix& challenge_points, int fn_index)
 {
   if (!model) { 
     Cerr << "Error: surface is null in SurfpackApproximation::diagnostic()"
 	 << std::endl;  
     abort_handler(-1);
   }
-  
-  String func_description = approxLabel.empty() ? 
-    "function " + boost::lexical_cast<std::string>(fn_index+1) : approxLabel;  
 
-  // copy
-  StringArray diag_set = 
-    ((SharedSurfpackApproxData*)sharedDataRep)->diagnosticSet;
-  if (diag_set.empty()) {
-    // conditionally print default diagnostics
-    if (sharedDataRep->outputLevel > NORMAL_OUTPUT) {
-      Cout << "\nSurrogate quality metrics (challenge data) for " 
-	   << func_description << ":\n";
-      diag_set.push_back("root_mean_squared");	
-      diag_set.push_back("mean_abs");
-      diag_set.push_back("rsquared");
-      challenge_diagnostic(diag_set, challenge_points, challenge_responses);
-    }
-  }
-  else {
-    Cout << "\nSurrogate quality metrics (challenge data) for " 
-	 << func_description << ":\n";
-    challenge_diagnostic(diag_set, challenge_points, challenge_responses);
-  }
-
-}
-
-RealArray SurfpackApproximation::cv_diagnostic(const StringArray& metric_types, 
-                                               unsigned num_folds) {
-  CrossValidationFitness CV_fitness(num_folds);
-  VecDbl cv_metrics;
-  try {
-    CV_fitness.eval_metrics(cv_metrics, *model, *surfData, metric_types);
-  } catch(String cv_error) {
-    Cerr << "Error: Exception caught while computing CV score:\n" << cv_error << std::endl;
-    cv_metrics.resize(metric_types.size());
-    std::fill(cv_metrics.begin(), cv_metrics.end(), std::numeric_limits<Real>::quiet_NaN());
-  }
-  return cv_metrics;
-}
-
-RealArray SurfpackApproximation::challenge_diagnostic(const StringArray& metric_types,
-			    const RealMatrix& challenge_points,
-                            const RealVector& challenge_responses) {
-  // JAS: painful but probably unavoidable data copy on every call.
+  // BMA TODO: later don't recopy every time, just copy once and setDefaultIndex
   SurfData chal_data;
-  RealArray chal_metrics;
+
   size_t num_v = sharedDataRep->numVars;
   for (size_t row=0; row<challenge_points.numRows(); ++row) {
     RealArray x(num_v);
     for (size_t col=0; col<num_v; ++col)
       x[col] = challenge_points[col][row];
-    Real f = challenge_responses[row];
+    Real f = challenge_points[num_v + fn_index][row];
     chal_data.addPoint(SurfPoint(x, f));
   }
-  for (int j = 0; j < metric_types.size(); ++j)
-    chal_metrics.push_back(diagnostic(metric_types[j], *model, chal_data));
-  return chal_metrics;
+
+  const StringArray& diag_set
+    = ((SharedSurfpackApproxData*)sharedDataRep)->diagnosticSet;
+  if (diag_set.empty()) {
+    // conditionally print default diagnostics
+    if (sharedDataRep->outputLevel > NORMAL_OUTPUT) {
+      Cout << "\n--- Default surrogate metrics for user challenge "
+	   << "data; function " << (fn_index + 1) << std::endl;
+      diagnostic("root_mean_squared");	
+      diagnostic("mean_abs");
+      diagnostic("rsquared");
+    }
+  }
+  else {
+    Cout << "\n--- User-requested surrogate metrics for user " 
+	 << "challenge data; function " << (fn_index+1) << std::endl;
+    int num_diag = diag_set.size();
+    for (int j = 0; j < num_diag; ++j)
+      diagnostic(diag_set[j], *model, chal_data);
+  }
+
 }
+
+
 
 /** Copy the data stored in Dakota-style SurrogateData into
     Surfpack-style SurfPoint and SurfData objects. */
@@ -916,7 +793,7 @@ SurfData* SurfpackApproximation::surrogates_to_surf_data()
   if (sharedDataRep->outputLevel >= DEBUG_OUTPUT)
     Cout << "Requested build data order is " << sharedDataRep->buildDataOrder
 	 << '\n';
-  size_t i, num_data_pts = approxData.points();
+  size_t i, num_data_pts = approxData.size();
   const Pecos::SDVArray& sdv_array = approxData.variables_data();
   const Pecos::SDRArray& sdr_array = approxData.response_data();
   const Pecos::SizetShortMap& failed_resp = approxData.failed_response_data();

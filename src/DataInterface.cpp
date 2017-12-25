@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -11,29 +11,22 @@
 //- Owner:        Mike Eldred
 
 #include "DataInterface.hpp"
-#include "DataMethod.hpp" // shared scheduling enums
 #include "dakota_data_io.hpp"
 
 
 namespace Dakota {
 
 DataInterfaceRep::DataInterfaceRep():
-  interfaceType(DEFAULT_INTERFACE),
   allowExistingResultsFlag(false), verbatimFlag(false), apreproFlag(false),
-  resultsFileFormat(FLEXIBLE_RESULTS), fileTagFlag(false), fileSaveFlag(false),
-  interfaceSynchronization(SYNCHRONOUS_INTERFACE),
-  asynchLocalEvalConcurrency(0), asynchLocalEvalScheduling(DEFAULT_SCHEDULING),
-  asynchLocalAnalysisConcurrency(0), evalServers(0),
-  evalScheduling(DEFAULT_SCHEDULING), procsPerEval(0), analysisServers(0),
-  analysisScheduling(DEFAULT_SCHEDULING), procsPerAnalysis(0),
+  fileTagFlag(false), fileSaveFlag(false), procsPerAnalysis(0),
+  interfaceSynchronization("synchronous"), asynchLocalEvalConcurrency(0),
+  asynchLocalAnalysisConcurrency(0), evalServers(0), analysisServers(0),
   failAction("abort"), retryLimit(1), activeSetVectorFlag(true),
-  evalCacheFlag(true), nearbyEvalCacheFlag(false),
-  nearbyEvalCacheTol(DBL_EPSILON), // default relative tolerance is tight
-  restartFileFlag(true), referenceCount(1), useWorkdir(false), dirTag(false),
-  dirSave(false), templateReplace(false), numpyFlag(false)
-  // asynchLocal{Eval,Analysis}Concurrency, procsPer{Eval,Analysis} and
-  // {eval,analysis}Servers default to zero in order to allow detection of
-  // user overrides > 0
+  evalCacheFlag(true), restartFileFlag(true), referenceCount(1),
+  useWorkdir(false), dirTag(false), dirSave(false), templateCopy(false),
+  templateReplace(false), numpyFlag(false)
+  // procsPerAnalysis, evalServers, and analysisServers default to zero
+  // in order to allow detection of user override > 0
 { }
 
 
@@ -42,15 +35,15 @@ void DataInterfaceRep::write(MPIPackBuffer& s) const
   s << idInterface << interfaceType << algebraicMappings << analysisDrivers
     << analysisComponents << inputFilter << outputFilter << parametersFile
     << resultsFile << allowExistingResultsFlag  << verbatimFlag << apreproFlag 
-    << resultsFileFormat << fileTagFlag << fileSaveFlag //<< gridHostNames << gridProcsPerHost
+    << fileTagFlag << fileSaveFlag << procsPerAnalysis
+    //<< gridHostNames << gridProcsPerHost
     << interfaceSynchronization << asynchLocalEvalConcurrency
     << asynchLocalEvalScheduling << asynchLocalAnalysisConcurrency
-    << evalServers << evalScheduling << procsPerEval << analysisServers
-    << analysisScheduling << procsPerAnalysis << failAction << retryLimit
-    << recoveryFnVals << activeSetVectorFlag << evalCacheFlag
-    << nearbyEvalCacheFlag << nearbyEvalCacheTol << restartFileFlag
-    << useWorkdir << workDir << dirTag << dirSave << linkFiles
-    << copyFiles << templateReplace << numpyFlag;
+    << evalServers << evalScheduling << analysisServers << analysisScheduling
+    << failAction << retryLimit << recoveryFnVals << activeSetVectorFlag
+    << evalCacheFlag << restartFileFlag << useWorkdir << workDir << dirTag
+    << dirSave << templateDir << templateFiles << templateCopy
+    << templateReplace << numpyFlag;
 }
 
 
@@ -59,15 +52,15 @@ void DataInterfaceRep::read(MPIUnpackBuffer& s)
   s >> idInterface >> interfaceType >> algebraicMappings >> analysisDrivers
     >> analysisComponents >> inputFilter >> outputFilter >> parametersFile
     >> resultsFile >> allowExistingResultsFlag  >> verbatimFlag >> apreproFlag 
-    >> resultsFileFormat >> fileTagFlag >> fileSaveFlag //>> gridHostNames >> gridProcsPerHost
+    >> fileTagFlag >> fileSaveFlag >> procsPerAnalysis
+    //>> gridHostNames >> gridProcsPerHost
     >> interfaceSynchronization >> asynchLocalEvalConcurrency
     >> asynchLocalEvalScheduling >> asynchLocalAnalysisConcurrency
-    >> evalServers >> evalScheduling >> procsPerEval >> analysisServers
-    >> analysisScheduling >> procsPerAnalysis >> failAction >> retryLimit
-    >> recoveryFnVals >> activeSetVectorFlag >> evalCacheFlag
-    >> nearbyEvalCacheFlag >> nearbyEvalCacheTol >> restartFileFlag
-    >> useWorkdir >> workDir >> dirTag >> dirSave >> linkFiles
-    >> copyFiles >> templateReplace >> numpyFlag;
+    >> evalServers >> evalScheduling >> analysisServers >> analysisScheduling
+    >> failAction >> retryLimit >> recoveryFnVals >> activeSetVectorFlag
+    >> evalCacheFlag >> restartFileFlag >> useWorkdir >> workDir >> dirTag
+    >> dirSave >> templateDir >> templateFiles >> templateCopy
+    >> templateReplace >> numpyFlag;
 }
 
 
@@ -76,15 +69,15 @@ void DataInterfaceRep::write(std::ostream& s) const
   s << idInterface << interfaceType << algebraicMappings << analysisDrivers
     << analysisComponents << inputFilter << outputFilter << parametersFile
     << resultsFile << allowExistingResultsFlag  << verbatimFlag << apreproFlag 
-    << resultsFileFormat << fileTagFlag << fileSaveFlag //<< gridHostNames << gridProcsPerHost
+    << fileTagFlag << fileSaveFlag << procsPerAnalysis
+    //<< gridHostNames << gridProcsPerHost
     << interfaceSynchronization << asynchLocalEvalConcurrency
     << asynchLocalEvalScheduling << asynchLocalAnalysisConcurrency
-    << evalServers << evalScheduling << procsPerEval << analysisServers
-    << analysisScheduling << procsPerAnalysis << failAction << retryLimit
-    << recoveryFnVals << activeSetVectorFlag << evalCacheFlag
-    << nearbyEvalCacheFlag << nearbyEvalCacheTol << restartFileFlag
-    << useWorkdir << workDir << dirTag << dirSave << linkFiles
-    << copyFiles << templateReplace << numpyFlag;
+    << evalServers << evalScheduling << analysisServers << analysisScheduling
+    << failAction << retryLimit << recoveryFnVals << activeSetVectorFlag
+    << evalCacheFlag << restartFileFlag << useWorkdir << workDir << dirTag
+    << dirSave << templateDir << templateFiles << templateCopy
+    << templateReplace << numpyFlag;
 }
 
 
@@ -102,7 +95,7 @@ DataInterface::DataInterface(const DataInterface& data_resp)
   // Increment new (no old to decrement)
   dataIfaceRep = data_resp.dataIfaceRep;
   if (dataIfaceRep) // Check for an assignment of NULL
-    ++dataIfaceRep->referenceCount;
+    dataIfaceRep->referenceCount++;
 
 #ifdef REFCOUNT_DEBUG
   Cout << "DataInterface::DataInterface(DataInterface&)" << std::endl;
@@ -123,15 +116,15 @@ DataInterface& DataInterface::operator=(const DataInterface& data_interface)
     // Assign and increment new
     dataIfaceRep = data_interface.dataIfaceRep;
     if (dataIfaceRep) // Check for NULL
-      ++dataIfaceRep->referenceCount;
+      dataIfaceRep->referenceCount++;
   }
   // else if assigning same rep, then do nothing since referenceCount
   // should already be correct
 
 #ifdef REFCOUNT_DEBUG
   Cout << "DataInterface::operator=(DataInterface&)" << std::endl;
-  if (dataIfaceRep)
-    Cout << "dataIfaceRep referenceCount = " << dataIfaceRep->referenceCount
+  if (dataIFaceRep)
+    Cout << "dataIFaceRep referenceCount = " << dataIFaceRep->referenceCount
 	 << std::endl;
 #endif
 

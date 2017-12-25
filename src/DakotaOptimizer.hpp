@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -39,29 +39,35 @@ protected:
   //- Heading: Constructors and destructor
   //
 
-  /// default constructor
-  Optimizer();
-  /// alternate constructor; accepts a model
-  Optimizer(ProblemDescDB& problem_db, Model& model);
+  Optimizer();             ///< default constructor
+  Optimizer(Model& model); ///< standard constructor
 
   /// alternate constructor for "on the fly" instantiations
-  Optimizer(unsigned short method_name, Model& model);
+  Optimizer(NoDBBaseConstructor, Model& model);
   /// alternate constructor for "on the fly" instantiations
-  Optimizer(unsigned short method_name, size_t num_cv, size_t num_div,
-	    size_t num_dsv, size_t num_drv, size_t num_lin_ineq,
-	    size_t num_lin_eq, size_t num_nln_ineq, size_t num_nln_eq);
+  Optimizer(NoDBBaseConstructor, size_t num_cv, size_t num_div, size_t num_drv,
+	    size_t num_lin_ineq, size_t num_lin_eq, size_t num_nln_ineq,
+	    size_t num_nln_eq);
 
-  /// destructor
-  ~Optimizer();
+  ~Optimizer();            ///< destructor
 
   //
   //- Heading: Virtual member function redefinitions
   //
 
   void initialize_run();
+  void run();
   void post_run(std::ostream& s);
   void finalize_run();
   void print_results(std::ostream& s);
+
+  //
+  //- Heading: New virtual member functions
+  //
+
+  /// Used within the optimizer branch for computing the optimal solution.
+  /// Redefines the run virtual function for the optimizer branch.
+  virtual void find_optimum() = 0;
 
   //
   //- Heading: Data
@@ -101,6 +107,10 @@ private:
 			   const BoolDeque& sense, const RealVector& full_wts,
 			   Response& reduced_response) const;
 
+  /// infers MOO/NLS solution from the solution of a single-objective optimizer
+  void local_objective_recast_retrieve(const Variables& vars,
+				       Response& response) const;
+
   //
   //- Heading: Data
   //
@@ -112,7 +122,14 @@ inline Optimizer::Optimizer(): localObjectiveRecast(false)
 
 
 inline Optimizer::~Optimizer()
-{ }
+{ 
+  if (minimizerRecasts)
+    iteratedModel.free_communicators(maxConcurrency);
+}
+
+
+inline void Optimizer::run()
+{ find_optimum(); }
 
 
 inline void Optimizer::finalize_run()

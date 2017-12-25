@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -11,7 +11,6 @@
 #define MPI_PACK_BUFFER_H
 
 #include "dakota_system_defs.hpp"
-#include "dakota_data_types.hpp"
 #include <boost/foreach.hpp>
 
 
@@ -316,44 +315,6 @@ inline void container_write(const ContainerT& c, MPIPackBuffer& s)
   BOOST_FOREACH(const typename ContainerT::value_type& entry, c) {
     s << entry;
   }
-}
-
-
-/// stream insertion for BitArray
-template <typename Block, typename Allocator>
-inline MPIPackBuffer& 
-operator<<(MPIPackBuffer& s, const boost::dynamic_bitset<Block, Allocator>& bs)
-{ 
-  size_t size = bs.size();
-  s << size;
-
-  // create a vector of blocks and insert it it
-  std::vector<Block> vec_block(bs.num_blocks());
-  to_block_range(bs, vec_block.begin());
-  s << vec_block;
-
-  return s; 
-}
-
-
-/// stream extraction for BitArray
-template <typename Block, typename Allocator>
-inline MPIUnpackBuffer& 
-operator>>(MPIUnpackBuffer& s, boost::dynamic_bitset<Block, Allocator>& bs)
-{ 
-  size_t size;
-  s >> size;
-
-  bs.resize(size);
-
-  // Load vector
-  std::vector<Block> vec_block;
-  s >> vec_block;
-
-  // Convert vector into a bitset
-  from_block_range(vec_block.begin(), vec_block.end(), bs);
-
-  return s;
 }
 
 

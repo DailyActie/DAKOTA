@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -14,7 +14,7 @@
 #include "DakotaPStudyDACE.hpp"
 #include "ProblemDescDB.hpp"
 #include "dakota_data_io.hpp"
-#ifdef HAVE_FSUDACE
+#ifdef DAKOTA_FSUDACE
 #include "fsu.H"
 #endif
 
@@ -23,20 +23,18 @@ static const char rcsId[]="@(#) $Id: DakotaPStudyDACE.cpp 6492 2009-12-19 00:04:
 
 namespace Dakota {
 
-PStudyDACE::PStudyDACE(ProblemDescDB& problem_db, Model& model):
-  Analyzer(problem_db, model),
+PStudyDACE::PStudyDACE(Model& model): Analyzer(model),
   volQualityFlag(probDescDB.get_bool("method.quality_metrics")),
   varBasedDecompFlag(probDescDB.get_bool("method.variance_based_decomp"))
 {
   // Check for discrete variable types
   if ( (numDiscreteIntVars || numDiscreteRealVars) &&
-       methodName > VECTOR_PARAMETER_STUDY)
-    Cerr << "\nWarning: discrete variables are ignored by "
-	 << method_enum_to_string(methodName) << std::endl;
+       !strends(methodName, "_parameter_study") )
+    Cerr << "\nWarning: discrete variables are ignored by " << methodName
+       << std::endl;
 
   // Check for vendor numerical gradients (manage_asv will not work properly)
-  if (iteratedModel.gradient_type() == "numerical" &&
-      iteratedModel.method_source() == "vendor") {
+  if (gradientType == "numerical" && methodSource == "vendor") {
     Cerr << "\nError: ParamStudy/DACE do not contain a vendor algorithm for "
          << "numerical derivatives;\n       please select dakota as the finite "
 	 << "difference method_source." << std::endl;
@@ -45,12 +43,12 @@ PStudyDACE::PStudyDACE(ProblemDescDB& problem_db, Model& model):
 }
 
 
-PStudyDACE::PStudyDACE(unsigned short method_name, Model& model):
-  Analyzer(method_name, model), volQualityFlag(false), varBasedDecompFlag(false)
+PStudyDACE::PStudyDACE(NoDBBaseConstructor, Model& model):
+  Analyzer(NoDBBaseConstructor(), model), volQualityFlag(false),
+  varBasedDecompFlag(false)
 {
   // Check for vendor numerical gradients (manage_asv will not work properly)
-  if (iteratedModel.gradient_type() == "numerical" &&
-      iteratedModel.method_source() == "vendor") {
+  if (gradientType == "numerical" && methodSource == "vendor") {
     Cerr << "\nError: ParamStudy/DACE do not contain a vendor algorithm for "
          << "numerical derivatives;\n       please select dakota as the finite "
 	 << "difference method_source." << std::endl;
@@ -62,15 +60,6 @@ PStudyDACE::PStudyDACE(unsigned short method_name, Model& model):
 PStudyDACE::~PStudyDACE() { }
 
 
-bool PStudyDACE::resize()
-{
-  bool parent_reinit_comms = Analyzer::resize();
-
-  // Current nothing to be done here -> no-op
-  return parent_reinit_comms;
-}
-
-
 /** Calculation of volumetric quality measures developed by FSU. */
 void PStudyDACE::
 volumetric_quality(int ndim, int num_samples, double* sample_points)
@@ -78,7 +67,7 @@ volumetric_quality(int ndim, int num_samples, double* sample_points)
   int num_trials = 100000;
   int seed_init  = 1 + std::rand();
 
-#ifdef HAVE_FSUDACE
+#ifdef DAKOTA_FSUDACE
   chiMeas = chi_measure(ndim, num_samples, sample_points, num_trials,seed_init);
   dMeas   = d_measure(ndim, num_samples, sample_points, num_trials, seed_init);
   hMeas   = h_measure(ndim, num_samples, sample_points, num_trials, seed_init);
@@ -108,13 +97,12 @@ void PStudyDACE::print_results(std::ostream& s)
 	= empty[boost::indices[idx_range(0, 0)]];
       pStudyDACESensGlobal.print_correlations(s,
 	iteratedModel.continuous_variable_labels(), empty_view, empty_view,
-        empty_view, iteratedModel.response_labels());
+        iteratedModel.response_labels());
     }
     else // ParamStudy includes active discrete vars
       pStudyDACESensGlobal.print_correlations(s,
         iteratedModel.continuous_variable_labels(),
         iteratedModel.discrete_int_variable_labels(),
-        iteratedModel.discrete_string_variable_labels(),
         iteratedModel.discrete_real_variable_labels(),
         iteratedModel.response_labels());
   }

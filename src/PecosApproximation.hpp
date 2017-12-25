@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -42,8 +42,7 @@ public:
   PecosApproximation();
   /// standard ProblemDescDB-driven constructor
   PecosApproximation(ProblemDescDB& problem_db,
-		     const SharedApproxData& shared_data,
-                     const String& approx_label);
+		     const SharedApproxData& shared_data);
   /// alternate constructor
   PecosApproximation(const SharedApproxData& shared_data);
   /// destructor
@@ -69,13 +68,10 @@ public:
   /// Performs global sensitivity analysis using Sobol' Indices by
   /// computing total effects
   void compute_total_effects();
-
   /// return polyApproxRep->sobolIndices
   const Pecos::RealVector& sobol_indices() const;
   /// return polyApproxRep->totalSobolIndices
   const Pecos::RealVector& total_sobol_indices() const;
-  /// return RegressOrthogPolyApproximation::sparseSobolIndexMap
-  Pecos::ULongULongMap sparse_sobol_index_map() const;
 
   /// return OrthogPolyApproximation::decayRates
   const Pecos::RealVector& dimension_decay_rates() const;
@@ -161,20 +157,10 @@ public:
   /// return Pecos::PolynomialApproximation::expansionMoments
   const RealVector& expansion_moments() const;
   /// return Pecos::PolynomialApproximation::numericalMoments
-  const RealVector& numerical_integration_moments() const;
+  const RealVector& numerical_moments() const;
   /// standardize the central moments returned from Pecos
   void standardize_moments(const Pecos::RealVector& central_moments,
 			   Pecos::RealVector& std_moments);
-
-  /// construct the Vandermonde matrix "A" for PCE regression for Ax = b
-  void build_linear_system(RealMatrix& A, const UShort2DArray& multi_index);
-  // add chain (allSamples): A size = num current+num chain by P,
-  // with current pts as 1st rows 
-  void augment_linear_system(const RealVectorArray& samples, RealMatrix& A,
-			     const UShort2DArray& multi_index);
-
-  // get the surrData instance
-  const Pecos::SurrogateData& surrogate_data() const;
 
   /// return pecosBasisApprox
   Pecos::BasisApproximation& pecos_basis_approximation();
@@ -200,22 +186,15 @@ protected:
   void build();
   void rebuild();
   void pop(bool save_data);
-  void push();
+  void restore();
   void finalize();
-  void store(size_t index = _NPOS);
-  void restore(size_t index = _NPOS);
-  void remove_stored(size_t index = _NPOS);
-  void combine(short corr_type, size_t swap_index);
+  void store();
+  void combine(short corr_type);
 
-  void print_coefficients(std::ostream& s, bool normalized);
+  void print_coefficients(std::ostream& s, bool normalized = false);
 
-  /// return expansion coefficients in a form consistent with the
-  /// shared multi-index
-  RealVector approximation_coefficients(bool normalized) const;
-  /// set expansion coefficients in a form consistent with the shared
-  /// multi-index
-  void approximation_coefficients(const RealVector& approx_coeffs,
-				  bool normalized);
+  const RealVector& approximation_coefficients() const;
+  void approximation_coefficients(const RealVector& approx_coeffs);
 
   void coefficient_labels(std::vector<std::string>& coeff_labels) const;
 
@@ -286,10 +265,6 @@ inline const Pecos::RealVector& PecosApproximation::sobol_indices() const
 
 inline const Pecos::RealVector& PecosApproximation::total_sobol_indices() const
 { return polyApproxRep->total_sobol_indices(); }
-
-
-inline Pecos::ULongULongMap PecosApproximation::sparse_sobol_index_map() const
-{ return polyApproxRep->sparse_sobol_index_map(); }
 
 
 inline const Pecos::RealVector& PecosApproximation::
@@ -408,38 +383,14 @@ inline const RealVector& PecosApproximation::expansion_moments() const
 { return polyApproxRep->expansion_moments(); }
 
 
-inline const RealVector& PecosApproximation::
-numerical_integration_moments() const
-{ return polyApproxRep->numerical_integration_moments(); }
+inline const RealVector& PecosApproximation::numerical_moments() const
+{ return polyApproxRep->numerical_moments(); }
 
 
 inline void PecosApproximation::
 standardize_moments(const Pecos::RealVector& central_moments,
 		    Pecos::RealVector& std_moments)
 { polyApproxRep->standardize_moments(central_moments, std_moments); }
-
-
-inline void PecosApproximation::
-build_linear_system(RealMatrix& A, const UShort2DArray& multi_index)
-{
-  ((Pecos::RegressOrthogPolyApproximation*)polyApproxRep)->
-    build_linear_system(A, multi_index);
-}
-
-
-inline void PecosApproximation::
-augment_linear_system(const RealVectorArray& samples, RealMatrix& A,
-		      const UShort2DArray& multi_index)
-{
-  ((Pecos::RegressOrthogPolyApproximation*)polyApproxRep)->
-    augment_linear_system(samples, A, multi_index);
-}
-
-
-inline const Pecos::SurrogateData& PecosApproximation::surrogate_data() const
-{
-  return ((Pecos::PolynomialApproximation*)polyApproxRep)->surrogate_data();
-}
 
 
 inline Pecos::BasisApproximation& PecosApproximation::
@@ -464,10 +415,7 @@ gradient(const Variables& vars)
 // ignore discrete variables for now
 inline const Pecos::RealSymMatrix& PecosApproximation::
 hessian(const Variables& vars)
-{
-  //return pecosBasisApprox.hessian(vars.continuous_variables()); // bypass
-  return polyApproxRep->hessian_basis_variables(vars.continuous_variables());
-}
+{ return pecosBasisApprox.hessian(vars.continuous_variables()); }
 
 
 inline int PecosApproximation::min_coefficients() const
@@ -494,7 +442,7 @@ inline void PecosApproximation::rebuild()
   // support of both update and append, need a mechanism to detect
   // the +/- direction of discrepancy between data and coefficients.
 
-  //size_t curr_pts  = approxData.points(),
+  //size_t curr_pts  = approxData.size(),
   //  curr_pecos_pts = polyApproxRep->data_size();
   //if (curr_pts > curr_pecos_pts)
     pecosBasisApprox.increment_coefficients();
@@ -513,60 +461,40 @@ inline void PecosApproximation::pop(bool save_data)
 }
 
 
-inline void PecosApproximation::push()
+inline void PecosApproximation::restore()
 {
   // base class implementation updates currentPoints
-  Approximation::push();
+  Approximation::restore();
   // map to Pecos::BasisApproximation
-  pecosBasisApprox.push_coefficients();
+  pecosBasisApprox.restore_coefficients();
 }
 
 
 inline void PecosApproximation::finalize()
 {
-  // base class implementation appends currentPoints with popped data sets
+  // base class implementation appends currentPoints with savedSDPArrays
   Approximation::finalize();
   // map to Pecos::BasisApproximation
   pecosBasisApprox.finalize_coefficients();
 }
 
 
-inline void PecosApproximation::store(size_t index)
+inline void PecosApproximation::store()
 {
   // base class implementation manages approx data
-  Approximation::store(index);
+  Approximation::store();
   // map to Pecos::BasisApproximation
-  pecosBasisApprox.store_coefficients(index);
+  pecosBasisApprox.store_coefficients();
 }
 
 
-inline void PecosApproximation::restore(size_t index)
-{
-  // base class implementation manages approx data
-  Approximation::restore(index);
-  // map to Pecos::BasisApproximation
-  pecosBasisApprox.restore_coefficients(index);
-}
-
-
-inline void PecosApproximation::remove_stored(size_t index)
-{
-  // base class implementation manages approx data
-  Approximation::remove_stored(index);
-  // map to Pecos::BasisApproximation
-  pecosBasisApprox.remove_stored_coefficients(index);
-}
-
-
-inline void PecosApproximation::combine(short corr_type, size_t swap_index)
+inline void PecosApproximation::combine(short corr_type)
 {
   // base class implementation manages approxData state
   //Approximation::combine(corr_type);
-  if (swap_index != _NPOS) approxData.swap(swap_index);
-
   // map to Pecos::BasisApproximation.  Note: DAKOTA correction and
   // PECOS combination type enumerations coincide.
-  pecosBasisApprox.combine_coefficients(corr_type, swap_index);
+  pecosBasisApprox.combine_coefficients(corr_type);
 }
 
 
@@ -575,14 +503,13 @@ print_coefficients(std::ostream& s, bool normalized)
 { pecosBasisApprox.print_coefficients(s, normalized); }
 
 
-inline RealVector PecosApproximation::
-approximation_coefficients(bool normalized) const
-{ return pecosBasisApprox.approximation_coefficients(normalized); }
+inline const RealVector& PecosApproximation::approximation_coefficients() const
+{ return pecosBasisApprox.approximation_coefficients(); }
 
 
 inline void PecosApproximation::
-approximation_coefficients(const RealVector& approx_coeffs, bool normalized)
-{ pecosBasisApprox.approximation_coefficients(approx_coeffs, normalized); }
+approximation_coefficients(const RealVector& approx_coeffs)
+{ pecosBasisApprox.approximation_coefficients(approx_coeffs); }
 
 
 inline void PecosApproximation::

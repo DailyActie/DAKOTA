@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale
-    Applications Copyright 2014 Sandia Corporation.
+    Applications Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota
     directory.
@@ -65,9 +65,6 @@ public:
   int recv(int& apps_tag, HOPSPACK::Vector& apps_f,
 	   HOPSPACK::Vector& apps_cEqs, HOPSPACK::Vector& apps_cIneqs,
 	   string& apps_msg);
-
-  /// return the type of the Dakota linked evaluator
-  std::string getEvaluatorType(void) const;
 
   /// empty implementation of debug info needed to complete the interface
   void printDebugInfo(void) const {};

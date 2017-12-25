@@ -1,12 +1,11 @@
-#@ s*: Label=FastTest
-#@ *: DakotaConfig=HAVE_NPSOL
 # DAKOTA INPUT FILE: dakota_sbouu2_cantilever.in
 #
 # OUU with surrogates: surrogate containing nested
 #
 
-environment,
+strategy,
 #	graphics
+	single_method
 	  method_pointer = 'OPTIM'
 
 ###########################
@@ -85,7 +84,7 @@ method,
         sampling
 	  sample_type lhs samples = 50
 	  seed = 12347 rng rnum2
-#	  fixed_seed					#s1
+#	  fixed_seed					#1
 	  output quiet
 
 model,

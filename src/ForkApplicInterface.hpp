@@ -1,14 +1,14 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
 
 //- Class:        ForkApplicInterface
 //- Description:  Derived class for the case when analysis code simulators use
-//-               fork\exec\wait to provide the function evaluations
+//-               vfork\exec\wait to provide the function evaluations
 //- Owner:        Mike Eldred
 //- Version: $Id: ForkApplicInterface.hpp 6492 2009-12-19 00:04:28Z briadam $
 
@@ -49,7 +49,7 @@ protected:
   void test_local_evaluations(PRPQueue& prp_queue);
 
   /// spawn a child process for an analysis component within an
-  /// evaluation using fork()/execvp() and wait for completion
+  /// evaluation using fork()/vfork()/execvp() and wait for completion
   /// using waitpid() if block_flag is true
   pid_t create_analysis_process(bool block_flag, bool new_group);
 

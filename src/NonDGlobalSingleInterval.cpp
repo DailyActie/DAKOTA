@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -22,9 +22,8 @@
 
 namespace Dakota {
 
-NonDGlobalSingleInterval::
-NonDGlobalSingleInterval(ProblemDescDB& problem_db, Model& model):
-  NonDGlobalInterval(problem_db, model)
+NonDGlobalSingleInterval::NonDGlobalSingleInterval(Model& model):
+  NonDGlobalInterval(model)
 { }
 
 
@@ -42,7 +41,7 @@ void NonDGlobalSingleInterval::get_best_sample(bool maximize, bool eval_approx)
   // to determine truthFnStar for use in the expected improvement function
   const Pecos::SurrogateData& gp_data
     = fHatModel.approximation_data(respFnCntr);
-  size_t i, index_star, num_data_pts = gp_data.points();
+  size_t i, index_star, num_data_pts = gp_data.size();
   truthFnStar = (maximize) ? -DBL_MAX : DBL_MAX;
   for (i=0; i<num_data_pts; ++i) {
     const Real& truth_fn = gp_data.response_function(i);
@@ -68,7 +67,7 @@ void NonDGlobalSingleInterval::get_best_sample(bool maximize, bool eval_approx)
         gp_data.discrete_real_variables(index_star));
     ActiveSet set = fHatModel.current_response().active_set();
     set.request_values(0); set.request_value(1, respFnCntr);
-    fHatModel.evaluate(set);
+    fHatModel.compute_response(set);
     approxFnStar = fHatModel.current_response().function_value(respFnCntr);
   }
 }

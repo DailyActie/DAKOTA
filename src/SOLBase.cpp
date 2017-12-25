@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,11 +21,7 @@
 
 static const char rcsId[]="@(#) $Id: SOLBase.cpp 7004 2010-10-04 17:55:00Z wjbohnh $";
 
-
-// BMA (20160315): Changed to use Fortran 2003 ISO C bindings.
-// The Fortran symbol will be lowercase with same name as if in C
-//#define NPOPTN2_F77 F77_FUNC(npoptn2,NPOPTN2)
-#define NPOPTN2_F77 npoptn2
+#define NPOPTN2_F77 F77_FUNC(npoptn2,NPOPTN2)
 extern "C" void NPOPTN2_F77( const char* option_string );
 
 
@@ -46,20 +42,16 @@ SOLBase::SOLBase(Model& model)
   //       user-functions mode (since there is no model in this case).
   Iterator sub_iterator = model.subordinate_iterator();
   if (!sub_iterator.is_null() && 
-      ( sub_iterator.method_name() ==  NPSOL_SQP ||
-	sub_iterator.method_name() == NLSSOL_SQP ||
-	sub_iterator.uses_method() ==  NPSOL_SQP ||
-	sub_iterator.uses_method() == NLSSOL_SQP ) )
+      ( strends(sub_iterator.method_name(), "sol_sqp") ||
+	 strends(sub_iterator.uses_method(), "sol_sqp") ) )
     sub_iterator.method_recourse();
   ModelList& sub_models = model.subordinate_models();
   for (ModelLIter ml_iter = sub_models.begin();
        ml_iter != sub_models.end(); ml_iter++) {
     sub_iterator = ml_iter->subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	 ( sub_iterator.method_name() ==  NPSOL_SQP ||
-	   sub_iterator.method_name() == NLSSOL_SQP ||
-	   sub_iterator.uses_method() ==  NPSOL_SQP ||
-	   sub_iterator.uses_method() == NLSSOL_SQP ) )
+	 ( strends(sub_iterator.method_name(), "sol_sqp") ||
+	   strends(sub_iterator.uses_method(), "sol_sqp") ) )
       sub_iterator.method_recourse();
   }
 
@@ -73,7 +65,7 @@ SOLBase::SOLBase(Model& model)
 
 
 void SOLBase::
-allocate_arrays(int num_cv, size_t num_nln_con,
+allocate_arrays(const int& num_cv, const size_t& num_nln_con,
 		const RealMatrix& lin_ineq_coeffs,
 		const RealMatrix& lin_eq_coeffs)
 {
@@ -119,8 +111,8 @@ void SOLBase::deallocate_arrays()
 }
 
 
-void SOLBase::allocate_workspace(int num_cv, int num_nln_con,
-                                 int num_lin_con, int num_lsq)
+void SOLBase::allocate_workspace(const int& num_cv, const int& num_nln_con,
+                                 const int& num_lin_con, const int& num_lsq)
 {
   // see leniw/lenw discussion in "Subroutine npsol" section of NPSOL manual
   // for workspace size requirements.
@@ -133,12 +125,6 @@ void SOLBase::allocate_workspace(int num_cv, int num_nln_con,
     realWorkSpaceSize = 2*num_cv*num_cv + num_cv*num_lin_con 
       + 2*num_cv*num_nln_con + 20*num_cv + 11*num_lin_con + 21*num_nln_con;
  
-  // BMA, 20150604: workaround for out of bounds indexing:
-  // At line 375 of file packages/NPSOL/npsolsubs.f
-  // Fortran runtime error: Array reference out of bounds for array 'w', upper bound of dimension 1 exceeded (99 > 98)
-  // TODO: look into updated NPSOL, as this may be masking a bug
-  realWorkSpaceSize += 1;
-
   // in subroutine nlssol() in nlssolsubs.f, subroutine nlloc() adds the
   // following to the result from nploc().
   realWorkSpaceSize += 3*num_lsq + num_lsq*num_cv;
@@ -149,10 +135,11 @@ void SOLBase::allocate_workspace(int num_cv, int num_nln_con,
 
 
 void SOLBase::set_options(bool speculative_flag, bool vendor_num_grad_flag, 
-                          short output_lev, int verify_lev, Real fn_prec,
-			  Real linesrch_tol, int max_iter, Real constr_tol,
-                          Real conv_tol, const std::string& grad_type,
-                          const RealVector& fdss)
+                          short output_lev,      const int& verify_lev,
+                          const Real& fn_prec,   const Real& linesrch_tol,
+                          const int& max_iter,   const Real& constr_tol,
+                          const Real& conv_tol,  const std::string& grad_type,
+                          const Real& fdss)
 {
   // Set NPSOL options (see "Optional Input Parameters" section of NPSOL manual)
 
@@ -283,16 +270,14 @@ void SOLBase::set_options(bool speculative_flag, bool vendor_num_grad_flag,
     abort_handler(-1);
   }
   else { // vendor numerical gradients: Derivative Level = 0. No forward/central
-         // interval type control, since NPSOL switches automatically.
+         // intervalType control, since NPSOL switches automatically.
     std::string dlevel_s("Derivative Level            = 0");
     dlevel_s.resize(72, ' ');
     NPOPTN2_F77( dlevel_s.data() );
 
     std::ostringstream fdss_stream;
-    Real fd_step_size = fdss[0]; // first entry
     fdss_stream << "Difference Interval         = "
-                << std::setiosflags(std::ios::left) << std::setw(26)
-		<< fd_step_size;
+                << std::setiosflags(std::ios::left) << std::setw(26) << fdss;
     std::string fdss_s( fdss_stream.str() );
     fdss_s.resize(72, ' ');
     NPOPTN2_F77( fdss_s.data() );
@@ -301,8 +286,7 @@ void SOLBase::set_options(bool speculative_flag, bool vendor_num_grad_flag,
     // It may be desirable to set central FDSS to fdss/2. (?)
     std::ostringstream cfdss_stream;
     cfdss_stream << "Central Difference Interval = "
-                 << std::setiosflags(std::ios::left) << std::setw(26)
-		 << fd_step_size;
+                 << std::setiosflags(std::ios::left) << std::setw(26) << fdss;
     std::string cfdss_s( cfdss_stream.str() );
     cfdss_s.resize(72, ' ');
     NPOPTN2_F77( cfdss_s.data() );
@@ -429,12 +413,13 @@ constraint_eval(int& mode, int& ncnln, int& n, int& nrowj, int* needc,
       // inactive by a lot). So far, needc[i]=0 has only been observed for
       // partial finite difference requests in the case of mixed gradients.
 
-    // Update model variables from x for use in evaluate()
+    // Update model variables from x for use in compute_response()
     RealVector local_des_vars(Teuchos::Copy, x, n);
     optLSqInstance->iteratedModel.continuous_variables(local_des_vars);
 
     optLSqInstance->activeSet.request_vector(local_asv);
-    optLSqInstance->iteratedModel.evaluate(optLSqInstance->activeSet);
+    optLSqInstance->
+      iteratedModel.compute_response(optLSqInstance->activeSet);
     solInstance->fnEvalCntr++;
   }
   

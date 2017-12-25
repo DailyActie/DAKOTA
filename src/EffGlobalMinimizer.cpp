@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -40,9 +40,8 @@ EffGlobalMinimizer* EffGlobalMinimizer::effGlobalInstance(NULL);
 
 
 // This constructor accepts a Model
-EffGlobalMinimizer::
-EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model): 
-  SurrBasedMinimizer(problem_db, model), setUpType("model"), dataOrder(1)
+EffGlobalMinimizer::EffGlobalMinimizer(Model& model): 
+  SurrBasedMinimizer(model), setUpType("model"), dataOrder(1)
 {
   bestVariablesArray.push_back(iteratedModel.current_variables().copy());
 
@@ -61,7 +60,7 @@ EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
 
   // Always build a global Gaussian process model.  No correction is needed.
   String approx_type = "global_kriging";
-  if (probDescDB.get_short("method.nond.emulator") == GP_EMULATOR)
+  if (probDescDB.get_short("method.nond.emulator") == GAUSSIAN_PROCESS)
     approx_type = "global_gaussian";
 
   String sample_reuse = "none";
@@ -71,22 +70,20 @@ EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
     if (approx_type == "global_gaussian") {
       Cerr << "\nError: efficient_global does not support gaussian_process "
 	   << "when derivatives present; use kriging instead." << std::endl;
-      abort_handler(METHOD_ERROR);
+      abort_handler(-1);
     }
-    if (iteratedModel.gradient_type() != "none") dataOrder |= 2;
-    if (iteratedModel.hessian_type()  != "none") dataOrder |= 4;
+    if (gradientType != "none") dataOrder |= 2;
+    if (hessianType  != "none") dataOrder |= 4;
   }
-  int db_samples = probDescDB.get_int("method.samples");  
-  int samples = (db_samples > 0) ? db_samples : 
-    (numContinuousVars+1)*(numContinuousVars+2)/2;
-  int lhs_seed = probDescDB.get_int("method.random_seed");
-  unsigned short sample_type = SUBMETHOD_DEFAULT;
-  String rng; // empty string: use default
+  // Use a hardwired minimal initial samples.
+  int samples  = (numContinuousVars+1)*(numContinuousVars+2)/2,
+      lhs_seed = probDescDB.get_int("method.random_seed");
+  String sample_type, rng; // empty strings: use defaults
   //int symbols = samples; // symbols needed for DDACE
   bool vary_pattern = false;// for consistency across any outer loop invocations
   // get point samples file
   const String& import_pts_file
-    = probDescDB.get_string("method.import_build_points_file");
+    = probDescDB.get_string("method.import_points_file");
   if (!import_pts_file.empty())
     { samples = 0; sample_reuse = "all"; }
 
@@ -103,39 +100,46 @@ EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
   // the active/design vars (same view as iteratedModel: not the typical All
   // view for DACE).
   //const Variables& curr_vars = iteratedModel.current_variables();
-  ActiveSet gp_set = iteratedModel.current_response().active_set(); // copy
-  gp_set.request_values(1); // no surr deriv evals, but GP may be grad-enhanced
   fHatModel.assign_rep(new DataFitSurrModel(dace_iterator, iteratedModel,
-    gp_set, approx_type, approx_order, corr_type, corr_order, dataOrder,
-    outputLevel, sample_reuse, import_pts_file,
-    probDescDB.get_ushort("method.import_build_format"),
-    probDescDB.get_bool("method.import_build_active_only"),
-    probDescDB.get_string("method.export_approx_points_file"),
-    probDescDB.get_ushort("method.export_approx_format")), false);
+    //curr_vars.view(), curr_vars.variables_components(),
+    //iteratedModel.current_response().active_set(),
+    approx_type, approx_order, corr_type, corr_order, dataOrder, outputLevel,
+    sample_reuse, probDescDB.get_string("method.export_points_file"),
+    probDescDB.get_bool("method.export_points_file_annotated"), import_pts_file,
+    probDescDB.get_bool("method.import_points_file_annotated")), false);
 
-  // Following this ctor, IteratorScheduler::init_iterator() initializes the
-  // parallel configuration for EffGlobalMinimizer + iteratedModel using
-  // EffGlobalMinimizer's maxEvalConcurrency.  During fHatModel construction
-  // above, DataFitSurrModel::derived_init_communicators() initializes the
-  // parallel config for dace_iterator + iteratedModel using dace_iterator's
-  // maxEvalConcurrency.  The only iteratedModel concurrency currently exercised
+  // *** TO DO: support scaling and other forced Recasts. ***
+  //if (minimizerRecasts)
+  //  iteratedModel.init_communicators(maxConcurrency);
+
+  // eifModel.init_communicators() recursion is currently sufficient for
+  // fHatModel.  An additional fHatModel.init_communicators() call would be
+  // motivated by special parallel usage of fHatModel below that is not
+  // otherwise covered by the recursion.
+  //fHatMaxConcurrency = maxConcurrency; // local derivative concurrency
+  //fHatModel.init_communicators(fHatMaxConcurrency);
+
+  // Following this ctor, Strategy::init_iterator() initializes the parallel
+  // configuration for EffGlobalMinimizer + iteratedModel using
+  // EffGlobalMinimizer's maxConcurrency.  During fHatModel construction above,
+  // DataFitSurrModel::derived_init_communicators() initializes the parallel
+  // configuration for dace_iterator + iteratedModel using dace_iterator's
+  // maxConcurrency.  The only iteratedModel concurrency currently exercised
   // is that used by dace_iterator within the initial GP construction, but the
-  // EffGlobalMinimizer maxEvalConcurrency must still be set so as to avoid
-  // parallel config errors resulting from avail_procs > max_concurrency within
-  // IteratorScheduler::init_iterator().  A max of the local derivative
-  // concurrency and the DACE concurrency is used for this purpose.
-  maxEvalConcurrency = std::max(maxEvalConcurrency,
-				dace_iterator.maximum_evaluation_concurrency());
+  // EffGlobalMinimizer maxConcurrency must still be set so as to avoid parallel
+  // configuration errors resulting from avail_procs > max_concurrency within
+  // Strategy::init_iterator().  A max of the local derivative concurrency and
+  // the DACE concurrency is used for this purpose.
+  maxConcurrency = std::max(maxConcurrency,
+			    dace_iterator.maximum_concurrency());
 
   // Configure a RecastModel with one objective and no constraints using the
   // alternate minimalist constructor: the recast fn pointers are reset for
   // each level within the run fn.
   SizetArray recast_vars_comps_total; // default: empty; no change in size
-  BitArray all_relax_di, all_relax_dr; // default: empty; no discrete relaxation
-  short recast_resp_order = 1; // nongradient-based optimizers
   eifModel.assign_rep(
-    new RecastModel(fHatModel, recast_vars_comps_total, all_relax_di,
-		    all_relax_dr, 1, 0, 0, recast_resp_order), false);
+    new RecastModel(fHatModel, recast_vars_comps_total, 1, 0, 0), 
+    false);
 
   // must use alternate NoDB ctor chain
   int max_iterations = 10000, max_fn_evals = 50000;
@@ -143,79 +147,50 @@ EffGlobalMinimizer(ProblemDescDB& problem_db, Model& model):
 #ifdef HAVE_NCSU
   approxSubProbMinimizer.assign_rep(new NCSUOptimizer(eifModel, max_iterations, 
     max_fn_evals, min_box_size, vol_box_size), false);
+  eifModel.init_communicators(approxSubProbMinimizer.maximum_concurrency());
 #else
   Cerr << "NCSU DIRECT is not available to optimize the GP subproblems. " 
-       << "Aborting process." << std::endl;
-  abort_handler(METHOD_ERROR);
+       << "Aborting process. " << std::endl;
+        abort_handler(-1);
 #endif //HAVE_NCSU
 }
 
 
-/* This is an alternate constructor for instantiations on the fly
-    using a Model but no ProblemDescDB.
-EffGlobalMinimizer::
-EffGlobalMinimizer(Model& model, int max_iter, int max_eval) :
-  SurrBasedMinimizer(EFFICIENT_GLOBAL, model), setUpType("model")
-{ maxIterations = max_iter; maxFunctionEvals = max_eval; }
-*/
+/** This is an alternate constructor for instantiations on the fly
+    using a Model but no ProblemDescDB. */
+//EffGlobalMinimizer::
+//EffGlobalMinimizer(Model& model, const int& max_iter, const int& max_eval) :
+//  SurrBasedMinimizer(NoDBBaseConstructor(), model), setUpType("model")
+//{ maxIterations = max_iter; maxFunctionEvals = max_eval; }
 
 
 EffGlobalMinimizer::~EffGlobalMinimizer() 
-{ }
-
-
-/*
-// SurrBasedMinimizer implementation of derived_{init,set,free} is sufficient
-
-void EffGlobalMinimizer::derived_init_communicators(ParLevLIter pl_iter)
-{
-  // iteratedModel is evaluated to add truth data (single evaluate())
-  iteratedModel.init_communicators(pl_iter, maxEvalConcurrency);
-
-  // approxSubProbMinimizer.init_communicators() recursion is currently
-  // sufficient for fHatModel.  An additional fHatModel.init_communicators()
-  // call would be motivated by special parallel usage of fHatModel below that
-  // is not otherwise covered by the recursion.
-  //fHatMaxConcurrency = maxEvalConcurrency; // local derivative concurrency
-  //fHatModel.init_communicators(pl_iter, fHatMaxConcurrency);
-
-  // approxSubProbMinimizer uses NoDBBaseConstructor, so no need to
-  // manage DB list nodes at this level
-  approxSubProbMinimizer.init_communicators(pl_iter);
-}
-
-
-void EffGlobalMinimizer::derived_free_communicators(ParLevLIter pl_iter)
 {
   // deallocate communicators for DIRECT on eifModel
-  approxSubProbMinimizer.free_communicators(pl_iter);
+  eifModel.free_communicators(approxSubProbMinimizer.maximum_concurrency());
 
-  // approxSubProbMinimizer.free_communicators() recursion is currently
-  // sufficient for fHatModel.  An additional fHatModel.free_communicators()
-  // call would be motivated by special parallel usage of fHatModel below that
-  // is not otherwise covered by the recursion.
-  //fHatModel.free_communicators(pl_iter, fHatMaxConcurrency);
-
-  // iteratedModel is evaluated to add truth data (single evaluate())
-  iteratedModel.free_communicators(pl_iter, maxEvalConcurrency);
+  // eifModel.free_communicators() recursion is currently sufficient for
+  // fHatModel.  An additional fHatModel.free_communicators() call would be
+  // motivated by special parallel usage of fHatModel below that is not
+  // otherwise covered by the recursion.
+  //fHatModel.free_communicators(fHatMaxConcurrency);
 }
-*/
 
 
-void EffGlobalMinimizer::core_run()
+void EffGlobalMinimizer::minimize_surrogates()
 {
   if (setUpType=="model")
     minimize_surrogates_on_model();
   else if (setUpType=="user_functions") {
     //minimize_surrogates_on_user_functions();
-    Cerr << "Error: bad setUpType in EffGlobalMinimizer::core_run()."
+    Cerr << "Error: bad setUpType in EffGlobalMinimizer::minimize_surrogates()."
 	 << std::endl;
-    abort_handler(METHOD_ERROR);
+    abort_handler(-1);
   }
   else {
-    Cerr << "Error: bad setUpType in EffGlobalMinimizer::core_run()."
+    Cerr << "Error: bad setUpType in EffGlobalMinimizer::minimize_surrogates()."
 	 << std::endl;
-    abort_handler(METHOD_ERROR);
+    abort_handler(-1);
   }
 }
 
@@ -233,7 +208,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
   // now that variables/labels/bounds/targets have flowed down at run-time from
   // any higher level recursions, propagate them up the instantiate-on-the-fly
   // Model recursion so that they are correct when they propagate back down.
-  eifModel.update_from_subordinate_model(); // depth = max
+  eifModel.update_from_subordinate_model(); // recurse_flag = true
 
   // Build initial GP once for all response functions
   fHatModel.build_approximation();
@@ -258,7 +233,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
     for (size_t i=0; i<numFunctions; i++)
       primary_resp_map[0][i] = i;
     RecastModel* eif_model_rep = (RecastModel*)eifModel.model_rep();
-    eif_model_rep->init_maps(vars_map, false, NULL, NULL,
+    eif_model_rep->initialize(vars_map, false, NULL, NULL,
       primary_resp_map, secondary_resp_map, nonlinear_resp_map,
       EIF_objective_eval, NULL);
 
@@ -267,8 +242,8 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
 
     // Execute GLOBAL search and retrieve results
     Cout << "\n>>>>> Initiating global optimization\n";
-    ParLevLIter pl_iter = methodPCIter->mi_parallel_level_iterator(miPLIndex);
-    approxSubProbMinimizer.run(pl_iter);
+    // no summary output since on-the-fly constructed:
+    approxSubProbMinimizer.run_iterator(Cout);
     const Variables&  vars_star = approxSubProbMinimizer.variables_results();
     const RealVector& c_vars    = vars_star.continuous_variables();
     const Response&   resp_star = approxSubProbMinimizer.response_results();
@@ -276,7 +251,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
 
     // Get expected value for output
     fHatModel.continuous_variables(c_vars);
-    fHatModel.evaluate();
+    fHatModel.compute_response();
     const RealVector& mean = fHatModel.current_response().function_values();
     Real aug_lag = augmented_lagrangian_merit(mean,
       iteratedModel.primary_response_fn_sense(),
@@ -314,7 +289,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
       rel_change_L2(c_vars, prev_cv_star);
     // update prev_cv_star
     copy_data(c_vars, prev_cv_star);
-    if (dist_cstar < dist_tol)
+    if ( dist_cstar < dist_tol)
       ++dist_convergence_cntr;
 
     // If DIRECT failed to find a point with EIF>0, it returns the
@@ -344,7 +319,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
       iteratedModel.continuous_variables(c_vars);
       ActiveSet set = iteratedModel.current_response().active_set();
       set.request_values(dataOrder);
-      iteratedModel.evaluate(set);
+      iteratedModel.compute_response(set);
       IntResponsePair resp_star_truth(iteratedModel.evaluation_id(),
 				      iteratedModel.current_response());
     
@@ -420,7 +395,7 @@ void EffGlobalMinimizer::minimize_surrogates_on_model()
 	  test_pt[1] = lbnd[1] + float(k)*interval1;
       
 	  fHatModel.continuous_variables(test_pt);
-	  fHatModel.evaluate();
+	  fHatModel.compute_response();
 	  const Response& gp_resp = fHatModel.current_response();
 	  const RealVector& gp_fn = gp_resp.function_values();
 	  
@@ -514,8 +489,8 @@ expected_improvement(const RealVector& means, const RealVector& variances)
   }
   else{
     snv/=stdv; 
-    cdf = Pecos::NormalRandomVariable::std_cdf(snv);
-    pdf = Pecos::NormalRandomVariable::std_pdf(snv);
+    cdf = Pecos::Phi(snv);
+    pdf = Pecos::phi(snv);
   }
 
   Real ei  = (meritFnStar - mean)*cdf + stdv*pdf;
@@ -545,8 +520,8 @@ expected_violation(const RealVector& means, const RealVector& variances)
       }
       else{
 	snv/=stdv; //now snv is the standard normal variate
-	cdf = Pecos::NormalRandomVariable::std_cdf(snv);
-	pdf = Pecos::NormalRandomVariable::std_pdf(snv);
+	cdf = Pecos::Phi(snv);
+	pdf = Pecos::phi(snv);
       }
       ev[cntr++] = (lbnd-mean)*cdf + stdv*pdf;
     }
@@ -559,8 +534,8 @@ expected_violation(const RealVector& means, const RealVector& variances)
       }
       else{
 	snv/=stdv;
-	cdf = Pecos::NormalRandomVariable::std_cdf(snv);
-	pdf = Pecos::NormalRandomVariable::std_pdf(snv);
+	cdf = Pecos::Phi(snv);
+	pdf = Pecos::phi(snv);
       }
       ev[cntr++] = (mean-ubnd)*(1.-cdf) + stdv*pdf;
     }
@@ -579,8 +554,8 @@ expected_violation(const RealVector& means, const RealVector& variances)
     }
     else{
       snv/=stdv;
-      cdf = Pecos::NormalRandomVariable::std_cdf(snv);
-      pdf = Pecos::NormalRandomVariable::std_pdf(snv);
+      cdf = Pecos::Phi(snv);
+      pdf = Pecos::phi(snv);
     }
     ev[cntr++] = (zbar-mean)*(2.*cdf-1.) + 2.*stdv*pdf;
   }
@@ -596,13 +571,13 @@ void EffGlobalMinimizer::get_best_sample()
 
   const Pecos::SurrogateData& gp_data_0 = fHatModel.approximation_data(0);
 
-  size_t i, sam_star_idx = 0, num_data_pts = gp_data_0.points();
+  size_t i, sam_star_idx = 0, num_data_pts = gp_data_0.size();
   Real fn, fn_star = DBL_MAX;
   for (i=0; i<num_data_pts; ++i) {
     const RealVector& sams = gp_data_0.continuous_variables(i);
 
     fHatModel.continuous_variables(sams);
-    fHatModel.evaluate();
+    fHatModel.compute_response();
     const RealVector& f_hat = fHatModel.current_response().function_values();
     fn = augmented_lagrangian_merit(f_hat,
       iteratedModel.primary_response_fn_sense(),

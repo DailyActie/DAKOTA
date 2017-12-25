@@ -31,7 +31,7 @@ PROJECT_NAME           = Dakota
 # This could be handy for archiving the generated documentation or
 # if some version control system is used.
 
-PROJECT_NUMBER         = "Version @Dakota_VERSION_SRC@"
+PROJECT_NUMBER         = "Version 5.4"
 
 # The OUTPUT_DIRECTORY tag is used to specify the (relative or absolute)
 # base path where the generated documentation will be put.
@@ -272,6 +272,22 @@ SUBGROUPING            = YES
 
 TYPEDEF_HIDES_STRUCT   = NO
 
+# The SYMBOL_CACHE_SIZE determines the size of the internal cache use to
+# determine which symbols to keep in memory and which to flush to disk.
+# When the cache is full, less often used symbols will be written to disk.
+# For small to medium size projects (<1000 input files) the default value is
+# probably good enough. For larger projects a too small cache size can cause
+# doxygen to be busy swapping symbols to and from disk most of the time
+# causing a significant performance penality.
+# If the system has enough physical memory increasing the cache will improve the
+# performance by keeping more symbols in memory. Note that the value works on
+# a logarithmic scale so increasing the size by one will rougly double the
+# memory usage. The cache size is given by this formula:
+# 2^(16+SYMBOL_CACHE_SIZE). The valid range is 0..9, the default is 0,
+# corresponding to a cache size of 2^16 = 65536 symbols
+
+SYMBOL_CACHE_SIZE      = 0
+
 #---------------------------------------------------------------------------
 # Build related configuration options
 #---------------------------------------------------------------------------
@@ -454,6 +470,12 @@ MAX_INITIALIZER_LINES  = 30
 
 SHOW_USED_FILES        = YES
 
+# If the sources in your project are distributed over multiple directories
+# then setting the SHOW_DIRECTORIES tag to YES will show the directory hierarchy
+# in the documentation. The default is NO.
+
+SHOW_DIRECTORIES       = NO
+
 # Set the SHOW_FILES tag to NO to disable the generation of the Files page.
 # This will remove the Files entry from the Quick Index and from the
 # Folder Tree View (if specified). The default is YES.
@@ -485,17 +507,6 @@ FILE_VERSION_FILTER    =
 # of the layout file.
 
 LAYOUT_FILE            =
-
-# The CITE_BIB_FILES tag can be used to specify one or more bib files
-# containing the references data. This must be a list of .bib files. The
-# .bib extension is automatically appended if omitted. Using this command
-# requires the bibtex tool to be installed. See also
-# http://en.wikipedia.org/wiki/BibTeX for more info. For LaTeX the style
-# of the bibliography can be controlled using LATEX_BIB_STYLE. To use this
-# feature you need bibtex and perl available in the search path. Do not use
-# file names with spaces, bibtex cannot handle them.
-
-CITE_BIB_FILES         = @CMAKE_CURRENT_SOURCE_DIR@/Dakota.bib
 
 #---------------------------------------------------------------------------
 # configuration options related to warning and progress messages
@@ -802,6 +813,12 @@ HTML_TIMESTAMP         = NO
 
 HTML_STYLESHEET        =
 
+# If the HTML_ALIGN_MEMBERS tag is set to YES, the members of classes,
+# files or namespaces will be aligned in HTML using tables. If set to
+# NO a bullet list will be used.
+
+HTML_ALIGN_MEMBERS     = YES
+
 # If the HTML_DYNAMIC_SECTIONS tag is set to YES then the generated HTML
 # documentation will contain sections that can be hidden and shown after the
 # page has loaded. For this to work a browser that supports
@@ -950,6 +967,11 @@ ENUM_VALUES_PER_LINE   = 4
 
 GENERATE_TREEVIEW      = NO
 
+# By enabling USE_INLINE_TREES, doxygen will generate the Groups, Directories,
+# and Class Hierarchy pages using a tree view instead of an ordered list.
+
+USE_INLINE_TREES       = NO
+
 # If the treeview is enabled (see GENERATE_TREEVIEW) then this tag can be
 # used to set the initial width (in pixels) of the frame in which the tree
 # is shown.
@@ -969,7 +991,7 @@ FORMULA_FONTSIZE       = 10
 # there is already a search function so this one should typically
 # be disabled.
 
-SEARCHENGINE           = YES
+SEARCHENGINE           = NO
 
 #---------------------------------------------------------------------------
 # configuration options related to the LaTeX output
@@ -1358,7 +1380,7 @@ HAVE_DOT               = NO
 # DOTFONTPATH environment variable or by setting DOT_FONTPATH to the directory
 # containing the font.
 
-DOT_FONTNAME           = Sans
+DOT_FONTNAME           = FreeSans
 
 # The DOT_FONTSIZE tag can be used to set the size of the font of dot graphs.
 # The default size is 10pt.

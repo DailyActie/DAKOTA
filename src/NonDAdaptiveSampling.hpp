@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2012, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -41,19 +41,15 @@ public:
   //- Heading: Constructors and destructor
   //
 
-  /// standard constructor
-  NonDAdaptiveSampling(ProblemDescDB& problem_db, Model& model);
+  NonDAdaptiveSampling(Model& model); ///< standard constructor
 
   /// alternate constructor for sample generation and evaluation "on the fly"
   /// has not been implemented
 
   ~NonDAdaptiveSampling(); ///< destructor
 
-  //
-  //- Heading: Virtual function redefinitions
-  //
-
-  bool resize();
+  /// print the final statistics
+  void print_results(std::ostream& s);
 
 protected:
 
@@ -61,13 +57,12 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
-  void derived_init_communicators(ParLevLIter pl_iter);
-  void derived_set_communicators(ParLevLIter pl_iter);
-  void derived_free_communicators(ParLevLIter pl_iter);
-
-  void core_run();
-  Real final_probability();
-  void print_results(std::ostream& s);
+  /// perform the GP importance sampling and return probability of failure.
+  void quantify_uncertainty();
+  
+  /// returns the probability calculated by the importance sampling
+  const Real& get_probability();
+ 
 
 private:
 
@@ -134,9 +129,9 @@ private:
   /// At the time of implementation, global_kriging is the only surrogate
   /// capable of yielding this information 
   String scoringMetric;
-  /// enum describing the initial sample design. Options are:
-  /// RANDOM_SAMPLING, FSU_CVT, FSU_HALTON, FSU_HAMMERSLEY
-  unsigned short sampleDesign;
+  /// String describing the initial sample design is based on. Options are:
+  /// sampling_lhs, fsu_cvt, fsu_halton, fsu_hammersley
+  String sampleDesign;
   /// String describing type of surrogate is used to fit the data. Options are:
   /// global_kriging, global_mars, global_neural_network, global_polynomial,
   /// globabl_moving_least_squares, global_radial_basis
@@ -238,7 +233,7 @@ private:
   /// and these designs only affect the initial sample build not the candidate
   /// sets constructed at each round
   void construct_fsu_sampler(Iterator& u_space_sampler, Model& u_model, 
-    int num_samples, int seed, unsigned short sample_type);
+    int num_samples, int seed, const String& sample_type);
 
   /// This function will write an input deck for a multi-start global 
   /// optimization run of DAKOTA by extracting all of the local minima 
@@ -254,10 +249,10 @@ private:
 
   /// Score New candidates based on the chosen metrics
   void score_new_candidates();
+
 };
 
-
-inline Real NonDAdaptiveSampling::final_probability()
+inline const Real& NonDAdaptiveSampling::get_probability()
 { return finalProb; }
 
 

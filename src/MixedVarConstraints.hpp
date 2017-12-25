@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -60,6 +60,10 @@ protected:
   //- Heading: Virtual function redefinitions
   //
 
+  void reshape(const SizetArray& vc_totals);
+  void build_active_views();
+  void build_inactive_views();
+
 private:
 
   //
@@ -70,7 +74,7 @@ private:
 
 inline MixedVarConstraints::MixedVarConstraints(const SharedVariablesData& svd):
   Constraints(BaseConstructor(), svd)
-{ }
+{ reshape(svd.components_totals()); }
 
 
 inline MixedVarConstraints::~MixedVarConstraints()

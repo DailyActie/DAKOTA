@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -50,7 +50,7 @@ protected:
   //
 
   /// Allocates miscellaneous arrays for the SOL algorithms.
-  void allocate_arrays(int num_cv, size_t num_nln_con,
+  void allocate_arrays(const int& num_cv, const size_t& num_nln_con,
 		       const RealMatrix& lin_ineq_coeffs,
 		       const RealMatrix& lin_eq_coeffs);
 
@@ -58,15 +58,16 @@ protected:
   void deallocate_arrays();
 
   /// Allocates real and integer workspaces for the SOL algorithms.
-  void allocate_workspace(int num_cv, int num_nln_con, int num_lin_con,
-			  int num_lsq);
+  void allocate_workspace(const int& num_cv, const int& num_nln_con,
+			  const int& num_lin_con, const int& num_lsq);
 
   /// Sets SOL method options using calls to npoptn2.
   void set_options(bool speculative_flag, bool vendor_num_grad_flag, 
-		   short output_lev, int verify_lev, Real fn_prec,
-		   Real linesrch_tol, int max_iter, Real constr_tol,
-		   Real conv_tol, const std::string& grad_type,
-		   const RealVector& fdss);
+		   short output_lev,      const int& verify_lev,
+		   const Real& fn_prec,   const Real& linesrch_tol,
+		   const int& max_iter,   const Real& constr_tol,
+		   const Real& conv_tol,  const std::string& grad_type,
+		   const Real& fdss);
 
   /// augments variable bounds with linear and nonlinear constraint bounds.
   void augment_bounds(RealVector& augmented_l_bnds, 

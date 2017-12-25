@@ -1,8 +1,6 @@
 # TODO: make documentation build cross-platform
 # TODO: dep for latex_modify
 
-include(ListFilterEmacsBackups)
-
 find_package(Doxygen REQUIRED)
 find_package(LATEX REQUIRED)
 # Only required for PDFs of Doxygen, but unconditional currently
@@ -10,76 +8,29 @@ find_package(Perl REQUIRED)
 
 # TODO: Reduce configured headers
 
-# create Doxygen files with substituted PATH and version information
+# create Doxygen files with substituted PATH information
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.cmake.in
 	       ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile-ref.cmake.in
                ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile-ref)
 
-# create Latex header with Dakota version information
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/DakotaDefs.tex.cmake.in
-               ${CMAKE_CURRENT_BINARY_DIR}/DakotaDefs.tex)
+# create DAKOTA headers
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/DakotaDefs.tex
+               ${CMAKE_CURRENT_BINARY_DIR}/DakotaDefs.tex COPYONLY)
+
 
 # Doxygen reference dependencies
-file(GLOB ref_kw_md RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "KeywordMetadata/*")
-list_filter_emacs_backups(ref_kw_md)
-file(GLOB ref_topic_md RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "TopicMetadata/*")
-list_filter_emacs_backups(ref_topic_md)
-file(GLOB ref_dox RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "Ref_*.dox")
-file(GLOB ref_images RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "images/*")
-list_filter_emacs_backups(ref_images)
-set(dox_ref_deps ${ref_kw_md} ${ref_topic_md} ${ref_dox} Doxyfile-ref 
-  ${ref_images} header-ref.html header-ref.tex Dakota.bib)
+file(GLOB dox_ref_dox RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "Ref_*.dox")
+file(GLOB dox_ref_images RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "images/*")
+set(dox_ref_deps 
+  ${dox_ref_dox} Doxyfile-ref ${dox_ref_images} header-ref.html header-ref.tex)
 
 # Doxygen developer dependencies
 file(GLOB dox_dev_dox RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "Dev_*.dox")
 set(dox_dev_deps 
   ${dox_dev_dox} Doxyfile header-dev.html header-dev.tex)
 
-
-# Generate the doxygen files for ref man keywords and topics,
-# specifying only required dependencies.  The genrefman Java tool
-# takes dakota.xml together with reference metadata files to create
-# reference manual doxygen.
-get_target_property(genrefman_jar genrefman JAR_FILE)
-add_custom_command( 
-  OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/DakotaKeywords.dox 
-          ${CMAKE_CURRENT_BINARY_DIR}/DakotaTopics.dox 
-  DEPENDS genrefman
-          ${Dakota_SOURCE_DIR}/src/dakota.xml
-	  ${ref_kw_md}
-	  ${ref_topic_md}
-	  ${Dakota_SOURCE_DIR}/docs/Ref_TopicTree.txt
-	  ${Dakota_SOURCE_DIR}/docs/Ref_Topics_Intro.dox
-  COMMAND ${Java_JAVA_EXECUTABLE} 
-  ARGS -classpath ${genrefman_jar} 
-    gov.sandia.dart.dakota.RefManGenDoxygen
-    ${Dakota_SOURCE_DIR}/src/dakota.xml
-    ${Dakota_SOURCE_DIR}/docs/KeywordMetadata
-    ${Dakota_SOURCE_DIR}/docs/Ref_TopicTree.txt
-    ${Dakota_SOURCE_DIR}/docs/TopicMetadata
-    ${Dakota_SOURCE_DIR}/docs/Ref_Topics_Intro.dox
-    ${CMAKE_CURRENT_BINARY_DIR} 
-)
- 
-# Generate the master DakotaReferenceManual.dox
-add_custom_command(
-  DEPENDS  ${CMAKE_CURRENT_SOURCE_DIR}/ref_concat_dox.sh 
-    ${Dakota_SOURCE_DIR}/src/dakota.input.summary
-    ${CMAKE_CURRENT_BINARY_DIR}/DakotaKeywords.dox 
-    ${CMAKE_CURRENT_BINARY_DIR}/DakotaTopics.dox 
-    ${ref_dox}
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/ref_concat_dox.sh 
-  ARGS ${CMAKE_CURRENT_SOURCE_DIR} 
-    ${Dakota_SOURCE_DIR}/src/dakota.input.summary
-    ${CMAKE_CURRENT_BINARY_DIR}/DakotaReferenceManual.dox 
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DakotaReferenceManual.dox
-    ${CMAKE_CURRENT_BINARY_DIR}/DakotaInputSpec.dox 
-) 
-
-
-# BMA: I simplified this as currently reference does not depend on developers
 
 # Generate .dox into doxygen tag files
 add_custom_command(
@@ -89,14 +40,9 @@ add_custom_command(
   COMMENT "Doxygen: Developer's Manual (first pass: tag generation)"
 )
 
-# BMA: Added an OUTPUT here for index.html since 2 passes don't work
-# with new manual
 add_custom_command(
   OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/dakota-reference.tag
-          ${CMAKE_CURRENT_BINARY_DIR}/html-ref/index.html
-          ${CMAKE_CURRENT_BINARY_DIR}/latex-ref/refman.tex
   DEPENDS ${dox_ref_deps}
-          ${CMAKE_CURRENT_BINARY_DIR}/DakotaReferenceManual.dox
   COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile-ref
   COMMENT "Doxygen: Reference Manual (first pass: tag generation)"
 )
@@ -105,28 +51,36 @@ add_custom_command(
 # Overstate deps to force the tag phase for both to go first
 add_custom_command(
   OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/html-dev/index.html
-          ${CMAKE_CURRENT_BINARY_DIR}/latex-dev/refman.tex
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/dakota-developers.tag
           ${CMAKE_CURRENT_BINARY_DIR}/dakota-reference.tag
   COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile
   COMMENT "Doxygen: Developer's Manual (final pass)"
 )
 
-# BMA: Running doxygen twice seems to break on the new reference manual
-# I commented this and instead made the above command generate the final index.html dep.
-#add_custom_command(
-#  OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/html-ref/index.html
-#  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/dakota-developers.tag
-#          ${CMAKE_CURRENT_BINARY_DIR}/dakota-reference.tag
-#  COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile-ref
-#  COMMENT "Doxygen: Reference Manual (final pass)"
-#)
+add_custom_command(
+  OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/html-ref/index.html
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/dakota-developers.tag
+          ${CMAKE_CURRENT_BINARY_DIR}/dakota-reference.tag
+  COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile-ref
+  COMMENT "Doxygen: Reference Manual (final pass)"
+)
 
 # Target to perform only doxygen generation phase
 add_custom_target(docs-doxygen 
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/html-dev/index.html 
           ${CMAKE_CURRENT_BINARY_DIR}/html-ref/index.html
 )
+
+# Use index.html as fake dep; use Perl script to "generate" refman.tex
+add_custom_command(
+  OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/latex-dev/refman.tex
+          ${CMAKE_CURRENT_BINARY_DIR}/latex-ref/refman.tex
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/html-dev/index.html 
+          ${CMAKE_CURRENT_BINARY_DIR}/html-ref/index.html
+  COMMAND ${PERL_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/latex_modify.perl
+  COMMENT "Perl: Modifying Developer's and Reference Manuals for LaTeX"
+)
+
 
 # build PDFs of dev/ref (not portable due to tex modifications)
 
@@ -148,8 +102,6 @@ add_custom_command(
   OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/latex-dev/refman.pdf
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/latex-dev/refman.tex ${CMAKE_CURRENT_BINARY_DIR}/texmf.cnf
   COMMAND ${CMAKE_COMMAND} -E echo_append "Building Developers Manual PDF..."
-  COMMAND ${PERL_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/latex_modify.perl
---developers
   COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR}/latex-dev sh -c 'export TEXMFCNF=${CMAKE_CURRENT_BINARY_DIR}:$$TEXMFCNF && make'
   COMMAND ${CMAKE_COMMAND} -E echo "Done."
   COMMENT "LaTeX: Developers to PDF"
@@ -163,8 +115,6 @@ add_custom_command(
   OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/latex-ref/refman.pdf
   DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/latex-ref/refman.tex
   COMMAND ${CMAKE_COMMAND} -E echo_append "Building Reference Manual PDF..."
-  COMMAND ${PERL_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/latex_modify.perl
---reference
   COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR}/latex-ref make
   COMMAND ${CMAKE_COMMAND} -E echo "Done."
   COMMENT "LaTeX: Reference to PDF"
@@ -176,12 +126,7 @@ add_custom_target(docs-pdf-ref
 
 # These needed for the SAND shells that follow
 add_subdirectory(latex-theory)
-if(DAKOTA_ENABLE_TESTS)
-  add_subdirectory(latex-user)
-else()
-  message(WARNING 
-    "Users Manual will not be built; requires DAKOTA_ENABLE_TESTS")
-endif()
+add_subdirectory(latex-user)
 
 
 #              ${CMAKE_CURRENT_BINARY_DIR}/latex-${manual}/${sourcePDFname}.pdf

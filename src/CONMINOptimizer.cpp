@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -32,11 +32,10 @@ using namespace std;
 
 namespace Dakota {
 
-
-CONMINOptimizer::CONMINOptimizer(ProblemDescDB& problem_db, Model& model):
-  Optimizer(problem_db, model)
+CONMINOptimizer::CONMINOptimizer(Model& model): Optimizer(model)
 {
-  // If speculativeFlag is set with vendor numerical_gradients, output a warning
+  // If speculativeFlag is set and vendor numerical_gradients are used, output
+  // a warning
   if (speculativeFlag && vendorNumericalGradFlag)
     Cerr << "\nWarning: speculative method specification is ignored for"
 	 << "\n         vendor numerical gradients.\n\n";
@@ -45,9 +44,11 @@ CONMINOptimizer::CONMINOptimizer(ProblemDescDB& problem_db, Model& model):
 }
 
 
-CONMINOptimizer::CONMINOptimizer(const String& method_string, Model& model):
-  Optimizer(method_string_to_enum(method_string), model)
-{ initialize(); } // convenience fn for shared ctor code
+CONMINOptimizer::CONMINOptimizer(NoDBBaseConstructor, Model& model):
+  Optimizer(NoDBBaseConstructor(), model)
+{
+  initialize(); // convenience fn for shared ctor code
+}
 
 
 void CONMINOptimizer::initialize()
@@ -60,20 +61,16 @@ void CONMINOptimizer::initialize()
   //       for LHS since it is only active in pre-processing.
   Iterator sub_iterator = iteratedModel.subordinate_iterator();
   if (!sub_iterator.is_null() && 
-       ( sub_iterator.method_name() == CONMIN_FRCG ||
-	 sub_iterator.method_name() == CONMIN_MFD  ||
-	 sub_iterator.uses_method() == CONMIN_FRCG ||
-	 sub_iterator.uses_method() == CONMIN_MFD ) )
+       ( strbegins(sub_iterator.method_name(), "conmin_") ||
+	 strbegins(sub_iterator.uses_method(), "conmin_") ) )
     sub_iterator.method_recourse();
   ModelList& sub_models = iteratedModel.subordinate_models();
   for (ModelLIter ml_iter = sub_models.begin();
        ml_iter != sub_models.end(); ml_iter++) {
     sub_iterator = ml_iter->subordinate_iterator();
     if (!sub_iterator.is_null() && 
-	 ( sub_iterator.method_name() == CONMIN_FRCG ||
-	   sub_iterator.method_name() == CONMIN_MFD  ||
-	   sub_iterator.uses_method() == CONMIN_FRCG ||
-	   sub_iterator.uses_method() == CONMIN_MFD ) )
+	 ( strbegins(sub_iterator.method_name(), "conmin_") ||
+	   strbegins(sub_iterator.uses_method(), "conmin_") ) )
       sub_iterator.method_recourse();
   }
 
@@ -120,21 +117,18 @@ void CONMINOptimizer::initialize()
   DELFUN = DABFUN = convergenceTol; // needed in CONMIN
 
   // Default CONMIN gradients = numerical;forward;vendor setting.
-  const String& grad_type     = iteratedModel.gradient_type();
-  const String& method_src    = iteratedModel.method_source();
-  const String& interval_type = iteratedModel.interval_type();
-  if ( grad_type == "analytic" || grad_type == "mixed" || 
-       ( grad_type == "numerical" && method_src == "dakota" ) )
+  if ( gradientType == "analytic" || gradientType == "mixed" || 
+       ( gradientType == "numerical" && methodSource == "dakota" ) )
     // Set NFDG=1 before calling CONMIN. This invokes the
     // user-supplied gradient mode which DAKOTA uses for analytic,
     // dakota numerical, or mixed analytic/dakota numerical gradients.
     NFDG=1; 
-  else if (grad_type == "none") {
-    Cerr << "\nError: gradient type = none is invalid with CONMIN.\n"
+  else if (gradientType == "none") {
+    Cerr << "\nError: gradientType = none is invalid with CONMIN.\n"
          << "Please select numerical, analytic, or mixed gradients." << endl;
     abort_handler(-1);
   }
-  else if (interval_type == "central") {
+  else if (intervalType == "central") {
     Cerr << "\nFinite Difference Type = 'central' is invalid with CONMIN.\n"
          << "Forward difference is only available internal to CONMIN." << endl;
     abort_handler(-1);
@@ -142,14 +136,12 @@ void CONMINOptimizer::initialize()
   else { // Vendor numerical gradients with forward differences
     NFDG = 0; // use CONMIN's default internal forward difference method
 
-    Real fd_grad_ss = iteratedModel.fd_gradient_step_size()[0];
-
     // CONMIN's forward differencing uses fdss*X_i as one would expect
-    FDCH = fd_grad_ss;
+    FDCH = fdGradStepSize;
 
     // for FDCHM (minimum delta), use 2 orders of magnitude smaller than fdss to
     // be consistent with Model::estimate_derivatives():
-    FDCHM = fd_grad_ss*.01;
+    FDCHM = fdGradStepSize*.01;
   }
 }
 
@@ -247,15 +239,15 @@ void CONMINOptimizer::allocate_constraints()
   numConminConstr = numConminNlnConstr + numConminLinConstr;
 
   // Check method setting versus constraints
-  if (methodName == CONMIN_MFD && !numConminConstr) {
+  if (methodName == "conmin_mfd" && !numConminConstr) {
     Cerr << "\nWarning: for no constraints, conmin_mfd request will be changed"
 	 << "\n         to conmin_frcg.\n\n";
-    methodName = CONMIN_FRCG; // for output header/footer
+    methodName = "conmin_frcg"; // for output header/footer
   }
-  else if (methodName == CONMIN_FRCG && numConminConstr) {
+  else if (methodName == "conmin_frcg" && numConminConstr) {
     Cerr << "\nWarning: for constrained optimization, conmin_frcg request will"
 	 << "\n         be changed to conmin_mfd.\n\n";
-    methodName = CONMIN_MFD; // for output header/footer
+    methodName = "conmin_mfd"; // for output header/footer
   }
 }
 
@@ -346,12 +338,15 @@ void CONMINOptimizer::initialize_run()
     conminUpperBnds[i] = upper_bnds[i];
   }
   // Initialize array padding (N1 = numContinuousVars + 2).
-  for (i=numContinuousVars; i<N1; i++)
-    conminDesVars[i] = conminLowerBnds[i] = conminUpperBnds[i] = 0.;
+  for (i=numContinuousVars; i<N1; i++) {
+    conminDesVars[i]   =  0.0;
+    conminLowerBnds[i] = -DBL_MAX;
+    conminUpperBnds[i] =  DBL_MAX;
+  }
 }
 
 
-void CONMINOptimizer::core_run()
+void CONMINOptimizer::find_optimum()
 {
   size_t i, j, fn_eval_cntr;
   int num_cv = numContinuousVars;
@@ -364,8 +359,8 @@ void CONMINOptimizer::core_run()
   // Initialize variables internal to CONMIN
   int NSIDE     = 0;   // flag for upper/lower var bounds: 1=bounds, 0=no bounds
   // NSIDE must be set to 0 for unbounded since CONMIN cannot handle having
-  // upper/lower bounds set to +/-inf.  Set NSIDE to 1 if bounds arrays have
-  // nondefault values.
+  // upper/lower bounds set to +/-DBL_MAX.  Set NSIDE to 1 if bounds arrays
+  // have nondefault values.
   for (i=0; i<numContinuousVars; i++) {
     if (conminLowerBnds[i] > -bigRealBoundSize ||
 	conminUpperBnds[i] <  bigRealBoundSize) {
@@ -401,7 +396,6 @@ void CONMINOptimizer::core_run()
     = iteratedModel.linear_ineq_constraint_coeffs();
   const RealMatrix& lin_eq_coeffs
     = iteratedModel.linear_eq_constraint_coeffs();
-  const String& grad_type = iteratedModel.gradient_type();
 
   // Start FOR loop to execute calls to CONMIN
   for (fn_eval_cntr=1; fn_eval_cntr<=maxFunctionEvals; fn_eval_cntr++) {
@@ -431,7 +425,7 @@ void CONMINOptimizer::core_run()
     }
     else if (conminInfo == 2) {
       if (outputLevel > NORMAL_OUTPUT) { // output info on CONMIN request
-	if (grad_type == "numerical")
+	if (gradientType == "numerical")
 	  Cout << "\nCONMIN requests dakota-numerical gradients:";
 	else
 	  Cout << "\nCONMIN requests analytic gradients:";
@@ -469,7 +463,7 @@ void CONMINOptimizer::core_run()
 
     copy_data(conminDesVars, num_cv, local_cdv);
     iteratedModel.continuous_variables(local_cdv);
-    iteratedModel.evaluate(activeSet);
+    iteratedModel.compute_response(activeSet);
     const Response& local_response = iteratedModel.current_response();
 
     // Populate proper data for input back to CONMIN through parameter list.

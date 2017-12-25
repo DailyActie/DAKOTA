@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -26,10 +26,8 @@ static const char rcsId[] = "@(#) $Id: NonDInterval.cpp 6080 2009-09-08 19:03:20
 
 namespace Dakota {
 
-NonDInterval::NonDInterval(ProblemDescDB& problem_db, Model& model):
-  NonD(problem_db, model),
-  singleIntervalFlag(methodName ==  LOCAL_INTERVAL_EST ||
-		     methodName == GLOBAL_INTERVAL_EST)
+NonDInterval::NonDInterval(Model& model): NonD(model),
+  singleIntervalFlag(strends(methodName, "_interval_est"))
 {
   bool err_flag = false;
 
@@ -77,17 +75,6 @@ NonDInterval::NonDInterval(ProblemDescDB& problem_db, Model& model):
 NonDInterval::~NonDInterval()
 {}
 
-bool NonDInterval::resize()
-{
-  bool parent_reinit_comms = NonD::resize();
-
-  Cerr << "\nError: Resizing is not yet supported in method "
-       << method_enum_to_string(methodName) << "." << std::endl;
-  abort_handler(METHOD_ERROR);
-
-  return parent_reinit_comms;
-}
-
 
 void NonDInterval::initialize_final_statistics()
 {
@@ -97,7 +84,7 @@ void NonDInterval::initialize_final_statistics()
   // in subIterator.response_results_active_set(sub_iterator_set)
   ActiveSet stats_set(num_final_stats);
   stats_set.derivative_vector(iteratedModel.inactive_continuous_variable_ids());
-  finalStatistics = Response(SIMULATION_RESPONSE, stats_set);
+  finalStatistics = Response(stats_set);
 
   // Assign meaningful fn labels to final stats (appear in NestedModel output)
   size_t i, j, num_levels, cntr = 0;
@@ -152,10 +139,12 @@ void NonDInterval::calculate_cells_and_bpas()
   // Information we want: for each hyper cube i, give the bpa, and bounds on i.
   // ci_bpa[i][j] gives jth bpa of jth interval of ith variable
   // ci_{l,u}_bnds[i][j] gives jth {lower,upper} bound for the ith variable
-  const RealRealPairRealMapArray& ci_bpa
-    = edp.continuous_interval_basic_probabilities();
-  const IntIntPairRealMapArray& di_bpa
-    = edp.discrete_interval_basic_probabilities();
+  const RealVectorArray& ci_bpa    = edp.continuous_interval_probabilities();
+  const RealVectorArray& ci_l_bnds = edp.continuous_interval_lower_bounds();
+  const RealVectorArray& ci_u_bnds = edp.continuous_interval_upper_bounds();
+  const RealVectorArray& di_bpa    = edp.discrete_interval_probabilities();
+  const IntVectorArray&  di_l_bnds = edp.discrete_interval_lower_bounds();
+  const IntVectorArray&  di_u_bnds = edp.discrete_interval_upper_bounds();
   const IntRealMapArray& dsi_vals_probs
     = edp.discrete_set_int_values_probabilities();
   const RealRealMapArray& dsr_vals_probs
@@ -172,14 +161,14 @@ void NonDInterval::calculate_cells_and_bpas()
   for (i=0, var_cntr=0; i<numContIntervalVars; ++i, ++var_cntr) {
     if (var_cntr)
       scale_factor[i] = scale_factor[i-1] * prev_bpa_len;
-    numCells *= prev_bpa_len = ci_bpa[i].size();
+    numCells *= prev_bpa_len = ci_bpa[i].length();
   }
 
   // discrete interval variables
   for (i=0; i<numDiscIntervalVars; ++i, ++var_cntr) {
     if (var_cntr)
       scale_factor[var_cntr] = scale_factor[var_cntr-1] * prev_bpa_len;
-    numCells *= prev_bpa_len = di_bpa[i].size();
+    numCells *= prev_bpa_len = di_bpa[i].length();
   }
 
   // discrete interval sets
@@ -196,10 +185,8 @@ void NonDInterval::calculate_cells_and_bpas()
     numCells *= prev_bpa_len = dsr_vals_probs[i].size();
   }
  
-  if (outputLevel > NORMAL_OUTPUT)
-    Cout << "scale factor:\n" << scale_factor
-	 << "prev_bpa_len = " << prev_bpa_len
-	 << ", numCells = "   << numCells << '\n';
+  Cout << "scale factor " << scale_factor << " prev_bpa_len " << prev_bpa_len
+       << " numCells "     << numCells << '\n';
 
   // shape cell length
   if (numContIntervalVars) {
@@ -210,10 +197,12 @@ void NonDInterval::calculate_cells_and_bpas()
     cellIntRangeLowerBounds.resize(numCells);
     cellIntRangeUpperBounds.resize(numCells);
   }
-  if (numDiscSetIntUncVars)
+  if (numDiscSetIntUncVars) {
     cellIntSetBounds.resize(numCells);
-  if (numDiscSetRealUncVars)
+  }
+  if (numDiscSetRealUncVars) {
     cellRealSetBounds.resize(numCells);
+  }
   
   cellBPA.sizeUninitialized(numCells); cellBPA = 1.;
   for (i=0; i<numCells; ++i) {
@@ -225,10 +214,12 @@ void NonDInterval::calculate_cells_and_bpas()
       cellIntRangeLowerBounds[i].resize(numDiscIntervalVars);
       cellIntRangeUpperBounds[i].resize(numDiscIntervalVars);
     }
-    if (numDiscSetIntUncVars)
+    if (numDiscSetIntUncVars) {
       cellIntSetBounds[i].resize(numDiscSetIntUncVars);
-    if (numDiscSetRealUncVars)
+    }
+    if (numDiscSetRealUncVars) {
       cellRealSetBounds[i].resize(numDiscSetRealUncVars);
+    }
   }
 
   // This loops num_variables*num_cells
@@ -236,39 +227,31 @@ void NonDInterval::calculate_cells_and_bpas()
   int intervals_in_var_j;
 
   for (j=0, var_cntr=0; j<numContIntervalVars; ++j, ++var_cntr) {
-    const RealRealPairRealMap& ci_bpa_j = ci_bpa[j];
-    RRPRMCIter cit = ci_bpa_j.begin();
-    intervals_in_var_j = ci_bpa_j.size();
-    for (i=0; i<intervals_in_var_j; ++i, ++cit) {
-      const RealRealPair& bnds = cit->first;
-      Real l_bnd = bnds.first, u_bnd = bnds.second, p = cit->second;
-      cell_cntr = i * scale_factor[var_cntr];
+    intervals_in_var_j = ci_bpa[j].length();
+    for (i=0; i<intervals_in_var_j; ++i) {
+      cell_cntr = i*scale_factor[var_cntr];
       while (cell_cntr < numCells) {
 	for (k=0; k<scale_factor[var_cntr]; k++) {
-	  cellContLowerBounds[cell_cntr+k][j] = l_bnd;
-	  cellContUpperBounds[cell_cntr+k][j] = u_bnd;
-	  cellBPA[cell_cntr+k] *= p;
+	  cellContLowerBounds[cell_cntr+k][j] = ci_l_bnds[j][i];
+	  cellContUpperBounds[cell_cntr+k][j] = ci_u_bnds[j][i];
+	  cellBPA[cell_cntr+k] *= ci_bpa[j][i];
 	}
-	cell_cntr += intervals_in_var_j * scale_factor[var_cntr]; 
+	cell_cntr += intervals_in_var_j*scale_factor[var_cntr]; 
       }
     }
   }
 
   for (j=0; j<numDiscIntervalVars; ++j, ++var_cntr) {
-    const IntIntPairRealMap& di_bpa_j = di_bpa[j];
-    IIPRMCIter cit = di_bpa_j.begin();
-    intervals_in_var_j = di_bpa_j.size();
-    for (i=0; i<intervals_in_var_j; ++i, ++cit) {
-      const IntIntPair& bnds = cit->first;
-      int l_bnd = bnds.first, u_bnd = bnds.second; Real p = cit->second;
-      cell_cntr = i * scale_factor[var_cntr];
+    intervals_in_var_j = di_bpa[j].length();
+    for (i=0; i<intervals_in_var_j; ++i) {
+      cell_cntr = i*scale_factor[var_cntr];
       while (cell_cntr < numCells) {
 	for (k=0; k<scale_factor[var_cntr]; k++) {
-	  cellIntRangeLowerBounds[cell_cntr+k][j] = l_bnd;
-	  cellIntRangeUpperBounds[cell_cntr+k][j] = u_bnd;
-	  cellBPA[cell_cntr+k] *= p;
+	  cellIntRangeLowerBounds[cell_cntr+k][j] = di_l_bnds[j][i];
+	  cellIntRangeUpperBounds[cell_cntr+k][j] = di_u_bnds[j][i];
+	  cellBPA[cell_cntr+k] *= di_bpa[j][i];
 	}
-	cell_cntr += intervals_in_var_j * scale_factor[var_cntr]; 
+	cell_cntr += intervals_in_var_j*scale_factor[var_cntr]; 
       }
     }
   }
@@ -277,14 +260,13 @@ void NonDInterval::calculate_cells_and_bpas()
     intervals_in_var_j = dsi_vals_probs[j].size();
     IRMCIter cit = dsi_vals_probs[j].begin();
     for (i=0; i<intervals_in_var_j; ++i, ++cit) {
-      int val = cit->first; Real p = cit->second;
       cell_cntr = i*scale_factor[var_cntr];
       while (cell_cntr < numCells) {
 	for (k=0; k<scale_factor[var_cntr]; k++) {
-	  cellIntSetBounds[cell_cntr+k][j] = val;
-	  cellBPA[cell_cntr+k] *= p;
+	  cellIntSetBounds[cell_cntr+k][j] = cit->first;
+	  cellBPA[cell_cntr+k] *= cit->second;
 	}
-	cell_cntr += intervals_in_var_j * scale_factor[var_cntr]; 
+	cell_cntr += intervals_in_var_j*scale_factor[var_cntr]; 
       }
     }
   }
@@ -293,39 +275,27 @@ void NonDInterval::calculate_cells_and_bpas()
     intervals_in_var_j = dsr_vals_probs[j].size();
     RRMCIter cit = dsr_vals_probs[j].begin();
     for (i=0; i<intervals_in_var_j; ++i, ++cit) {
-      Real val = cit->first, p = cit->second;
       cell_cntr = i*scale_factor[var_cntr];
       while (cell_cntr < numCells) {
 	for (k=0; k<scale_factor[var_cntr]; k++) {
-	  cellRealSetBounds[cell_cntr+k][j] = val;
-	  cellBPA[cell_cntr+k] *= p;
+	  cellRealSetBounds[cell_cntr+k][j] = cit->first;
+	  cellBPA[cell_cntr+k] *= cit->second;
 	}
-	cell_cntr += intervals_in_var_j * scale_factor[var_cntr]; 
+	cell_cntr += intervals_in_var_j*scale_factor[var_cntr]; 
       }
     }
   }
 
-  StringMultiArrayConstView cv_labels
-    = iteratedModel.continuous_variable_labels();
-  StringMultiArrayConstView div_labels
-    = iteratedModel.discrete_int_variable_labels();
-  //StringMultiArrayConstView dsv_labels
-  //  = iteratedModel.discrete_string_variable_labels();
-  StringMultiArrayConstView drv_labels
-    = iteratedModel.discrete_real_variable_labels();
   for (i=0; i<numCells; ++i) {
-    Cout << "Cell " << i+1 << ":\n";
+    Cout << "Cell " << i << '\n';
     for (j=0; j<numContIntervalVars; ++j)
-      Cout << cv_labels[j] << ": [ " << cellContLowerBounds[i][j] << ", "
-	   << cellContUpperBounds[i][j] << " ]\n";
+      Cout << cellContLowerBounds[i][j] << "  " << cellContUpperBounds[i][j] << "\n";
     for (j=0; j<numDiscIntervalVars; ++j)
-      Cout << div_labels[j] << ": [ " << cellIntRangeLowerBounds[i][j] << ", "
-	   << cellIntRangeUpperBounds[i][j] << " ]\n";
+      Cout << cellIntRangeLowerBounds[i][j] << "  " << cellIntRangeUpperBounds[i][j] << "\n";
     for (j=0; j<numDiscSetIntUncVars; ++j)
-      Cout  << div_labels[j+numDiscIntervalVars] << ": [ "
-	    << cellIntSetBounds[i][j] << " ]\n";
+      Cout << cellIntSetBounds[i][j] << "  "  << "\n";
     for (j=0; j<numDiscSetRealUncVars; ++j)
-      Cout  << drv_labels[j] << ": [ " << cellRealSetBounds[i][j] << " ]\n";
+      Cout << cellRealSetBounds[i][j] << "  "  << "\n";
   }
 
   // shape belief/plausibility structure arrays
@@ -449,7 +419,7 @@ void NonDInterval::compute_evidence_statistics()
         pl_gl_len = pl_len + gl_len;
 
     for (j=0; j<rl_len; ++j) { // z -> belief/plausibility
-      Real z = requestedRespLevels[i][j];
+      Real z = requestedRespLevels[i].operator[](j);
       // z -> belief (based on CCBF)
       bel_index = 0;
       Real prob;
@@ -465,7 +435,7 @@ void NonDInterval::compute_evidence_statistics()
 	prob = (z > ccBelVal[i][numCells-1]) ? 0. : ccBelFn[i][bel_index];
       }
       if (respLevelTarget == PROBABILITIES) {
-	computedProbLevels[i][j] = prob;
+	computedProbLevels[i].operator[](j) = prob;
 	finalStatistics.function_value(prob, cntr++);
       }
       else {
@@ -475,8 +445,8 @@ void NonDInterval::compute_evidence_statistics()
 	else if (1.- prob < Pecos::SMALL_NUMBER)
 	  beta = -Pecos::LARGE_NUMBER; // Phi(+Inf) = 1
 	else
-	  beta = -Pecos::NormalRandomVariable::inverse_std_cdf(prob);
-	computedGenRelLevels[i][j] = beta;
+	  beta = -Pecos::Phi_inverse(prob);
+	computedGenRelLevels[i].operator[](j) = beta;
 	finalStatistics.function_value(beta, cntr++);
       }
       // z -> plausibility (based on CCPF)
@@ -504,7 +474,7 @@ void NonDInterval::compute_evidence_statistics()
 	else if (1.- prob < Pecos::SMALL_NUMBER)
 	  beta = -Pecos::LARGE_NUMBER; // Phi(+Inf) = 1
 	else
-	  beta = -Pecos::NormalRandomVariable::inverse_std_cdf(prob);
+	  beta = -Pecos::Phi_inverse(prob);
 	computedGenRelLevels[i][j+rl_len] = beta;
 	finalStatistics.function_value(beta, cntr++);
       }
@@ -513,24 +483,26 @@ void NonDInterval::compute_evidence_statistics()
     for (j=0; j<pl_gl_len; ++j) { // belief/plausibility -> z
       Real cc_prob;
       if (j<pl_len)
-	cc_prob = (cdfFlag) ? 1. - requestedProbLevels[i][j] :
-	  requestedProbLevels[i][j];
+	cc_prob = (cdfFlag) ? 1. - requestedProbLevels[i].operator[](j) :
+	  requestedProbLevels[i].operator[](j);
       else
 	cc_prob = (cdfFlag) ?
-	  Pecos::NormalRandomVariable::std_cdf(requestedGenRelLevels[i][j]) :
-	  Pecos::NormalRandomVariable::std_ccdf(requestedGenRelLevels[i][j]);
+	  Pecos::Phi(requestedGenRelLevels[i].operator[](j)) :
+	  Pecos::Phi(-requestedGenRelLevels[i].operator[](j));
       // belief -> z (based on CCBF)
       bel_index = 0;
       if (cdfFlag) {
         while (cc_prob < ccPlausFn[i][bel_index] && bel_index < numCells-1)
 	  bel_index++;
-        const Real& z = computedRespLevels[i][j] = ccPlausVal[i][bel_index]; 
+        const Real& z = computedRespLevels[i].operator[](j) =
+	  ccPlausVal[i][bel_index]; 
 	finalStatistics.function_value(z, cntr++);
       } 
       else {
         while (cc_prob < ccBelFn[i][bel_index] && bel_index < numCells-1)
 	  bel_index++;
-        const Real& z = computedRespLevels[i][j] = ccBelVal[i][bel_index]; 
+        const Real& z = computedRespLevels[i].operator[](j) =
+	  ccBelVal[i][bel_index]; 
 	finalStatistics.function_value(z, cntr++);
       }
       // plausibility -> z (based on CCPF)

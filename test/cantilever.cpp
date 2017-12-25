@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -21,38 +21,39 @@ enum var_t { W, T, R, E, X, Y };
 
 int main(int argc, char** argv)
 {
+  using namespace std;
 
   // This test problem is an OUU example from Applied Research Associates
   // (42nd AIAA SDM conference, April 2001).
 
-  std::ifstream fin(argv[1]);
+  ifstream fin(argv[1]);
   if (!fin) {
-    std::cerr << "\nError: failure opening " << argv[1] << std::endl;
+    cerr << "\nError: failure opening " << argv[1] << endl;
     exit(-1);
   }
   size_t i, j, num_vars, num_fns, num_deriv_vars;
-  std::string vars_text, fns_text, dvv_text;
+  string vars_text, fns_text, dvv_text;
 
-  // define the std::string to enumeration map
-  std::map<std::string, var_t> var_t_map;
+  // define the string to enumeration map
+  map<string, var_t> var_t_map;
   var_t_map["w"] = W; var_t_map["t"] = T;
   var_t_map["r"] = R; var_t_map["e"] = E;
   var_t_map["x"] = X; var_t_map["y"] = Y;
 
-  // Get the parameter std::vector and ignore the labels
+  // Get the parameter vector and ignore the labels
   fin >> num_vars >> vars_text;
-  std::map<var_t, double> vars;
-  std::vector<var_t> labels(num_vars);
-  double var_i; std::string label_i; var_t v_i;
-  std::map<std::string, var_t>::iterator v_iter;
+  map<var_t, double> vars;
+  vector<var_t> labels(num_vars);
+  double var_i; string label_i; var_t v_i;
+  map<string, var_t>::iterator v_iter;
   for (i=0; i<num_vars; i++) {
     fin >> var_i >> label_i;
     transform(label_i.begin(), label_i.end(), label_i.begin(),
 	      (int(*)(int))tolower);
     v_iter = var_t_map.find(label_i);
     if (v_iter == var_t_map.end()) {
-      std::cerr << "Error: label \"" << label_i << "\" not supported in analysis "
-	   << "driver." << std::endl;
+      cerr << "Error: label \"" << label_i << "\" not supported in analysis "
+	   << "driver." << endl;
       exit(-1);
     }
     else
@@ -61,17 +62,17 @@ int main(int argc, char** argv)
     labels[i] = v_i;
   }
 
-  // Get the ASV std::vector and ignore the labels
+  // Get the ASV vector and ignore the labels
   fin >> num_fns >> fns_text;
-  std::vector<short> ASV(num_fns);
+  vector<short> ASV(num_fns);
   for (i=0; i<num_fns; i++) {
     fin >> ASV[i];
     fin.ignore(256, '\n');
   }
 
-  // Get the DVV std::vector and ignore the labels
+  // Get the DVV vector and ignore the labels
   fin >> num_deriv_vars >> dvv_text;
-  std::vector<var_t> DVV(num_deriv_vars);
+  vector<var_t> DVV(num_deriv_vars);
   unsigned int dvv_i;
   for (i=0; i<num_deriv_vars; i++) {
     fin >> dvv_i;
@@ -80,12 +81,12 @@ int main(int argc, char** argv)
   }
 
   if (num_vars != 4 && num_vars != 6) {
-    std::cerr << "Error: Wrong number of variables in cantilever test fn." << std::endl;
+    cerr << "Error: Wrong number of variables in cantilever test fn." << endl;
     exit(-1);
   }
-  if (num_fns < 2 || num_fns > 3) {
-    std::cerr << "Error: wrong number of response functions in cantilever test fn."
-         << std::endl;
+  if (num_fns != 3) {
+    cerr << "Error: wrong number of response functions in cantilever test fn."
+         << endl;
     exit(-1);
   }
 
@@ -95,7 +96,7 @@ int main(int argc, char** argv)
   // augmentation.  It does not support mixed insertion/augmentation.  In
   // the 6 variable case, w,t,R,E,X,Y are all passed in; in the 4 variable
   // case, w,t assume local values.
-  std::map<var_t, double>::iterator m_iter = vars.find(W);
+  map<var_t, double>::iterator m_iter = vars.find(W);
   double w = (m_iter == vars.end()) ? 2.5 : m_iter->second; // beam width
   m_iter = vars.find(T);
   double t = (m_iter == vars.end()) ? 2.5 : m_iter->second; // beam thickness
@@ -103,11 +104,6 @@ int main(int argc, char** argv)
   double e = vars[E]; // Young's modulus
   double x = vars[X]; // horizontal load
   double y = vars[Y]; // vertical load
-
-  // allow f,c1,c2 (optimization) or just c1,c2 (calibration)
-  bool objective; size_t c1i, c2i;
-  if (num_fns == 2) { objective = false; c1i = 0; c2i = 1; }
-  else              { objective = true;  c1i = 1; c2i = 2; }
 
   // optimization inequality constraint: <= 0 and scaled O(1)
   //Real g_stress = stress/R - 1.0;
@@ -122,29 +118,29 @@ int main(int argc, char** argv)
   double D1 = 4.*pow(L,3)/e/area, D2 = pow(y/t_sq, 2)+pow(x/w_sq, 2);
   double D3 = D1/sqrt(D2)/D0,     D4 = D1*sqrt(D2)/D0;
 
-  std::ofstream fout(argv[2]); // do not instantiate until ready to write results
+  ofstream fout(argv[2]); // do not instantiate until ready to write results
   if (!fout) {
-    std::cerr << "\nError: failure creating " << argv[2] << std::endl;
+    cerr << "\nError: failure creating " << argv[2] << endl;
     exit(-1);
   }
   fout.precision(15); // 16 total digits
-  fout.setf(std::ios::scientific);
-  fout.setf(std::ios::right);
+  fout.setf(ios::scientific);
+  fout.setf(ios::right);
 
   // **** f:
-  if (objective && (ASV[0] & 1))
+  if (ASV[0] & 1)
     fout << "                     " << area << '\n';
 
   // **** c1:
-  if (ASV[c1i] & 1)
+  if (ASV[1] & 1)
     fout << "                     " << stress/r - 1. << '\n';
 
   // **** c2:
-  if (ASV[c2i] & 1)
+  if (ASV[2] & 1)
     fout << "                     " << D4 - 1. << '\n';
 
   // **** df/dx:
-  if (objective && (ASV[0] & 2)) {
+  if (ASV[0] & 2) {
     fout << "[ ";
     for (i=0; i<num_deriv_vars; i++)
       switch (DVV[i]) {
@@ -156,7 +152,7 @@ int main(int argc, char** argv)
   }
 
   // **** dc1/dx:
-  if (ASV[c1i] & 2) {
+  if (ASV[1] & 2) {
     fout << "[ ";
     for (i=0; i<num_deriv_vars; i++)
       switch (DVV[i]) {
@@ -171,7 +167,7 @@ int main(int argc, char** argv)
   }
 
   // **** dc2/dx:
-  if (ASV[c2i] & 2) {
+  if (ASV[2] & 2) {
     fout << "[ ";
     for (i=0; i<num_deriv_vars; i++)
       switch (DVV[i]) {
@@ -186,7 +182,7 @@ int main(int argc, char** argv)
   }
 
   // **** d^2f/dx^2:
-  if (objective && (ASV[0] & 4)) {
+  if (ASV[0] & 4) {
     fout << "[[ ";
     for (i=0; i<num_deriv_vars; i++)
       for (j=0; j<num_deriv_vars; j++)
@@ -198,7 +194,7 @@ int main(int argc, char** argv)
   }
 
   // **** d^2c1/dx^2:
-  if (ASV[c1i] & 4) {
+  if (ASV[1] & 4) {
     fout << "[[ ";
     for (i=0; i<num_deriv_vars; i++)
       for (j=0; j<num_deriv_vars; j++)
@@ -241,7 +237,7 @@ int main(int argc, char** argv)
   }
 
   // **** d^2c2/dx^2:
-  if (ASV[c2i] & 4) {
+  if (ASV[2] & 4) {
     double D5 = 1./sqrt(D2)/D0, D6 = -D1/2./D0/pow(D2,1.5);
     double D7 = sqrt(D2)/D0,    D8 =  D1/2./D0/sqrt(D2);
     double dD2_dx = 2.*x/w_sq/w_sq, dD3_dx = D6*dD2_dx, dD4_dx = D8*dD2_dx;

@@ -1,7 +1,7 @@
 /*  _______________________________________________________________________
 
     DAKOTA: Design Analysis Kit for Optimization and Terascale Applications
-    Copyright 2014 Sandia Corporation.
+    Copyright (c) 2010, Sandia National Laboratories.
     This software is distributed under the GNU Lesser General Public License.
     For more information, see the README file in the top Dakota directory.
     _______________________________________________________________________ */
@@ -15,55 +15,56 @@
 
 int main(int argc, char** argv)
 {
+  using namespace std;
 
-  std::ifstream fin(argv[1]);
+  ifstream fin(argv[1]);
   if (!fin) {
-    std::cerr << "\nError: failure opening " << argv[1] << std::endl;
+    cerr << "\nError: failure opening " << argv[1] << endl;
     exit(-1);
   }
   size_t i, j, num_vars, num_fns, num_deriv_vars;
-  std::string vars_text, fns_text, dvv_text;
+  string vars_text, fns_text, dvv_text;
 
-  // Get the parameter std::vector and ignore the labels
+  // Get the parameter vector and ignore the labels
   fin >> num_vars >> vars_text;
-  std::vector<double> x(num_vars);
+  vector<double> x(num_vars);
   for (i=0; i<num_vars; i++) {
     fin >> x[i];
     fin.ignore(256, '\n');
   }
 
-  // Get the ASV std::vector and ignore the labels
+  // Get the ASV vector and ignore the labels
   fin >> num_fns >> fns_text;
-  std::vector<int> ASV(num_fns);
+  vector<int> ASV(num_fns);
   for (i=0; i<num_fns; i++) {
     fin >> ASV[i];
     fin.ignore(256, '\n');
   }
 
-  // Get the DVV std::vector and ignore the labels
+  // Get the DVV vector and ignore the labels
   fin >> num_deriv_vars >> dvv_text;
-  std::vector<int> DVV(num_deriv_vars);
+  vector<int> DVV(num_deriv_vars);
   for (i=0; i<num_deriv_vars; i++) {
     fin >> DVV[i];
     fin.ignore(256, '\n');
   }
 
   if (num_vars != 6 || num_fns != 1) {
-    std::cerr << "Error: wrong number of inputs/outputs in portal_frame." << std::endl;
+    cerr << "Error: wrong number of inputs/outputs in portal_frame." << endl;
     exit(-1);
   }
 
   // Compute the results and output them directly to argv[2] (the NO_FILTER
   // option is used).  Response tags are optional; output them for ease
   // of results readability.
-  std::ofstream fout(argv[2]);
+  ofstream fout(argv[2]);
   if (!fout) {
-    std::cerr << "\nError: failure creating " << argv[2] << std::endl;
+    cerr << "\nError: failure creating " << argv[2] << endl;
     exit(-1);
   }
   fout.precision(15); // 16 total digits
-  fout.setf(std::ios::scientific);
-  fout.setf(std::ios::right);
+  fout.setf(ios::scientific);
+  fout.setf(ios::right);
 
   // Verification test for second-order integration in reliability methods.
   // Taken from Tvedt (1990), Hong (1999), etc.

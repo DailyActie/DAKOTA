@@ -1,5 +1,3 @@
-#@ s0: TimeoutDelay=240
-
 method,
 	sampling
 	  samples = 100000 seed = 1234567
